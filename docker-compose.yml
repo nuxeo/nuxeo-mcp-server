@@ -18,6 +18,7 @@ services:
       - NUXEO_URL=http://nuxeo:8080/nuxeo
       - NUXEO_USERNAME=Administrator
       - NUXEO_PASSWORD=Administrator
+      - SKIP_SERVER_SELECTION=true
       - MCP_MODE=http
       - MCP_PORT=8181
       - MCP_HOST=0.0.0.0

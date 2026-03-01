@@ -41,7 +41,7 @@ class DocRef(BaseModel):
 from typing import Union
 
 
-def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
+def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool = False) -> None:
     """
     Register MCP tools with the FastMCP server.
 
@@ -49,6 +49,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         mcp: The FastMCP server instance
         nuxeo: The Nuxeo client instance
         auth_middleware: Optional authentication middleware to wrap tools
+        skip_server_selection: If True, skip automatic server selection (useful when server is pre-configured)
     """
 
     # Tool: Get repository info
@@ -1511,7 +1512,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         }
     
     # Check if we need server selection on first use
-    if server_manager.needs_server_selection():
+    # Skip if server is pre-configured (e.g., from Docker environment variables)
+    if not skip_server_selection and server_manager.needs_server_selection():
         # Set up with the default server
         active_server = server_manager.get_active_server()
         if active_server:
