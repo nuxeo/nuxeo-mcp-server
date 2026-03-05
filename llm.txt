@@ -13,8 +13,8 @@ This document provides instructions for AI agents to install, run, and use the N
 ### Installation Steps
 ```bash
 # Clone the repository
-git clone https://github.com/tiry/nx-mcp-poc.git
-cd nx-mcp-poc
+git clone https://github.com/nuxeo/nuxeo-mcp-server.git
+cd nuxeo-mcp-server
 
 # Create a virtual environment
 python -m venv venv

@@ -27,8 +27,8 @@ jobs:
       uses: docker/login-action@v2
       with:
         registry: docker-private.packages.nuxeo.com
-        username: ${{ secrets.NUXEO_DOCKER_USERNAME }}
-        password: ${{ secrets.NUXEO_DOCKER_PASSWORD }}
+        username: ${{ secrets.REPOSITORY_MANAGER_USERNAME }}
+        password: ${{ secrets.REPOSITORY_MANAGER_PASSWORD }}
         
     - name: Pull Nuxeo Docker Image
       run: |

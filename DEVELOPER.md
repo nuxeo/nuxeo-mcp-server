@@ -7,8 +7,8 @@ This guide provides information for developers who want to build, run tests, and
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/tiry/nx-mcp-poc.git
-cd nx-mcp-poc
+git clone https://github.com/nuxeo/nuxeo-mcp-server.git
+cd nuxeo-mcp-server
 ```
 
 2. Create a virtual environment and install dependencies:
