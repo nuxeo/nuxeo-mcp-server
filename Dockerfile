@@ -27,26 +27,6 @@ ENV MCP_HOST=0.0.0.0
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${MCP_PORT}/health || exit 1
 
-# Create entrypoint script
-RUN echo '#!/bin/bash\n\
-set -e\n\
-\n\
-# Default values\n\
-MODE=${MCP_MODE:-http}\n\
-PORT=${MCP_PORT:-8181}\n\
-HOST=${MCP_HOST:-0.0.0.0}\n\
-\n\
-# Start the server based on the mode\n\
-if [ "$MODE" = "http" ]; then\n\
-    echo "starting MCP in http mode"\n\
-    exec python -m nuxeo_mcp --http --port "$PORT" --host "$HOST"\n\
-elif [ "$MODE" = "sse" ]; then\n\
-    echo "starting MCP in sse mode"\n\
-    exec python -m nuxeo_mcp --sse --port "$PORT" --host "$HOST"\n\
-else\n\
-    echo "Invalid MCP_MODE: $MODE. Use either '\''http'\'' or '\''sse'\''."\n\
-    exit 1\n\
-fi' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
-
-# Use the entrypoint script
+# Copy the entrypoint, and use it
+COPY --chown=$NUXEO_USER:0 --chmod=+x Dockerfile-entrypoint.sh entrypoint.sh
 ENTRYPOINT ["/app/entrypoint.sh"]
