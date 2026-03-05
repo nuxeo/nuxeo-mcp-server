@@ -1,0 +1,39 @@
+name: setup-and-install-dep
+description: Setup the Python version according to the pyproject.toml file and install the dependencies.
+inputs:
+  additional-dependencies:
+    description: 'Additional dependencies to install (optional)'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Read Python version from pyproject.toml
+      uses: SebRollen/toml-action@b1b3628f55fc3a28208d4203ada8b737e9687876 # v1.2.0
+      id: read_toml
+      with:
+        file: 'pyproject.toml'
+        field: 'project.requires-python'
+    
+    - name: Remove greater than sign from Python version
+      id: remove_greater_than
+      shell: bash
+      run: |
+        version="${{ steps.read_toml.outputs.value }}"
+        clean_version="${version#>=}"
+        echo "python_version=${clean_version}" >> $GITHUB_OUTPUT
+        
+    - name: Set up Python
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      with:
+        python-version: ${{ steps.remove_greater_than.outputs.python_version }}
+        
+    - name: Install dependencies
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+        if [ -n "${{ inputs.additional-dependencies }}" ]; then
+          pip install ${{ inputs.additional-dependencies }}
+        fi
