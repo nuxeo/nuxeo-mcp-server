@@ -1,4 +1,4 @@
-version: '3'
+name: Nuxeo + MCP Server Local Deployment
 
 services:
   nuxeo:
@@ -11,6 +11,7 @@ services:
       - mcp-network
 
   mcp:
+    image: ${MCP_DOCKER_TAGS:-nuxeo/nuxeo-mcp-server}
     build:
       context: .
       dockerfile: Dockerfile
