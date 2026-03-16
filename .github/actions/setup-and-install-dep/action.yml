@@ -1,39 +1,41 @@
 name: setup-and-install-dep
-description: Setup the Python version according to the pyproject.toml file and install the dependencies.
+description: Setup uv and install the project dependencies (including dev extras).
 inputs:
   additional-dependencies:
-    description: 'Additional dependencies to install (optional)'
+    description: 'Additional dependencies to install via uv pip install (optional)'
     required: false
     default: ''
+
+outputs:
+  python-version:
+    description: 'The Python version read from Dockerfile (major.minor.patch, e.g. 3.10.20)'
+    value: ${{ steps.read-python-version.outputs.value }}
 
 runs:
   using: composite
   steps:
-    - name: Read Python version from pyproject.toml
-      uses: SebRollen/toml-action@b1b3628f55fc3a28208d4203ada8b737e9687876 # v1.2.0
-      id: read_toml
-      with:
-        file: 'pyproject.toml'
-        field: 'project.requires-python'
-    
-    - name: Remove greater than sign from Python version
-      id: remove_greater_than
+    - name: Read Python version from Dockerfile
+      id: read-python-version
       shell: bash
       run: |
-        version="${{ steps.read_toml.outputs.value }}"
-        clean_version="${version#>=}"
-        echo "python_version=${clean_version}" >> $GITHUB_OUTPUT
-        
-    - name: Set up Python
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        version=$(sed -n 's/^ARG PYTHON_VERSION=\([0-9]*\.[0-9]*\.[0-9]*\)/\1/p' Dockerfile)
+        echo "value=${version}" >> $GITHUB_OUTPUT
+
+    - name: Set up uv
+      id: setup-uv
+      uses: astral-sh/setup-uv@v6
       with:
-        python-version: ${{ steps.remove_greater_than.outputs.python_version }}
-        
+        enable-cache: true
+        save-cache: ${{ github.event_name != 'pull_request' }}
+        python-version: ${{ steps.read-python-version.outputs.value }}
+
     - name: Install dependencies
       shell: bash
       run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+        uv sync --frozen --extra dev
+        # jwt 1.4.0 (python-jwt) and pyjwt both install to the jwt/ namespace.
+        # nuxeo[oauth2] needs jwt 1.4.0's JWT/jwk_from_dict; force it to win.
+        uv pip install "jwt==1.4.0" --force-reinstall
         if [ -n "${{ inputs.additional-dependencies }}" ]; then
-          pip install ${{ inputs.additional-dependencies }}
+          uv pip install ${{ inputs.additional-dependencies }}
         fi

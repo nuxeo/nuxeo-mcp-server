@@ -4,7 +4,7 @@ Test suite for the Natural Language to NXQL Parser.
 
 import pytest
 from datetime import datetime, timedelta
-from src.nuxeo_mcp.nl_parser import NaturalLanguageParser, NXQLBuilder, ParsedQuery
+from nuxeo_mcp.nl_parser import NaturalLanguageParser, NXQLBuilder, ParsedQuery
 
 
 class TestNaturalLanguageParser:

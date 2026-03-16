@@ -2,7 +2,7 @@
 
 import pytest
 import json
-from src.nuxeo_mcp.search_filters import (
+from nuxeo_mcp.search_filters import (
     SearchRequestFilter,
     DefaultSearchRequestFilter, 
     AuditRequestFilter,

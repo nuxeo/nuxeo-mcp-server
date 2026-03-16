@@ -14,13 +14,11 @@ jobs:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
     
     - uses: ./.github/actions/setup-and-install-dep
-      with:
-        additional-dependencies: "build"
         
     - name: Build
       run: |
-        python -m build
+        uv build
         
     - name: Run unit tests
       run: |
-        python -m pytest tests/ -v --no-integration
+        uv run pytest tests/ -v --no-integration

@@ -9,10 +9,10 @@ HOST=${MCP_HOST:-0.0.0.0}
 # Start the server based on the mode
 if [ "$MODE" = "http" ]; then
     echo "starting MCP in http mode"
-    exec python -m nuxeo_mcp --http --port "$PORT" --host "$HOST"
+    exec nuxeo-mcp --http --port "$PORT" --host "$HOST"
 elif [ "$MODE" = "sse" ]; then
     echo "starting MCP in sse mode"
-    exec python -m nuxeo_mcp --sse --port "$PORT" --host "$HOST"
+    exec nuxeo-mcp --sse --port "$PORT" --host "$HOST"
 else
     echo "Invalid MCP_MODE: $MODE. Use either '\''http'\'' or '\''sse'\''."
     exit 1

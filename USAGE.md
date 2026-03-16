@@ -2,6 +2,28 @@
 
 This guide provides information for users who want to use the Nuxeo MCP Server.
 
+## Installation
+
+<details open>
+<summary>Using uv (recommended)</summary>
+
+```bash
+uv sync --frozen
+```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -e .
+```
+
+</details>
+
 ## Configuration
 
 The Nuxeo MCP Server can be configured using a configuration file or environment variables.
@@ -32,16 +54,32 @@ export NUXEO_PASSWORD=Administrator
 
 You can run the MCP server using one of the following methods:
 
+<details open>
+<summary>Using uv (recommended)</summary>
+
 ```bash
+uv run nuxeo-mcp
+
+# Or directly with Python module
+uv run python -m nuxeo_mcp
+```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
+
+```bash
+# After activating your virtual environment
+
 # Using the entry point script
 nuxeo-mcp
 
 # Or directly with Python module
 python -m nuxeo_mcp
-
-# Or from the source directory
-python -m src.nuxeo_mcp.server
 ```
+
+</details>
 
 ## Available Tools
 

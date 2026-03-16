@@ -12,12 +12,15 @@ This document provides examples of how to configure the Nuxeo MCP server in your
 
 This configuration uses the stdio transport, which is the default transport for MCP servers. It's suitable for most use cases and provides good performance.
 
+<details open>
+<summary>Using uv (recommended)</summary>
+
 ```json
 {
   "mcpServers": {
     "NuxeoMCP": {
-      "command": "bash",
-      "args": ["-c", "source /Users/thierry.delprat/dev/nuxeo-mcp/venv/bin/activate && python -m nuxeo_mcp"],
+      "command": "uv",
+      "args": ["run", "--frozen", "python", "-m", "nuxeo_mcp"],
       "env": {
         "NUXEO_URL": "http://localhost:8080/nuxeo",
         "NUXEO_USERNAME": "Administrator",
@@ -30,6 +33,34 @@ This configuration uses the stdio transport, which is the default transport for 
   }
 }
 ```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
+
+```json
+{
+  "mcpServers": {
+    "NuxeoMCP": {
+      "command": "bash",
+      "args": ["-c", "source /path/to/.venv/bin/activate && python -m nuxeo_mcp"],
+      "env": {
+        "NUXEO_URL": "http://localhost:8080/nuxeo",
+        "NUXEO_USERNAME": "Administrator",
+        "NUXEO_PASSWORD": "Administrator",
+        "MCP_TRANSPORT": "stdio"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+Replace `/path/to/.venv` with the actual path to your virtual environment.
+
+</details>
 
 ## Example using HTTP Transport
 

@@ -11,11 +11,34 @@ git clone https://github.com/nuxeo/nuxeo-mcp-server.git
 cd nuxeo-mcp-server
 ```
 
-2. Create a virtual environment and install dependencies:
+2. Install dependencies:
+
+<details open>
+<summary>Using uv (recommended)</summary>
+
+Install [uv](https://docs.astral.sh/uv/) if you don't have it:
+
+```bash
+brew install uv
+# Or: curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then install all dependencies (including dev extras) from the lock file:
+
+```bash
+uv sync --frozen --extra dev
+```
+
+uv automatically creates a `.venv` virtual environment and installs all dependencies from `uv.lock`, ensuring a fully reproducible environment.
+
+</details>
+
+<details>
+<summary>Using pip</summary>
 
 ```bash
 # Create a virtual environment
-python -m venv venv
+python -m venv .venv
 
 # Activate the virtual environment
 # On Unix/macOS:
@@ -27,14 +50,29 @@ venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
+</details>
+
 ## Building the Project
 
-```bash
-# Build the package
-python -m build
+<details open>
+<summary>Using uv (recommended)</summary>
 
-# This will create distribution files in the dist/ directory
+```bash
+# Build the package (produces sdist and wheel in dist/)
+uv build
 ```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
+
+```bash
+pip install build
+python -m build
+```
+
+</details>
 
 ## Running Tests
 
@@ -42,14 +80,47 @@ The project includes a comprehensive test suite using pytest with different test
 
 ### Unit Tests
 
+<details open>
+<summary>Using uv (recommended)</summary>
+
+```bash
+uv run pytest tests/ -v --no-integration
+```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
+
 ```bash
 # Run unit tests only
 python -m pytest tests/ -v --no-integration
 ```
 
+</details>
+
 ### Integration Tests
 
 Integration tests require a running Nuxeo server (automatically managed via Docker):
+
+<details open>
+<summary>Using uv (recommended)</summary>
+
+```bash
+# With standard Docker
+uv run pytest tests/ -v --integration
+
+# With Rancher Desktop
+uv run pytest tests/ -v --integration --rancher
+
+# With environment variable
+USE_RANCHER=true uv run pytest tests/ -v --integration
+```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
 
 ```bash
 # With standard Docker
@@ -62,6 +133,8 @@ python -m pytest tests/ -v --integration --rancher
 USE_RANCHER=true python -m pytest tests/ -v --integration
 ```
 
+</details>
+
 ### Test Categories
 
 - **Unit Tests**: Tests that don't require external services and use mocks
@@ -71,16 +144,37 @@ USE_RANCHER=true python -m pytest tests/ -v --integration
 
 For more verbose output during tests:
 
+<details open>
+<summary>Using uv (recommended)</summary>
+
 ```bash
 # Enable verbose output
-pytest -v
+uv run pytest -v
 
 # Show print statements and real-time output
-pytest -s
+uv run pytest -s
 
 # Show logs
-pytest --log-cli-level=INFO
+uv run pytest --log-cli-level=INFO
 ```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
+
+```bash
+# Enable verbose output
+python -m pytest -v
+
+# Show print statements and real-time output
+python -m pytest -s
+
+# Show logs
+python -m pytest --log-cli-level=INFO
+```
+
+</details>
 
 ## Running Nuxeo with Docker
 
@@ -109,6 +203,22 @@ Access the Nuxeo server at http://localhost:8080/nuxeo with default credentials 
 
 The project includes a script to initialize the Nuxeo repository with sample documents for testing:
 
+<details open>
+<summary>Using uv (recommended)</summary>
+
+```bash
+# Run the seed script with default settings
+uv run python seed_nuxeo.py
+
+# Or with custom settings
+uv run python seed_nuxeo.py --url http://mynuxeo.example.com/nuxeo --username admin --password secret
+```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
+
 ```bash
 # Run the seed script with default settings
 python seed_nuxeo.py
@@ -117,12 +227,50 @@ python seed_nuxeo.py
 python seed_nuxeo.py --url http://mynuxeo.example.com/nuxeo --username admin --password secret
 ```
 
+</details>
+
 This script will:
 1. Create a folder in the Nuxeo workspaces
 2. Create a File document with a dummy PDF attachment
 3. Create a Note document with random text
 
 The script outputs the paths and IDs of the created documents, which can be used for testing the MCP server.
+
+## Updating Dependencies
+
+<details open>
+<summary>Using uv (recommended)</summary>
+
+```bash
+# Update the lock file after modifying pyproject.toml
+uv lock
+
+# Upgrade all dependencies to their latest allowed versions
+uv lock --upgrade
+
+# Add a new dependency
+uv add <package>
+
+# Add a new dev dependency
+uv add --optional dev <package>
+```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
+
+```bash
+# Install a new dependency, then add it manually to pyproject.toml
+pip install <package>
+
+# Upgrade all dependencies
+pip install --upgrade -e ".[dev]"
+```
+
+> Note: pip does not generate a lock file.
+
+</details>
 
 ## Project Structure
 
@@ -241,29 +389,37 @@ The formatted output includes:
 - We use [mypy](https://mypy.readthedocs.io/) for type checking
 - We use [pytest](https://docs.pytest.org/) for testing
 
+Run style tools:
+
+<details open>
+<summary>Using uv (recommended)</summary>
+
+```bash
+uv run black src/ tests/
+uv run isort src/ tests/
+uv run mypy src/
+```
+
+</details>
+
+<details>
+<summary>Using pip</summary>
+
+```bash
+python -m black src/ tests/
+python -m isort src/ tests/
+python -m mypy src/
+```
+
+</details>
+
 ## GitHub Actions Workflows
 
-The project includes two GitHub Actions workflows:
+The project includes three GitHub Actions workflows, all using [uv](https://docs.astral.sh/uv/) for fast, reproducible dependency installation via the shared `.github/actions/setup-and-install-dep` composite action:
 
-1. **Build and Unit Tests**: This workflow builds the project and runs unit tests on push to the main branch and on pull requests.
-2. **Integration Tests**: This workflow runs integration tests with the Nuxeo Docker image on push to the main branch and on pull requests.
-
-### Build and Unit Tests Workflow
-
-The Build and Unit Tests workflow:
-- Sets up Python 3.10
-- Installs dependencies
-- Builds the project
-- Runs unit tests
-
-### Integration Tests Workflow
-
-The Integration Tests workflow:
-- Sets up Python 3.10
-- Installs dependencies
-- Authenticates with the Nuxeo Docker registry
-- Pulls the Nuxeo Docker image
-- Runs integration tests
+1. **Build and Unit Tests**: Builds the project with `uv build` and runs unit tests on push to the main branch and on pull requests.
+2. **Integration Tests**: Runs integration tests with the Nuxeo Docker image on push to the main branch and on pull requests.
+3. **Package Docker Image**: Builds, tests, and pushes the Docker image.
 
 ## Contributing
 

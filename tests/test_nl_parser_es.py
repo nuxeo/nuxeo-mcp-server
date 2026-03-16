@@ -1,7 +1,7 @@
 """Tests for Natural Language Parser Elasticsearch extension."""
 
 import pytest
-from src.nuxeo_mcp.nl_parser import NaturalLanguageParser
+from nuxeo_mcp.nl_parser import NaturalLanguageParser
 
 
 class TestNaturalLanguageParserElasticsearch:

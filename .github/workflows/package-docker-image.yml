@@ -20,6 +20,10 @@ jobs:
         images: |
           docker-private.packages.nuxeo.com/nuxeo/nuxeo-mcp-server
 
+    - name: Setup Python and install dependencies
+      id: setup
+      uses: ./.github/actions/setup-and-install-dep
+
     # Build the image
     - name: Set up QEMU
       if: github.event_name != 'pull_request' # needed when building multi-platform image and pushing it
@@ -34,12 +38,12 @@ jobs:
       with:
         context: .
         load: true
+        build-args: |
+          PYTHON_VERSION=${{ steps.setup.outputs.python-version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
 
     # Test the image
-    - uses: ./.github/actions/setup-and-install-dep
-        
     - name: Login to Nuxeo Docker Registry
       uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
       with:
@@ -72,7 +76,7 @@ jobs:
         
     - name: Initialize Nuxeo repository
       run: |
-        python seed_nuxeo.py --url http://localhost:8080/nuxeo --username Administrator --password Administrator
+        uv run python seed_nuxeo.py --url http://localhost:8080/nuxeo --username Administrator --password Administrator
         
     - name: Wait for MCP Server to start
       run: |
@@ -101,11 +105,11 @@ jobs:
         
     - name: Test search tool
       run: |
-        python mcp_client.py --url http://localhost:8081 search "SELECT * FROM Document WHERE ecm:primaryType = 'File'"
+        uv run python mcp_client.py --url http://localhost:8081 search "SELECT * FROM Document WHERE ecm:primaryType = 'File'"
         
     - name: Test get-document tool
       run: |
-        python mcp_client.py --url http://localhost:8081 get-document --path "/default-domain"
+        uv run python mcp_client.py --url http://localhost:8081 get-document --path "/default-domain"
 
     # Push the image
     - name: Build and push
@@ -115,5 +119,7 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
+        build-args: |
+          PYTHON_VERSION=${{ steps.setup.outputs.python-version }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
