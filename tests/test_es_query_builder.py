@@ -2,7 +2,7 @@
 
 import pytest
 from datetime import datetime, timedelta
-from src.nuxeo_mcp.es_query_builder import ElasticsearchQueryBuilder
+from nuxeo_mcp.es_query_builder import ElasticsearchQueryBuilder
 
 
 class TestElasticsearchQueryBuilder:

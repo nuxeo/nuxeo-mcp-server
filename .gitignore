@@ -24,6 +24,10 @@ wheels/
 venv/
 ENV/
 env/
+.venv/
+
+# uv
+.python-version
 
 # IDE files
 .idea/

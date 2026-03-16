@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "default": {
-      "command": "bash",
-      "args": ["-c", "'source ./venv/bin/activate && python -m nuxeo_mcp'"],
+      "command": "uv",
+      "args": ["run", "--frozen", "python", "-m", "nuxeo_mcp"],
       "env": { 
         "NUXEO_URL": "http://localhost:8080/nuxeo",
         "NUXEO_USERNAME": "Administrator",

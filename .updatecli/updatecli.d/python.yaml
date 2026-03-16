@@ -1,0 +1,31 @@
+sources:
+  pythonVersion:
+    kind: dockerimage
+    spec:
+      image: "python"
+      tag: "3.10.20-slim"
+      versionfilter:
+        kind: semver
+        pattern: "~3"
+    transformers:
+      - trimsuffix: "-slim"
+
+targets:
+  dockerfile:
+    kind: dockerfile
+    sourceid: pythonVersion
+    spec:
+      file: Dockerfile
+      instruction:
+        keyword: "ARG"
+        matcher: "PYTHON_VERSION"
+
+  pyprojectToml:
+    kind: toml
+    sourceid: pythonVersion
+    spec:
+      file: pyproject.toml
+      key: project.requires-python
+    transformers:
+      - find: '^\d+\.\d+'
+      - addprefix: ">="

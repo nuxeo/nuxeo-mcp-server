@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import json
-from src.nuxeo_mcp.es_passthrough import ElasticsearchPassthrough
+from nuxeo_mcp.es_passthrough import ElasticsearchPassthrough
 
 
 class TestElasticsearchPassthrough:
