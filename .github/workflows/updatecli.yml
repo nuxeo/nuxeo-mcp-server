@@ -1,4 +1,4 @@
-name: Update dependencies
+name: Update Python Version
 
 on:
   schedule:
@@ -11,8 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: updatecli/updatecli-action@v2
-        with:
-          config: .updatecli/updatecli.d/
+      - name: Install Updatecli
+        uses: Alfresco/alfresco-build-tools/.github/actions/setup-updatecli@2feb132e561953e16eaea6f3f0b9ae7e61034267 # v12.5.0
+      
+      - name: Run Updatecli
         env:
           UPDATECLI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: updatecli --config .updatecli/updatecli.d ${{ github.event_name == 'schedule' && 'apply' || 'diff' }}
