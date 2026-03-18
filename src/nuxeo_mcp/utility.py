@@ -6,8 +6,8 @@ This module provides utility functions for working with Nuxeo documents and othe
 common tasks.
 """
 
-import re
-from typing import Dict, Any, List, Tuple, Set, Union
+import base64
+from typing import Dict, Any, List, Tuple
 from nuxeo.models import Document
 from mcp.types import ImageContent as Image, TextContent as File
 from uuid import UUID
@@ -233,6 +233,7 @@ def format_property_value(value: Any) -> str:
 def return_blob(blob_info: dict):
 
     if "image/" in blob_info["mime_type"]:
-        return Image(data=blob_info["content"])
+        encoded = base64.b64encode(blob_info["content"]).decode("ascii")
+        return Image(type="image", data=encoded, mimeType=blob_info["mime_type"])
 
     return blob_info["content"]
