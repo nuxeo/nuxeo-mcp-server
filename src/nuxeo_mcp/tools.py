@@ -40,6 +40,9 @@ class DocRef(BaseModel):
 
 from typing import Union
 
+# Timeout in seconds for Elasticsearch connectivity probes
+ES_PROBE_TIMEOUT = 10
+
 
 def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool = False) -> None:
     """
@@ -1084,7 +1087,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
             # Initialize passthrough with Nuxeo URL and auth
             # Get the Nuxeo URL and auth from the global nuxeo client
-            nuxeo_url = nuxeo.client.host
+            nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
             auth = nuxeo.client.auth
             
             passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
@@ -1098,7 +1101,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                     test_url, 
                     json=test_query,
                     auth=auth,
-                    timeout=2
+                    timeout=ES_PROBE_TIMEOUT
                 )
                 response.raise_for_status()
             except (requests.RequestException, requests.ConnectionError) as e:
@@ -1179,21 +1182,22 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
             # Initialize passthrough with Nuxeo URL and auth
             # Get the Nuxeo URL and auth from the global nuxeo client
-            nuxeo_url = nuxeo.client.host
+            nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
             auth = nuxeo.client.auth
             
             passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
-            
+
+
             # Check if Elasticsearch is accessible through Nuxeo passthrough
             try:
                 # Test with a simple match_all query on audit index
                 test_url = f"{passthrough.base_url}/audit/_search"
                 test_query = {"query": {"match_all": {}}, "size": 0}
                 response = requests.post(
-                    test_url, 
+                    test_url,
                     json=test_query,
                     auth=auth,
-                    timeout=2
+                    timeout=ES_PROBE_TIMEOUT
                 )
                 response.raise_for_status()
             except (requests.RequestException, requests.ConnectionError) as e:
