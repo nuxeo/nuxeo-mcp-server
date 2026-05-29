@@ -80,7 +80,7 @@ class ElasticsearchQueryBuilder:
     ) -> Dict[str, Any]:
         """Build a fulltext search query."""
         if fields is None:
-            fields = ["ecm:fulltext", "ecm:fulltext.title^2"]
+            fields = ["all_field"]
 
         return {
             "simple_query_string": {

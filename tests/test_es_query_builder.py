@@ -261,7 +261,7 @@ class TestElasticsearchQueryBuilder:
         expected = {
             "simple_query_string": {
                 "query": "project management document",
-                "fields": ["ecm:fulltext", "ecm:fulltext.title^2"],
+                "fields": ["all_field"],
                 "default_operator": "AND"
             }
         }
