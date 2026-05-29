@@ -139,11 +139,31 @@ class TestNaturalLanguageParserElasticsearch:
         """Test parsing query with highlighting enabled."""
         query = "search for annual reports"
         result = self.parser.parse_to_elasticsearch(query, include_highlight=True)
-        
+
         assert result is not None
         assert "query" in result
         assert "highlight" in result
-        assert "fields" in result["highlight"]
+        highlight = result["highlight"]
+        assert "fields" in highlight
+        # ecm:binarytext is used (not the non-stored all_field)
+        assert "ecm:binarytext" in highlight["fields"]
+        # require_field_match must be False so ecm:binarytext is highlighted
+        # even though the query targets all_field
+        assert highlight.get("require_field_match") is False
+
+    def test_parse_with_highlight_fragment_params(self):
+        """Test that highlight_fragment_size and highlight_number_of_fragments are forwarded."""
+        query = "search for annual reports"
+        result = self.parser.parse_to_elasticsearch(
+            query,
+            include_highlight=True,
+            highlight_fragment_size=2000,
+            highlight_number_of_fragments=5,
+        )
+
+        bt_config = result["highlight"]["fields"]["ecm:binarytext"]
+        assert bt_config["fragment_size"] == 2000
+        assert bt_config["number_of_fragments"] == 5
 
     def test_detect_elasticsearch_intent(self):
         """Test detecting Elasticsearch-specific intent."""

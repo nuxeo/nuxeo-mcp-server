@@ -4,6 +4,12 @@
     
     docker-compose -f docker-compose-demo.yml up
 
+> **Note:** When running the MCP server as a Docker container alongside Nuxeo, set
+> `NUXEO_URL` to the Nuxeo service hostname (e.g. `http://nuxeo:8080/nuxeo`) rather
+> than `localhost`. The MCP container cannot reach Nuxeo via `localhost` — it must
+> use the Docker network service name. This is required for `search_repository` and
+> `search_audit` (Elasticsearch passthrough) to function correctly.
+
 # Nuxeo MCP Server Configuration Examples
 
 This document provides examples of how to configure the Nuxeo MCP server in your Cline MCP settings file.

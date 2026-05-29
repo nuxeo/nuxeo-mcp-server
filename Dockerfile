@@ -48,5 +48,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${MCP_PORT}/health || exit 1
 
 # Copy the entrypoint, and use it
-COPY --chown=$NUXEO_USER:0 --chmod=+x Dockerfile-entrypoint.sh entrypoint.sh
+COPY --chown=$NUXEO_USER:0 --chmod=0755 Dockerfile-entrypoint.sh entrypoint.sh
 ENTRYPOINT ["/app/entrypoint.sh"]

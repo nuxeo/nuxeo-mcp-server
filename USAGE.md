@@ -164,6 +164,22 @@ for doc in result['results']:
     print(f"Path: {doc['path']}")
     if 'highlights' in doc:
         print(f"Highlights: {doc['highlights']}")
+
+# Use larger highlight fragments to get meaningful content context
+# without downloading the full ecm:binarytext source field (up to 1 MiB)
+result = use_tool("nuxeo", "search_repository", {
+    "query": "priming sugar carbonation temperature",
+    "limit": 5,
+    "highlight_fragment_size": 2000,       # chars per fragment (default 150, max ~9000000)
+    "highlight_number_of_fragments": 3,    # fragments per doc (default 3, 0=entire field)
+})
+
+# Request extra _source fields when raw content is needed
+result = use_tool("nuxeo", "search_repository", {
+    "query": "water chemistry pH",
+    "limit": 3,
+    "source_fields": ["ecm:binarytext"],   # include full extracted text in results
+})
 ```
 
 ### Elasticsearch Audit Search (NEW - Admin Only)
