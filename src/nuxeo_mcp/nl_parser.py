@@ -671,6 +671,8 @@ class NaturalLanguageParser:
         include_sort: bool = False,
         include_pagination: bool = False,
         include_highlight: bool = False,
+        highlight_fragment_size: int = 150,
+        highlight_number_of_fragments: int = 3,
         apply_acl: bool = False,
         user_principals: Optional[List[str]] = None,
         user_principal: Optional[str] = None,
@@ -728,7 +730,10 @@ class NaturalLanguageParser:
                 "fields": {
                     "dc:title": {},
                     "dc:description": {},
-                    "ecm:binarytext": {},
+                    "ecm:binarytext": {
+                        "fragment_size": highlight_fragment_size,
+                        "number_of_fragments": highlight_number_of_fragments,
+                    },
                 }
             }
 

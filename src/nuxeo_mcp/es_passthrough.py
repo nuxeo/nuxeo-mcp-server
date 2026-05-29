@@ -59,6 +59,8 @@ class ElasticsearchPassthrough:
         limit: int = 20,
         offset: int = 0,
         source_fields: Optional[List[str]] = None,
+        highlight_fragment_size: int = 150,
+        highlight_number_of_fragments: int = 3,
     ) -> Dict[str, Any]:
         """Search repository index using natural language.
 
@@ -69,6 +71,8 @@ class ElasticsearchPassthrough:
             limit: Maximum number of results
             offset: Pagination offset
             source_fields: Fields to include in response
+            highlight_fragment_size: Size in chars of each highlight fragment (default 150)
+            highlight_number_of_fragments: Number of highlight fragments to return (default 3)
 
         Returns:
             Formatted search results
@@ -84,6 +88,8 @@ class ElasticsearchPassthrough:
             include_sort=True,
             include_pagination=True,
             include_highlight=True,
+            highlight_fragment_size=highlight_fragment_size,
+            highlight_number_of_fragments=highlight_number_of_fragments,
             apply_acl=True,
             user_principals=[principal] + groups,
             source_includes=source_fields,
@@ -101,7 +107,7 @@ class ElasticsearchPassthrough:
         )
 
         # Format results
-        return self._format_repository_results(response, json.dumps(es_request))
+        return self._format_repository_results(response, json.dumps(es_request), source_fields=source_fields)
 
     def search_audit(
         self,
@@ -223,7 +229,7 @@ class ElasticsearchPassthrough:
         return self.filters.get(index, self.filters["nuxeo"])
 
     def _format_repository_results(
-        self, es_response: Dict[str, Any], translated_query: str
+        self, es_response: Dict[str, Any], translated_query: str, source_fields: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """Format Elasticsearch results for repository search.
 
@@ -252,6 +258,12 @@ class ElasticsearchPassthrough:
                 "modified": source.get("dc:modified", ""),
                 "creator": source.get("dc:creator", ""),
             }
+
+            # Add any explicitly requested extra source fields
+            if source_fields:
+                for key in source_fields:
+                    if key not in result and key in source:
+                        result[key] = source[key]
 
             # Add highlights if available
             if "highlight" in hit:

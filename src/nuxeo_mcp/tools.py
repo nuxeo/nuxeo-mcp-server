@@ -1047,7 +1047,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             return result
 
     @mcp.tool()
-    async def search_repository(query: str, limit: int = 20, offset: int = 0) -> str:
+    async def search_repository(query: str, limit: int = 20, offset: int = 0, source_fields: Optional[List[str]] = None, highlight_fragment_size: int = 150, highlight_number_of_fragments: int = 3) -> str:
         """
         [REQUIRES ELASTICSEARCH] Search the Nuxeo repository using Elasticsearch passthrough.
 
@@ -1061,6 +1061,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             query: Natural language search query (e.g., "PDFs created last week by John")
             limit: Maximum number of results to return (default: 20, max: 100)
             offset: Pagination offset for results (default: 0)
+            source_fields: Extra fields to include in results (e.g. ["ecm:binarytext"])
+            highlight_fragment_size: Size in chars of each highlight fragment (default 150, max ~9000000)
+            highlight_number_of_fragments: Number of highlight fragments to return per doc (default 3, 0=entire field)
 
         Returns:
             JSON string containing search results with document metadata and highlights
@@ -1084,6 +1087,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             # Limit max results
             if limit > 100:
                 limit = 100
+
+            # Clamp highlight params to safe values
+            highlight_fragment_size = max(1, highlight_fragment_size)
+            highlight_number_of_fragments = max(0, highlight_number_of_fragments)
 
             # Initialize passthrough with Nuxeo URL and auth
             # Get the Nuxeo URL and auth from the global nuxeo client
@@ -1120,6 +1127,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 groups=groups,
                 limit=limit,
                 offset=offset,
+                source_fields=source_fields,
+                highlight_fragment_size=highlight_fragment_size,
+                highlight_number_of_fragments=highlight_number_of_fragments,
             )
 
             # Format response
