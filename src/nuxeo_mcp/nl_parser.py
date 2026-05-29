@@ -722,7 +722,14 @@ class NaturalLanguageParser:
         # Add highlighting if requested
         if include_highlight:
             request["highlight"] = {
-                "fields": {"dc:title": {}, "dc:description": {}, "ecm:fulltext": {}}
+                # require_field_match=false allows highlighting ecm:binarytext
+                # even though the query targets all_field (a copy_to aggregate)
+                "require_field_match": False,
+                "fields": {
+                    "dc:title": {},
+                    "dc:description": {},
+                    "ecm:binarytext": {},
+                }
             }
 
         return request
