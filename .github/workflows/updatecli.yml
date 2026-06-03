@@ -9,10 +9,10 @@ jobs:
   updatecli:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Install Updatecli
-        uses: Alfresco/alfresco-build-tools/.github/actions/setup-updatecli@2feb132e561953e16eaea6f3f0b9ae7e61034267 # v12.5.0
+        uses: Alfresco/alfresco-build-tools/.github/actions/setup-updatecli@a6a8be7429080c132815d0482a55ae4fd28f15ba # v18.7.0
       
       - name: Run Updatecli
         env:
