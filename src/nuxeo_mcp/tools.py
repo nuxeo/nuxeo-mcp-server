@@ -1272,6 +1272,148 @@ def register_tools(
                 {"success": False, "error": "Audit search failed", "message": str(e)}
             )
 
+    @mcp.tool()
+    async def semantic_search(
+        query: str,
+        pageSize: int = 10,
+        currentPageIndex: int = 0,
+        include_chunks: bool = True,
+    ) -> str:
+        """
+        [REQUIRES VECTOR INDEX] Search documents by meaning (semantic / vector search).
+
+        Unlike keyword search, this matches on the *meaning* of the query rather than exact
+        terms, so it retrieves relevant documents even when they use different wording. The
+        underlying model is multilingual: a query in one language (e.g. French or German) can
+        retrieve documents written in another (e.g. English).
+
+        How it works: the query is embedded by the Nuxeo server's OpenSearch ML model and run
+        as a k-NN neural search against a dedicated vector index built from the documents'
+        extracted full text. Results are document-level (chunks are collapsed) and filtered by
+        the calling user's ACLs server-side. The matching passage of each document is returned
+        as ``chunks`` (from the Nuxeo ``highlight`` enricher).
+
+        When to use which search tool:
+        - ``semantic_search`` — conceptual / "find documents about X" / cross-lingual queries.
+        - ``search`` / ``natural_search`` — exact metadata, dates, authors, NXQL.
+        - ``search_repository`` — keyword (BM25) full-text; best for exact terms, names, codes.
+
+        Note: semantic search is weaker than keyword search for exact terms, proper names, and
+        very short tokens. For those, prefer ``search_repository``. (Hybrid keyword+vector
+        ranking is planned as a follow-up.)
+
+        Requires a Nuxeo server with the vector search client configured (Nuxeo 2025 + the
+        ``nuxeo-search-client-opensearch2-vector`` package). On servers without it (e.g. 2023),
+        this tool returns an error pointing to the keyword search tools.
+
+        Args:
+            query: Free-text query in any supported language (e.g. "contract termination clause").
+            pageSize: Maximum number of documents to return (default 10, max 100).
+            currentPageIndex: Zero-based page index for pagination (default 0).
+            include_chunks: Include the matching passage(s) of each document (default True).
+
+        Returns:
+            JSON string with keys: ``success``, ``total`` (resultsCount), ``query`` and
+            ``results`` (a list of ``{title, path, uid, chunks}``, ordered by relevance —
+            best match first). On failure,
+            ``{success: false, error, message, alternative_tools}``.
+        """
+        # Clamp paging to safe bounds.
+        if pageSize > 100:
+            pageSize = 100
+        if pageSize < 1:
+            pageSize = 1
+        if currentPageIndex < 0:
+            currentPageIndex = 0
+
+        try:
+            # Route the built-in 'default_search' page provider to the vector index via the
+            # 'index' override parameter. The neural query is built server-side by the vector
+            # client, so no model id is needed here, and ACLs are applied for the authenticated
+            # user. The 'highlight' enricher returns the best-matching chunk text per document.
+            response = nuxeo.client.request(
+                "GET",
+                "api/v1/search/pp/default_search/execute",
+                headers={"enrichers-document": "highlight"},
+                params={
+                    "ecm_fulltext": query,
+                    "index": "vector",
+                    "pageSize": pageSize,
+                    "currentPageIndex": currentPageIndex,
+                },
+            )
+
+            # nuxeo.client.request returns a requests.Response (it does not parse the body).
+            data = response.json()
+
+            results = []
+            for entry in data.get("entries", []):
+                item = {
+                    "title": entry.get("title"),
+                    "path": entry.get("path"),
+                    "uid": entry.get("uid"),
+                }
+                if include_chunks:
+                    chunks = []
+                    for hl in entry.get("contextParameters", {}).get("highlight", []):
+                        for segment in hl.get("segments") or []:
+                            text = (segment or "").replace("\n", " ").strip()
+                            if text:
+                                chunks.append(text)
+                    item["chunks"] = chunks
+                results.append(item)
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "total": data.get("resultsCount"),
+                    "query": query,
+                    "results": results,
+                },
+                indent=2,
+            )
+
+        except Exception as e:
+            # Nuxeo's client raises nuxeo.exceptions.HTTPError (with .status/.message)
+            # parsed from the server's exception body. When the vector index is not
+            # configured (e.g. on 2023), the page provider rejects the 'index=vector'
+            # override with a 4xx; surface a friendly hint toward the keyword tools.
+            status = getattr(e, "status", None)
+            server_message = getattr(e, "message", None) or str(e)
+            if status in (400, 404, 500):
+                logger.warning(
+                    f"Semantic search unavailable (HTTP {status}): {server_message}"
+                )
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": "Vector search not available",
+                        "message": (
+                            "Semantic search requires the Nuxeo vector search client "
+                            "(Nuxeo 2025 + nuxeo-search-client-opensearch2-vector). "
+                            f"Server response (HTTP {status}): {server_message}"
+                        ),
+                        "alternative_tools": [
+                            "search_repository",
+                            "natural_search",
+                            "search",
+                        ],
+                    }
+                )
+            logger.error(f"Semantic search error: {e}")
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "Semantic search failed",
+                    "message": str(e),
+                    "alternative_tools": [
+                        "search_repository",
+                        "natural_search",
+                        "search",
+                    ],
+                }
+            )
+
     """
     Register MCP tools with the FastMCP server.
 
