@@ -5,20 +5,22 @@ Nuxeo MCP Server tools.
 This module defines the tools for the Nuxeo MCP Server.
 """
 
-import logging
 import json
+import logging
 import os
-from typing import Any, Dict, Optional, Callable, List, Annotated
+from typing import Annotated, Any, Callable, Dict, List, Optional
+
+from mcp.types import ImageContent as Image
+from nuxeo.models import Document
+from pydantic import BaseModel, Field, model_validator
+
 from nuxeo_mcp.utility import (
     format,
-    format_docs,
     format_doc,
-    return_blob,
+    format_docs,
     is_uuid,
+    return_blob,
 )
-from nuxeo.models import Document
-from mcp.types import ImageContent as Image
-from pydantic import BaseModel, Field, model_validator
 
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.tools")
@@ -44,7 +46,9 @@ from typing import Union
 ES_PROBE_TIMEOUT = 10
 
 
-def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool = False) -> None:
+def register_tools(
+    mcp, nuxeo, auth_middleware=None, skip_server_selection: bool = False
+) -> None:
     """
     Register MCP tools with the FastMCP server.
 
@@ -338,6 +342,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
             # Upload the file and use it as input
             from nuxeo.models import FileBlob
+
             blob = FileBlob(file_path)
             uploaded = nuxeo.uploads.batch().upload(blob, chunked=True)
             operation.input_obj = uploaded
@@ -445,6 +450,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
             # Upload file to batch
             from nuxeo.models import FileBlob
+
             blob = FileBlob(file_path)
             batch = nuxeo.uploads.batch().upload(blob, chunked=True)
 
@@ -463,8 +469,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
         # Return a structured response with document information
         # Get title from properties or use the name as fallback
-        doc_title = doc.properties.get("dc:title", name) if hasattr(doc, 'properties') else name
-        
+        doc_title = (
+            doc.properties.get("dc:title", name) if hasattr(doc, "properties") else name
+        )
+
         return {
             "status": "success",
             "message": f"Document '{name}' created successfully",
@@ -473,7 +481,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             "title": doc_title,
             "type": type,
             "url": f"{nuxeo.client.host}/ui/#!/browse{doc.path}",
-            "details": format_doc(doc)  # Include full formatted details as a string
+            "details": format_doc(doc),  # Include full formatted details as a string
         }
 
     @mcp.tool(
@@ -774,9 +782,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         description="Move a document to a different location in the Nuxeo repository",
     )
     def move_document(
-        document_uid: str,
-        target_path: str,
-        new_name: str = None
+        document_uid: str, target_path: str, new_name: str = None
     ) -> Dict[str, Any]:
         """
         Move a document to a different location in the Nuxeo repository.
@@ -830,10 +836,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         operation = nuxeo.operations.new("Document.Move")
         operation.params = params
         operation.input_obj = f"doc:{document_uid}"
-        
+
         # Execute the operation
         result = operation.execute()
-        
+
         # Format and return the result
         if hasattr(result, "uid"):
             return {
@@ -841,14 +847,18 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 "message": f"Document moved successfully to {target_path}",
                 "uid": result.uid,
                 "path": result.path,
-                "title": result.properties.get("dc:title", "") if hasattr(result, 'properties') else "",
-                "url": f"{nuxeo.client.host}/ui/#!/browse{result.path}"
+                "title": (
+                    result.properties.get("dc:title", "")
+                    if hasattr(result, "properties")
+                    else ""
+                ),
+                "url": f"{nuxeo.client.host}/ui/#!/browse{result.path}",
             }
         else:
             return {
                 "status": "success",
                 "message": f"Document moved to {target_path}",
-                "details": str(result)
+                "details": str(result),
             }
 
     @mcp.tool(
@@ -967,20 +977,18 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             # Execute the generated NXQL query directly using Nuxeo client
             # Note: We need to handle LIMIT separately as it's not part of NXQL
             effective_page_size = (
-                parsed.limit
-                if parsed.limit and parsed.limit < pageSize
-                else pageSize
+                parsed.limit if parsed.limit and parsed.limit < pageSize else pageSize
             )
-            
+
             # Execute the NXQL query directly
             query_result = nuxeo.client.query(
                 nxql,
                 params={
                     "pageSize": effective_page_size,
-                    "currentPageIndex": currentPageIndex
-                }
+                    "currentPageIndex": currentPageIndex,
+                },
             )
-            
+
             # Format the result based on content_type
             if content_type == "text/markdown":
                 result = format_query_results(query_result)
@@ -990,7 +998,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                     "resultsCount": query_result.get("resultsCount", 0),
                     "currentPageIndex": query_result.get("currentPageIndex", 0),
                     "pageSize": query_result.get("pageSize", effective_page_size),
-                    "entries": query_result.get("entries", [])
+                    "entries": query_result.get("entries", []),
                 }
 
             # Add metadata about the natural language processing
@@ -1047,13 +1055,20 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             return result
 
     @mcp.tool()
-    async def search_repository(query: str, limit: int = 20, offset: int = 0, source_fields: Optional[List[str]] = None, highlight_fragment_size: int = 150, highlight_number_of_fragments: int = 3) -> str:
+    async def search_repository(
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+        source_fields: Optional[List[str]] = None,
+        highlight_fragment_size: int = 150,
+        highlight_number_of_fragments: int = 3,
+    ) -> str:
         """
         [REQUIRES ELASTICSEARCH] Search the Nuxeo repository using Elasticsearch passthrough.
 
         This tool provides direct Elasticsearch access for advanced search capabilities.
         It requires Elasticsearch to be configured and accessible on your Nuxeo server.
-        
+
         ⚠️ For most use cases, use 'natural_search' or 'search' tools instead, which work
         without Elasticsearch and use Nuxeo's built-in query capabilities.
 
@@ -1093,9 +1108,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             # Initialize passthrough with Nuxeo URL and auth from the active client
             nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
             auth = nuxeo.client.auth
-            
+
             passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
-            
+
             # Check if Elasticsearch is accessible through Nuxeo passthrough
             try:
                 # Test with a simple match_all query
@@ -1205,7 +1220,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             # Initialize passthrough with Nuxeo URL and auth from the active client
             nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
             auth = nuxeo.client.auth
-            
+
             passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
 
             # Check if Elasticsearch audit index is accessible and user has permission.
@@ -1280,27 +1295,28 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         nuxeo: The Nuxeo client instance
         auth_middleware: Optional authentication middleware to wrap tools
     """
-    
+
     # Import server manager
-    from nuxeo_mcp.server_manager import get_server_manager, ServerConfig
     from nuxeo.client import Nuxeo
-    
+
+    from nuxeo_mcp.server_manager import ServerConfig, get_server_manager
+
     # Get the global server manager
     server_manager = get_server_manager()
-    
+
     # Create a mutable container for the Nuxeo client
     # This allows us to switch servers dynamically
     class NuxeoClientContainer:
         def __init__(self, initial_client):
             self.client = initial_client
             self.current_server_name = None
-            
+
         def switch_to_server(self, server_config: ServerConfig):
             """Switch to a different Nuxeo server."""
             try:
                 new_client = Nuxeo(
                     host=server_config.url,
-                    auth=(server_config.username, server_config.password)
+                    auth=(server_config.username, server_config.password),
                 )
                 # Test the connection
                 new_client.client.server_info()
@@ -1311,47 +1327,41 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             except Exception as e:
                 logger.error(f"Failed to connect to server {server_config.name}: {e}")
                 return False
-    
+
     # Create the container with the initial client
     nuxeo_container = NuxeoClientContainer(nuxeo)
-    
+
     # Override the nuxeo variable to use the container's client
     # This allows all tools to automatically use the current server
     nuxeo = nuxeo_container.client
-    
+
     # Tool: List available servers
-    @mcp.tool(
-        name="list_servers",
-        description="List all configured Nuxeo servers"
-    )
+    @mcp.tool(name="list_servers", description="List all configured Nuxeo servers")
     def list_servers() -> Dict[str, Any]:
         """
         List all configured Nuxeo servers.
-        
+
         Returns:
             Dictionary containing all server configurations and their status
         """
         servers = server_manager.list_servers()
         active_server = server_manager.get_active_server()
-        
+
         return {
             "servers": servers,
             "active_server": active_server.name if active_server else None,
-            "message": f"Currently connected to: {active_server.name if active_server else 'None'}"
+            "message": f"Currently connected to: {active_server.name if active_server else 'None'}",
         }
-    
+
     # Tool: Switch server
-    @mcp.tool(
-        name="switch_server",
-        description="Switch to a different Nuxeo server"
-    )
+    @mcp.tool(name="switch_server", description="Switch to a different Nuxeo server")
     def switch_server(server_name: str) -> Dict[str, Any]:
         """
         Switch to a different Nuxeo server.
-        
+
         Args:
             server_name: Name of the server to switch to (e.g., 'demo', 'local')
-            
+
         Returns:
             Status of the switch operation
         """
@@ -1361,43 +1371,43 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             return {
                 "status": "error",
                 "message": f"Server '{server_name}' not found",
-                "available_servers": available
+                "available_servers": available,
             }
-        
+
         # Try to switch the client
         if nuxeo_container.switch_to_server(server_config):
             # Update the global nuxeo reference for all tools
             nonlocal nuxeo
             nuxeo = nuxeo_container.client
-            
+
             # Save the active server
             server_manager.set_active_server(server_name)
-            
+
             return {
                 "status": "success",
                 "message": f"Successfully switched to server: {server_name}",
                 "server": {
                     "name": server_config.name,
                     "url": server_config.url,
-                    "description": server_config.description
-                }
+                    "description": server_config.description,
+                },
             }
         else:
             return {
                 "status": "error",
                 "message": f"Failed to connect to server: {server_name}",
-                "error": "Connection failed - check server URL and credentials"
+                "error": "Connection failed - check server URL and credentials",
             }
-    
+
     # Tool: Get current server
     @mcp.tool(
         name="get_current_server",
-        description="Get information about the currently active Nuxeo server"
+        description="Get information about the currently active Nuxeo server",
     )
     def get_current_server() -> Dict[str, Any]:
         """
         Get information about the currently active Nuxeo server.
-        
+
         Returns:
             Information about the current server
         """
@@ -1411,9 +1421,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                     "server": {
                         "name": active_server.name,
                         "url": active_server.url,
-                        "description": active_server.description
+                        "description": active_server.description,
                     },
-                    "nuxeo_info": server_info
+                    "nuxeo_info": server_info,
                 }
             except Exception as e:
                 return {
@@ -1421,33 +1431,30 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                     "server": {
                         "name": active_server.name,
                         "url": active_server.url,
-                        "description": active_server.description
+                        "description": active_server.description,
                     },
-                    "error": f"Cannot connect to server: {str(e)}"
+                    "error": f"Cannot connect to server: {str(e)}",
                 }
         else:
             return {
                 "status": "not_configured",
                 "message": "No server is currently active. Use 'switch_server' to select one.",
-                "available_servers": list(server_manager.servers.keys())
+                "available_servers": list(server_manager.servers.keys()),
             }
-    
+
     # Tool: Add server configuration
-    @mcp.tool(
-        name="add_server",
-        description="Add a new Nuxeo server configuration"
-    )
+    @mcp.tool(name="add_server", description="Add a new Nuxeo server configuration")
     def add_server(
         name: str,
         url: str,
         username: str,
         password: str,
         description: str = "",
-        set_as_active: bool = False
+        set_as_active: bool = False,
     ) -> Dict[str, Any]:
         """
         Add a new Nuxeo server configuration.
-        
+
         Args:
             name: Unique name for the server (e.g., 'production', 'staging')
             url: URL of the Nuxeo server (e.g., 'https://nuxeo.example.com/nuxeo')
@@ -1455,7 +1462,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             password: Password for authentication
             description: Optional description of the server
             set_as_active: Whether to immediately switch to this server
-            
+
         Returns:
             Status of the operation
         """
@@ -1463,9 +1470,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         if server_manager.get_server(name):
             return {
                 "status": "error",
-                "message": f"Server '{name}' already exists. Use a different name or remove the existing one first."
+                "message": f"Server '{name}' already exists. Use a different name or remove the existing one first.",
             }
-        
+
         # Create new server config
         server_config = ServerConfig(
             name=name,
@@ -1473,26 +1480,23 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             username=username,
             password=password,
             description=description or f"Nuxeo server at {url}",
-            is_default=False
+            is_default=False,
         )
-        
+
         # Test the connection
         try:
-            test_client = Nuxeo(
-                host=url,
-                auth=(username, password)
-            )
+            test_client = Nuxeo(host=url, auth=(username, password))
             test_client.client.server_info()
         except Exception as e:
             return {
                 "status": "warning",
                 "message": f"Server added but connection test failed: {str(e)}",
-                "server": server_config.to_dict()
+                "server": server_config.to_dict(),
             }
-        
+
         # Add the server
         server_manager.add_server(server_config)
-        
+
         # Switch to it if requested
         if set_as_active:
             switch_result = switch_server(name)
@@ -1500,49 +1504,43 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 "status": "success",
                 "message": f"Server '{name}' added and activated",
                 "server": server_config.to_dict(),
-                "switch_result": switch_result
+                "switch_result": switch_result,
             }
-        
+
         return {
             "status": "success",
             "message": f"Server '{name}' added successfully",
-            "server": server_config.to_dict()
+            "server": server_config.to_dict(),
         }
-    
+
     # Tool: Remove server configuration
-    @mcp.tool(
-        name="remove_server",
-        description="Remove a Nuxeo server configuration"
-    )
+    @mcp.tool(name="remove_server", description="Remove a Nuxeo server configuration")
     def remove_server(name: str) -> Dict[str, Any]:
         """
         Remove a Nuxeo server configuration.
-        
+
         Args:
             name: Name of the server to remove
-            
+
         Returns:
             Status of the operation
         """
         if not server_manager.get_server(name):
-            return {
-                "status": "error",
-                "message": f"Server '{name}' not found"
-            }
-        
+            return {"status": "error", "message": f"Server '{name}' not found"}
+
         # Check if it's the active server
         active_server = server_manager.get_active_server()
         is_active = active_server and active_server.name == name
-        
+
         server_manager.remove_server(name)
-        
+
         return {
             "status": "success",
             "message": f"Server '{name}' removed successfully",
             "was_active": is_active,
-            "note": "You may need to switch to another server" if is_active else None
+            "note": "You may need to switch to another server" if is_active else None,
         }
-    
+
     # Check if we need server selection on first use
     # Skip if server is pre-configured (e.g., from Docker environment variables)
     if not skip_server_selection and server_manager.needs_server_selection():
