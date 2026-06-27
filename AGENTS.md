@@ -14,7 +14,7 @@ Nuxeo MCP Server is a [Model Context Protocol (MCP)](https://modelcontextprotoco
 nuxeo-mcp-server/
 ├── src/nuxeo_mcp/          # Package source
 │   ├── server.py           # MCP server entry-point & FastMCP setup
-│   ├── tools.py            # All 18 MCP tools
+│   ├── tools.py            # All MCP tools
 │   ├── resources.py        # MCP resources (nuxeo:// URIs)
 │   ├── prompts.py          # MCP prompt templates
 │   ├── nl_parser.py        # Natural-language → NXQL parser
@@ -110,6 +110,7 @@ All three must pass before merging.
 | `move_document` | Move or rename a document |
 | `natural_search` | Natural-language → NXQL search |
 | `search_repository` | Elasticsearch passthrough search *(requires ES)* |
+| `semantic_search` | Semantic (vector) search by meaning, multilingual *(requires Nuxeo 2025 vector client)* |
 | `search_audit` | Audit log search — admin only *(requires ES)* |
 | `list_servers` | List configured Nuxeo instances |
 | `switch_server` | Switch the active instance |
