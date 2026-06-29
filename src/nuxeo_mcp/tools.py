@@ -1095,11 +1095,6 @@ def register_tools(
 
             from .es_passthrough import ElasticsearchPassthrough
 
-            # Get current user context (in real implementation, this would come from auth)
-            # For demo, using default admin credentials
-            principal = "Administrator"
-            groups = ["Administrators", "members", "Everyone"]
-
             # Limit max results
             if limit > 100:
                 limit = 100
@@ -1108,8 +1103,7 @@ def register_tools(
             highlight_fragment_size = max(1, highlight_fragment_size)
             highlight_number_of_fragments = max(0, highlight_number_of_fragments)
 
-            # Initialize passthrough with Nuxeo URL and auth
-            # Get the Nuxeo URL and auth from the global nuxeo client
+            # Initialize passthrough with Nuxeo URL and auth from the active client
             nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
             auth = nuxeo.client.auth
 
@@ -1120,11 +1114,19 @@ def register_tools(
                 # Test with a simple match_all query
                 test_url = f"{passthrough.base_url}/nuxeo/_search"
                 test_query = {"query": {"match_all": {}}, "size": 0}
-                response = requests.post(
+                probe = requests.post(
                     test_url, json=test_query, auth=auth, timeout=ES_PROBE_TIMEOUT
                 )
-                response.raise_for_status()
-            except (requests.RequestException, requests.ConnectionError) as e:
+                if probe.status_code == 403:
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": "Permission denied",
+                            "message": "Access to the Elasticsearch passthrough is not allowed for this user.",
+                        }
+                    )
+                probe.raise_for_status()
+            except requests.exceptions.RequestException as e:
                 logger.warning(
                     f"Elasticsearch not accessible at {passthrough.base_url}: {e}"
                 )
@@ -1132,16 +1134,14 @@ def register_tools(
                     {
                         "success": False,
                         "error": "Elasticsearch not available",
-                        "message": f"Elasticsearch passthrough is not accessible. Please use 'natural_search' or 'search' tools instead.",
+                        "message": "Elasticsearch passthrough is not accessible. Please use 'natural_search' or 'search' tools instead.",
                         "alternative_tools": ["natural_search", "search"],
                     }
                 )
 
-            # Execute search
+            # Execute search — ACL enforcement is handled server-side by the Nuxeo passthrough
             results = passthrough.search_repository(
                 query=query,
-                principal=principal,
-                groups=groups,
                 limit=limit,
                 offset=offset,
                 source_fields=source_fields,
@@ -1200,48 +1200,62 @@ def register_tools(
 
             from .es_passthrough import ElasticsearchPassthrough
 
-            # For audit, must be administrator
-            principal = "Administrator"
-            groups = ["Administrators"]
-
             # Limit max results
             if limit > 100:
                 limit = 100
 
-            # Initialize passthrough with Nuxeo URL and auth
-            # Get the Nuxeo URL and auth from the global nuxeo client
+            # Initialize passthrough with Nuxeo URL and auth from the active client
             nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
             auth = nuxeo.client.auth
 
             passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
 
-            # Check if Elasticsearch is accessible through Nuxeo passthrough
+            # Check if Elasticsearch audit index is accessible and user has permission.
+            # The Nuxeo passthrough returns 403 for non-admins and a network/5xx error
+            # when the index is unavailable — handle each case distinctly.
             try:
-                # Test with a simple match_all query on audit index
                 test_url = f"{passthrough.base_url}/audit/_search"
                 test_query = {"query": {"match_all": {}}, "size": 0}
-                response = requests.post(
+                probe = requests.post(
                     test_url, json=test_query, auth=auth, timeout=ES_PROBE_TIMEOUT
                 )
-                response.raise_for_status()
-            except (requests.RequestException, requests.ConnectionError) as e:
+                if probe.status_code == 403:
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": "Permission denied",
+                            "message": "Only administrators can access audit logs",
+                        }
+                    )
+                probe.raise_for_status()
+            except requests.exceptions.HTTPError as e:
                 logger.warning(
-                    f"Elasticsearch audit index not accessible at {passthrough.base_url}: {e}"
+                    f"Elasticsearch audit index returned an error at {passthrough.base_url}: {e}"
                 )
                 return json.dumps(
                     {
                         "success": False,
                         "error": "Elasticsearch audit not available",
-                        "message": f"Elasticsearch audit index is not accessible. Audit logs require Elasticsearch.",
+                        "message": "Elasticsearch audit index is not accessible. Audit logs require Elasticsearch.",
+                        "alternative": "Check your Nuxeo server's Elasticsearch configuration",
+                    }
+                )
+            except requests.exceptions.RequestException as e:
+                logger.warning(
+                    f"Elasticsearch audit index not reachable at {passthrough.base_url}: {e}"
+                )
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": "Elasticsearch audit not available",
+                        "message": "Elasticsearch audit index is not accessible. Audit logs require Elasticsearch.",
                         "alternative": "Check your Nuxeo server's Elasticsearch configuration",
                     }
                 )
 
-            # Execute search
+            # Execute search — admin-only check is enforced server-side by the Nuxeo passthrough
             results = passthrough.search_audit(
                 query=query,
-                principal=principal,
-                groups=groups,
                 limit=limit,
                 offset=offset,
             )

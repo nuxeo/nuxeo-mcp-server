@@ -673,8 +673,6 @@ class NaturalLanguageParser:
         include_highlight: bool = False,
         highlight_fragment_size: int = 150,
         highlight_number_of_fragments: int = 3,
-        apply_acl: bool = False,
-        user_principals: Optional[List[str]] = None,
         user_principal: Optional[str] = None,
         source_includes: Optional[List[str]] = None,
         source_excludes: Optional[List[str]] = None,
@@ -688,10 +686,6 @@ class NaturalLanguageParser:
         # Build Elasticsearch query
         es_builder = ElasticsearchQueryBuilder()
         es_query = self.build_elasticsearch_query(parsed, index)
-
-        # Apply ACL filter if requested
-        if apply_acl and user_principals:
-            es_query = es_builder.apply_acl_filter(es_query, user_principals)
 
         # Handle special "my documents" case
         if user_principal and "my" in query.lower():
