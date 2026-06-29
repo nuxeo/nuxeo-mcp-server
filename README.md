@@ -25,6 +25,18 @@ A Model Context Protocol (MCP) server for interacting with a Nuxeo Content Repos
 - Nuxeo Server (can be run via Docker)
 - Docker (for testing)
 
+## Account Privileges
+
+The MCP server connects to Nuxeo using the credentials configured via environment variables (default: `Administrator`/`Administrator` for local development). Most tools work with **any authenticated Nuxeo user**; administrator privileges are not required for day-to-day operations.
+
+| Privilege | Tools |
+|---|---|
+| **Any authenticated user** | `get_repository_info`, `get_children`, `search`, `natural_search`, `search_repository`, `semantic_search`, `get_document`, `create_document`, `update_document`, `delete_document`, `move_document`, `get_document_types`, `get_schemas`, `get_operations` |
+| **Administrator only** | `search_audit` — the Nuxeo ES passthrough enforces this server-side and returns HTTP 403 for non-admins, which the MCP tool surfaces as a clear permission error |
+| **Depends on operation** | `execute_operation` — privilege is determined by the specific Nuxeo Automation operation invoked; enforced server-side |
+
+Using a least-privilege account (a regular Nuxeo user) is recommended for production deployments. The `Administrator/Administrator` default is a convenience for local development only.
+
 
 ## Quick Start
 

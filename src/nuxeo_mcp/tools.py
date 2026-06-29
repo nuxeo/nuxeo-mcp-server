@@ -1180,13 +1180,18 @@ def register_tools(
         system activity, document modifications, and user actions. Requires both
         administrator privileges and Elasticsearch to be configured and accessible.
 
+        Access control is enforced server-side by the Nuxeo Elasticsearch passthrough:
+        non-administrator users receive HTTP 403, which this tool reports as a clear
+        permission error rather than an availability failure.
+
         Args:
             query: Natural language audit query (e.g., "deletions by admin yesterday")
             limit: Maximum number of results to return (default: 20, max: 100)
             offset: Pagination offset for results (default: 0)
 
         Returns:
-            JSON string containing audit entries with event details
+            JSON string containing audit entries with event details, or an error object
+            with "error": "Permission denied" when called by a non-administrator.
 
         Examples:
             - "show all deletions from yesterday"
