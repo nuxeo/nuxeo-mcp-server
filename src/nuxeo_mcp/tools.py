@@ -1117,7 +1117,7 @@ def register_tools(
                 probe = requests.post(
                     test_url, json=test_query, auth=auth, timeout=ES_PROBE_TIMEOUT
                 )
-                if probe.status_code == 403:
+                if probe.status_code in (401, 403):
                     return json.dumps(
                         {
                             "success": False,
@@ -1216,15 +1216,15 @@ def register_tools(
             passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
 
             # Check if Elasticsearch audit index is accessible and user has permission.
-            # The Nuxeo passthrough returns 403 for non-admins and a network/5xx error
-            # when the index is unavailable — handle each case distinctly.
+            # The Nuxeo passthrough returns 403 for non-admins, 401 for bad/missing
+            # credentials, and a network/5xx error when the index is unavailable.
             try:
                 test_url = f"{passthrough.base_url}/audit/_search"
                 test_query = {"query": {"match_all": {}}, "size": 0}
                 probe = requests.post(
                     test_url, json=test_query, auth=auth, timeout=ES_PROBE_TIMEOUT
                 )
-                if probe.status_code == 403:
+                if probe.status_code in (401, 403):
                     return json.dumps(
                         {
                             "success": False,

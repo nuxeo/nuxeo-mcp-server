@@ -78,8 +78,7 @@ class ElasticsearchPassthrough:
             source_includes=source_fields,
         )
 
-        if limit:
-            es_request["size"] = limit
+        es_request["size"] = max(0, limit)
         if offset:
             es_request["from"] = offset
 
@@ -97,8 +96,9 @@ class ElasticsearchPassthrough:
     ) -> Dict[str, Any]:
         """Search audit index using natural language (admin only).
 
-        The Nuxeo passthrough enforces admin-only access server-side: non-admin
-        requests are rejected with HTTP 403 before this method is called.
+        The Nuxeo passthrough enforces admin-only access server-side and returns
+        HTTP 403 for non-administrator users. If called directly without the
+        tools-layer probe, a server-side 403 will propagate as an Exception.
 
         Args:
             query: Natural language search query
@@ -115,8 +115,7 @@ class ElasticsearchPassthrough:
             query, index="audit", include_sort=True, include_pagination=True
         )
 
-        if limit:
-            es_request["size"] = limit
+        es_request["size"] = max(0, limit)
         if offset:
             es_request["from"] = offset
 
