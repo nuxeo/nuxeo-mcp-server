@@ -195,22 +195,6 @@ class TestNaturalLanguageParserElasticsearch:
         bool_query = es_query["bool"]
         assert "must" in bool_query or "filter" in bool_query
 
-    def test_parse_to_elasticsearch_with_acl(self):
-        """Test parsing with ACL filter application."""
-        query = "my documents"
-        user_principals = ["john.doe", "members", "Everyone"]
-        result = self.parser.parse_to_elasticsearch(
-            query, 
-            apply_acl=True,
-            user_principals=user_principals
-        )
-        
-        assert result is not None
-        assert "query" in result
-        # Should have ACL filter
-        query_str = str(result)
-        assert "ecm:acl" in query_str
-
     def test_parse_special_my_documents(self):
         """Test parsing 'my documents' special case."""
         query = "my recent documents"

@@ -179,48 +179,6 @@ class TestElasticsearchQueryBuilder:
         start = self.builder.date_math_last_n_months(3)
         assert start == "now-3M"
 
-    def test_apply_acl_filter(self):
-        """Test applying ACL security filter."""
-        base_query = self.builder.match("title", "report")
-        user_principals = ["john.doe", "members", "Everyone"]
-        
-        filtered_query = self.builder.apply_acl_filter(base_query, user_principals)
-        
-        expected = {
-            "bool": {
-                "must": [{"match": {"title": "report"}}],
-                "filter": [
-                    {
-                        "terms": {
-                            "ecm:acl": ["john.doe", "members", "Everyone"]
-                        }
-                    }
-                ]
-            }
-        }
-        assert filtered_query == expected
-
-    def test_apply_acl_filter_with_existing_bool(self):
-        """Test applying ACL filter to existing bool query."""
-        base_query = self.builder.bool_query(
-            must=[self.builder.match("title", "report")],
-            filter=[self.builder.term("dc:creator", "alice")]
-        )
-        user_principals = ["john.doe", "members"]
-        
-        filtered_query = self.builder.apply_acl_filter(base_query, user_principals)
-        
-        expected = {
-            "bool": {
-                "must": [{"match": {"title": "report"}}],
-                "filter": [
-                    {"term": {"dc:creator": "alice"}},
-                    {"terms": {"ecm:acl": ["john.doe", "members"]}}
-                ]
-            }
-        }
-        assert filtered_query == expected
-
     def test_build_search_request(self):
         """Test building complete search request."""
         query = self.builder.match("title", "report")

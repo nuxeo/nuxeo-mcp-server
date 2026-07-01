@@ -137,27 +137,6 @@ class ElasticsearchQueryBuilder:
         """Get date math expression for last N years."""
         return f"now-{years}y"
 
-    def apply_acl_filter(
-        self, query: Dict[str, Any], user_principals: List[str]
-    ) -> Dict[str, Any]:
-        """Apply ACL security filter to a query."""
-        acl_filter = self.terms("ecm:acl", user_principals)
-
-        # If query is already a bool query, add to its filter clause
-        if "bool" in query:
-            bool_query = query["bool"]
-            if "filter" in bool_query:
-                if isinstance(bool_query["filter"], list):
-                    bool_query["filter"].append(acl_filter)
-                else:
-                    bool_query["filter"] = [bool_query["filter"], acl_filter]
-            else:
-                bool_query["filter"] = [acl_filter]
-            return query
-        else:
-            # Wrap in bool query with filter
-            return self.bool_query(must=[query], filter=[acl_filter])
-
     def build_search_request(
         self,
         query: Dict[str, Any],

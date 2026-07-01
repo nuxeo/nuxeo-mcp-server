@@ -28,15 +28,13 @@ for query in test_queries:
     print("-" * 40)
     
     try:
-        # Parse to Elasticsearch
+        # Parse to Elasticsearch (ACL enforcement is server-side; no apply_acl needed)
         es_query = parser.parse_to_elasticsearch(
             query,
             index="nuxeo",
             include_sort=True,
             include_pagination=True,
             include_highlight=True,
-            apply_acl=True,
-            user_principals=["Administrator"],
             source_includes=None
         )
         
