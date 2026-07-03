@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from .nl_parser import NaturalLanguageParser
-from .es_query_builder import ElasticsearchQueryBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,6 @@ class ElasticsearchPassthrough:
 
         self.auth = auth
         self.nl_parser = NaturalLanguageParser()
-        self.es_builder = ElasticsearchQueryBuilder()
 
     def search_repository(
         self,
@@ -79,8 +77,7 @@ class ElasticsearchPassthrough:
         )
 
         es_request["size"] = max(0, limit)
-        if offset:
-            es_request["from"] = max(0, offset)
+        es_request["from"] = max(0, offset)
 
         response = self.execute_query(index="nuxeo", query=es_request)
 
@@ -116,8 +113,7 @@ class ElasticsearchPassthrough:
         )
 
         es_request["size"] = max(0, limit)
-        if offset:
-            es_request["from"] = max(0, offset)
+        es_request["from"] = max(0, offset)
 
         response = self.execute_query(index="audit", query=es_request)
 

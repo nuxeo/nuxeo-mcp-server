@@ -123,8 +123,8 @@ class TestElasticsearchPassthrough:
 
         request_body = json.loads(mock_post.call_args[1]["data"])
         assert request_body["size"] == 0
-        # A negative offset must not be forwarded as a negative ES "from".
-        assert request_body.get("from", 0) >= 0
+        # Negative offset must be clamped: the key must be present and equal to 0.
+        assert request_body["from"] == 0
 
     @patch("requests.post")
     def test_execute_query_direct(self, mock_post):
@@ -162,12 +162,13 @@ class TestElasticsearchPassthrough:
     @patch("requests.post")
     def test_connection_error_handling(self, mock_post):
         """Test handling of connection errors."""
-        mock_post.side_effect = Exception("Connection refused")
+        import requests as requests_lib
+        mock_post.side_effect = requests_lib.exceptions.ConnectionError("refused")
 
         with pytest.raises(Exception) as exc_info:
             self.passthrough.search_repository(query="test")
 
-        assert "Connection" in str(exc_info.value)
+        assert "Failed to connect to Elasticsearch" in str(exc_info.value)
 
     def test_format_repository_results(self):
         """Test formatting of repository search results."""

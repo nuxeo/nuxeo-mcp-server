@@ -37,6 +37,8 @@ The MCP server connects to Nuxeo using the credentials you provide through confi
 
 Using a least-privilege account (a regular Nuxeo user) is recommended for production deployments. The `Administrator/Administrator` default is a convenience for local development only.
 
+> **Note:** read and write tools are still subject to per-document ACLs enforced by Nuxeo — a user only sees documents they have `Read` on, and can only modify documents where they have `Write`. The `search_repository` tool additionally requires the Nuxeo `/site/es` passthrough to be accessible to non-admin users (a server-side configuration decision); the tool's probe returns a clear `"Permission denied"` error if it is not.
+
 
 ## Quick Start
 

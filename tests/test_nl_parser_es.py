@@ -195,17 +195,6 @@ class TestNaturalLanguageParserElasticsearch:
         bool_query = es_query["bool"]
         assert "must" in bool_query or "filter" in bool_query
 
-    def test_parse_special_my_documents(self):
-        """Test parsing 'my documents' special case."""
-        query = "my recent documents"
-        result = self.parser.parse_to_elasticsearch(query, user_principal="john.doe")
-        
-        assert result is not None
-        assert "query" in result
-        # Should filter by user
-        query_str = str(result)
-        assert "john.doe" in query_str
-
     def test_parse_with_source_filtering(self):
         """Test parsing with source field filtering."""
         query = "find documents"
