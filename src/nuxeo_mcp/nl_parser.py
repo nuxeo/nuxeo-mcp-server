@@ -673,7 +673,6 @@ class NaturalLanguageParser:
         include_highlight: bool = False,
         highlight_fragment_size: int = 150,
         highlight_number_of_fragments: int = 3,
-        user_principal: Optional[str] = None,
         source_includes: Optional[List[str]] = None,
         source_excludes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
@@ -686,17 +685,6 @@ class NaturalLanguageParser:
         # Build Elasticsearch query
         es_builder = ElasticsearchQueryBuilder()
         es_query = self.build_elasticsearch_query(parsed, index)
-
-        # Handle special "my documents" case
-        if user_principal and "my" in query.lower():
-            user_filter = es_builder.terms("dc:creator", [user_principal])
-            if "bool" in es_query:
-                if "filter" in es_query["bool"]:
-                    es_query["bool"]["filter"].append(user_filter)
-                else:
-                    es_query["bool"]["filter"] = [user_filter]
-            else:
-                es_query = es_builder.bool_query(must=[es_query], filter=[user_filter])
 
         # Build complete search request
         size = parsed.limit if include_pagination and parsed.limit else 20

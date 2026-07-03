@@ -9,7 +9,6 @@ import json
 from typing import Any, Callable, Dict
 from unittest.mock import MagicMock, patch
 
-import pytest
 import requests as requests_lib
 
 from nuxeo_mcp.tools import register_tools

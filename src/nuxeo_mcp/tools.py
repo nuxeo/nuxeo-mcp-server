@@ -1149,17 +1149,13 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 "success": True,
                 "total": results["total"],
                 "query_time_ms": results["query_time_ms"],
-                "results": results["results"][:limit],
+                "results": results["results"],
                 "query": query,
                 "translated_query": results.get("translated_query", ""),
             }
 
             return json.dumps(response, indent=2)
 
-        except PermissionError as e:
-            return json.dumps(
-                {"success": False, "error": "Permission denied", "message": str(e)}
-            )
         except Exception as e:
             logger.error(f"Repository search error: {e}")
             return json.dumps(
@@ -1238,18 +1234,6 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                         }
                     )
                 probe.raise_for_status()
-            except requests.exceptions.HTTPError as e:
-                logger.warning(
-                    f"Elasticsearch audit index returned an error at {passthrough.base_url}: {e}"
-                )
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": "Elasticsearch audit not available",
-                        "message": "Elasticsearch audit index is not accessible. Audit logs require Elasticsearch.",
-                        "alternative": "Check your Nuxeo server's Elasticsearch configuration",
-                    }
-                )
             except requests.exceptions.RequestException as e:
                 logger.warning(
                     f"Elasticsearch audit index not reachable at {passthrough.base_url}: {e}"
@@ -1275,21 +1259,13 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 "success": True,
                 "total": results["total"],
                 "query_time_ms": results["query_time_ms"],
-                "results": results["results"][:limit],
+                "results": results["results"],
                 "query": query,
                 "translated_query": results.get("translated_query", ""),
             }
 
             return json.dumps(response, indent=2)
 
-        except PermissionError as e:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": "Permission denied",
-                    "message": "Only administrators can access audit logs",
-                }
-            )
         except Exception as e:
             logger.error(f"Audit search error: {e}")
             return json.dumps(
