@@ -133,6 +133,10 @@ The Docker container supports configurable server modes through environment vari
 - `MCP_PORT`: Server port (default: `8181`)
 - `MCP_HOST`: Server host (default: `0.0.0.0`)
 
+> **Note:** The `sse` transport is deprecated in FastMCP and scheduled for
+> removal in a future release. New deployments should use `MCP_MODE=http`
+> (streamable-HTTP). The `sse` default is retained for backward compatibility.
+
 ```bash
 # Run in HTTP mode
 docker run -p 8181:8181 \

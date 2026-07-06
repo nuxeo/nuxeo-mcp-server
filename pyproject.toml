@@ -16,7 +16,7 @@ authors = [
     {name = "Nuxeo MCP Team", email = "example@example.com"}
 ]
 dependencies = [
-    "fastmcp>=2.9.0",
+    "fastmcp>=3.4.3,<4",
     "nuxeo[oauth2]>=6.0.0",
     "docker>=7.0.0",
     "pillow>=10.0.0",
