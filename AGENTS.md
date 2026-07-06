@@ -251,7 +251,7 @@ The server binary (`nuxeo-mcp`) supports three transport modes:
 ```bash
 nuxeo-mcp                          # stdio (default, for MCP clients)
 nuxeo-mcp --http --port 8080       # Streamable-HTTP
-nuxeo-mcp --sse  --port 8080       # SSE
+nuxeo-mcp --sse  --port 8080       # SSE (deprecated, use --http instead)
 nuxeo-mcp --oauth2                 # Enable OAuth2 auth (any transport)
 nuxeo-mcp --oauth2 --no-browser    # OAuth2 without browser popup
 ```

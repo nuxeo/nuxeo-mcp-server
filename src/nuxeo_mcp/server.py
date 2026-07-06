@@ -174,7 +174,11 @@ def main() -> None:
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Nuxeo MCP Server")
     parser.add_argument("--http", action="store_true", help="Run in HTTP mode")
-    parser.add_argument("--sse", action="store_true", help="Run in SSE mode")
+    parser.add_argument(
+        "--sse",
+        action="store_true",
+        help="Run in SSE mode (DEPRECATED: use --http streamable-http instead)",
+    )
     parser.add_argument(
         "--port", type=int, default=8080, help="HTTP port (default: 8080)"
     )
@@ -242,9 +246,16 @@ def main() -> None:
             sys.exit(1)
 
     elif args.sse:
+        # SSE transport is deprecated in FastMCP (the sse_app helper was removed
+        # in 3.x) and is expected to be dropped in a future major release.
+        # streamable-http is the supported HTTP transport; --sse is retained only
+        # for backward compatibility with existing clients.
+        logger.warning(
+            "SSE mode is deprecated and will be removed in a future release; "
+            "migrate clients to --http (streamable-http)."
+        )
         logger.info(f"Starting MCP server in SSE mode on {args.host}:{args.port}")
         try:
-            # Run the server with streamable-http transport
             server.mcp.run(
                 transport="sse",
                 host=args.host,
