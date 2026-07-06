@@ -173,8 +173,12 @@ def main() -> None:
     """Run the Nuxeo MCP server."""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Nuxeo MCP Server")
-    parser.add_argument("--http", action="store_true", help="Run in HTTP mode")
-    parser.add_argument(
+    # --http and --sse select mutually exclusive transport modes; rejecting both
+    # up front avoids one silently overriding the other (and hiding the SSE
+    # deprecation warning).
+    transport_group = parser.add_mutually_exclusive_group()
+    transport_group.add_argument("--http", action="store_true", help="Run in HTTP mode")
+    transport_group.add_argument(
         "--sse",
         action="store_true",
         help="Run in SSE mode (DEPRECATED: use --http streamable-http instead)",
