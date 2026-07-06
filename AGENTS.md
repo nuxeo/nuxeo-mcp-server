@@ -49,6 +49,13 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+> **Note:** `fastmcp` (3.4.x) and its `fastmcp-slim` dependency install into the
+> same `fastmcp/` import namespace. Repeated in-place `uv sync` / reinstall churn
+> can leave that namespace in a broken state (`ImportError: cannot import name
+> 'FastMCP' from 'fastmcp'`, missing `__init__.py`). If that happens, rebuild the
+> environment cleanly: `rm -rf .venv && uv sync --frozen --extra dev`. A clean
+> install always resolves it, which is why CI (fresh env) is unaffected.
+
 ## Build
 
 ```bash
@@ -354,6 +361,7 @@ All workflows use the composite action `.github/actions/setup-and-install-dep` f
 | OAuth2 token not refreshed | Check `TokenManager.get_valid_token()` — it handles refresh automatically |
 | Tool not appearing in MCP client | Verify it is registered inside `register_tools()`, not at module level |
 | NXQL syntax error from natural_search | Test the query via `NaturalLanguageParser` directly before wiring to the tool |
+| `ImportError: cannot import name 'FastMCP' from 'fastmcp'` | `fastmcp`/`fastmcp-slim` share one namespace; in-place reinstalls can break it. Rebuild clean: `rm -rf .venv && uv sync --frozen --extra dev` |
 
 ### Dependency Management
 
