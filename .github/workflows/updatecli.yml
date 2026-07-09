@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Updatecli
-        uses: Alfresco/alfresco-build-tools/.github/actions/setup-updatecli@b42eaadc14488d930fe075b0b6efa5403a407ce3 # v18.16.0
+        uses: Alfresco/alfresco-build-tools/.github/actions/setup-updatecli@1d45cf78775e35e499c9fc8df3a040bfa7a1d87b # v18.17.0
       
       - name: Run Updatecli
         env:
