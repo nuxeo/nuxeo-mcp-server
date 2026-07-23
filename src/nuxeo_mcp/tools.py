@@ -1297,7 +1297,7 @@ def register_tools(
         include_chunks: bool = True,
     ) -> str:
         """
-        [REQUIRES VECTOR INDEX] Search documents by meaning (semantic / vector search).
+        [REQUIRES VECTOR INDEX — Nuxeo 2025.22+] Search documents by meaning (semantic / vector search).
 
         Unlike keyword search, this matches on the *meaning* of the query rather than exact
         terms, so it retrieves relevant documents even when they use different wording. The
@@ -1310,6 +1310,10 @@ def register_tools(
         the calling user's ACLs server-side. The matching passage of each document is returned
         as ``chunks`` (from the Nuxeo ``highlight`` enricher).
 
+        Each result includes a ``score`` field (cosine similarity, 0–1 range, higher is better)
+        that reflects how closely the document matches the query. Use it to filter out low-
+        relevance results: scores above ~0.7 are typically a strong match, below ~0.4 are weak.
+
         When to use which search tool:
         - ``semantic_search`` — conceptual / "find documents about X" / cross-lingual queries.
         - ``search`` / ``natural_search`` — exact metadata, dates, authors, NXQL.
@@ -1320,9 +1324,10 @@ def register_tools(
         stronger for exact terms, proper names, and very short tokens; for those, prefer
         ``search_repository``.
 
-        Requires a Nuxeo server with the vector search client configured (Nuxeo 2025 + the
-        ``nuxeo-search-client-opensearch2-vector`` package). On servers without it (e.g. 2023),
-        this tool returns an error pointing to the keyword search tools.
+        Requires a Nuxeo server with the vector search client configured (Nuxeo 2025.22+ and
+        the ``nuxeo-search-client-opensearch2-vector`` package). Score reporting via the
+        ``score`` enricher was introduced in Nuxeo 2025.22 (NXP-33775); earlier versions and
+        servers without the vector package return an error pointing to the keyword search tools.
 
         Args:
             query: Free-text query in any supported language (e.g. "contract termination clause").
@@ -1332,9 +1337,9 @@ def register_tools(
 
         Returns:
             JSON string with keys: ``success``, ``total`` (resultsCount), ``query`` and
-            ``results`` (a list of ``{title, path, uid, chunks}``, ordered by relevance —
-            best match first). On failure,
-            ``{success: false, error, message, alternative_tools}``.
+            ``results`` (a list of ``{title, path, uid, score, chunks}``, ordered by relevance —
+            best match first). ``score`` is a float in ~0..1 range (cosine similarity).
+            On failure, ``{success: false, error, message, alternative_tools}``.
         """
         # Clamp paging to safe bounds.
         if pageSize > 100:
@@ -1348,11 +1353,12 @@ def register_tools(
             # Route the built-in 'default_search' page provider to the vector index via the
             # 'index' override parameter. The neural query is built server-side by the vector
             # client, so no model id is needed here, and ACLs are applied for the authenticated
-            # user. The 'highlight' enricher returns the best-matching chunk text per document.
+            # user. The 'highlight' enricher returns the best-matching chunk text per document;
+            # the 'score' enricher (Nuxeo 2025.22+, NXP-33775) exposes the cosine similarity.
             response = nuxeo.client.request(
                 "GET",
                 "api/v1/search/pp/default_search/execute",
-                headers={"enrichers-document": "highlight"},
+                headers={"enrichers-document": "highlight, score"},
                 params={
                     "ecm_fulltext": query,
                     "index": "vector",
@@ -1366,14 +1372,16 @@ def register_tools(
 
             results = []
             for entry in data.get("entries", []):
-                item = {
+                ctx = entry.get("contextParameters", {})
+                item: dict[str, object] = {
                     "title": entry.get("title"),
                     "path": entry.get("path"),
                     "uid": entry.get("uid"),
+                    "score": ctx.get("score"),
                 }
                 if include_chunks:
                     chunks = []
-                    for hl in entry.get("contextParameters", {}).get("highlight", []):
+                    for hl in ctx.get("highlight", []):
                         for segment in hl.get("segments") or []:
                             text = (segment or "").replace("\n", " ").strip()
                             if text:
@@ -1409,8 +1417,8 @@ def register_tools(
                         "success": False,
                         "error": "Vector search not available",
                         "message": (
-                            "Semantic search requires the Nuxeo vector search client "
-                            "(Nuxeo 2025 + nuxeo-search-client-opensearch2-vector). "
+                            "Semantic search requires Nuxeo 2025.22+ with the vector search "
+                            "client (nuxeo-search-client-opensearch2-vector). "
                             f"Server response (HTTP {status}): {server_message}"
                         ),
                         "alternative_tools": [
