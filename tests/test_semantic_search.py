@@ -4,7 +4,8 @@
 These tests mock the Nuxeo client's ``request`` method so they run without a live
 server (collected under ``--no-integration``). They cover the success path (entries
 mapped to results with extracted chunks and relevance score), the ``include_chunks``
-toggle, page-size clamping, the graceful fallback when the vector index is not
+toggle, page-size clamping, the ``nxql_filter`` override (default and custom), single-
+quote escaping in the query text, the graceful fallback when the vector index is not
 configured (e.g. on Nuxeo 2023 or 2025 < 2025.22), where the page provider rejects
 the ``index=vector`` override with a 4xx, and that a genuine 5xx server error is
 surfaced as a generic failure rather than the "not configured" fallback.
@@ -101,12 +102,64 @@ def test_semantic_search_success_maps_entries_and_chunks() -> None:
     assert result["results"][1]["score"] == 0.42
     assert result["results"][1]["chunks"] == []
 
-    # The page provider is routed to the vector index via the 'index' override; both the
-    # 'highlight' and 'score' enrichers are requested (score requires Nuxeo 2025.22+).
+    # The search_check_nxql PP is used with the full NXQL as queryParams, routed to the
+    # vector index. Both the 'highlight' and 'score' enrichers are requested.
     _, kwargs = nuxeo.client.request.call_args
+    assert "search_check_nxql" in kwargs.get("url", "") or "search_check_nxql" in str(
+        nuxeo.client.request.call_args
+    )
     assert kwargs["params"]["index"] == "vector"
-    assert kwargs["params"]["ecm_fulltext"] == "termination clause"
+    assert "termination clause" in kwargs["params"]["queryParams"]
+    assert "ecm:isProxy=0" in kwargs["params"]["queryParams"]
+    assert "ecm:isVersion=0" in kwargs["params"]["queryParams"]
     assert kwargs["headers"]["enrichers-document"] == "highlight, score"
+    # The nxql sent is echoed back in the response.
+    assert "nxql" in result
+    assert "termination clause" in result["nxql"]
+
+
+def test_semantic_search_default_nxql_filter() -> None:
+    """Default nxql_filter excludes proxies and versions."""
+    nuxeo = _make_nuxeo({"resultsCount": 0, "entries": []})
+    fn = _register_and_capture(nuxeo)["semantic_search"]
+
+    _call(fn, "anything")
+
+    _, kwargs = nuxeo.client.request.call_args
+    nxql = kwargs["params"]["queryParams"]
+    assert "ecm:isProxy=0" in nxql
+    assert "ecm:isVersion=0" in nxql
+
+
+def test_semantic_search_custom_nxql_filter() -> None:
+    """Custom nxql_filter replaces the default — allows scoping by folder or type."""
+    nuxeo = _make_nuxeo({"resultsCount": 0, "entries": []})
+    fn = _register_and_capture(nuxeo)["semantic_search"]
+
+    _call(
+        fn,
+        "budget",
+        nxql_filter="ecm:ancestorId = 'uid-folder' AND ecm:primaryType = 'File' AND ecm:isProxy=0",
+    )
+
+    _, kwargs = nuxeo.client.request.call_args
+    nxql = kwargs["params"]["queryParams"]
+    assert "ecm:ancestorId = 'uid-folder'" in nxql
+    assert "ecm:primaryType = 'File'" in nxql
+    # The default filter is NOT present when overridden.
+    assert "ecm:isVersion=0" not in nxql
+
+
+def test_semantic_search_single_quote_escaping() -> None:
+    """Single quotes in the query text are doubled to keep the NXQL literal valid."""
+    nuxeo = _make_nuxeo({"resultsCount": 0, "entries": []})
+    fn = _register_and_capture(nuxeo)["semantic_search"]
+
+    _call(fn, "l'accord de confidentialité")
+
+    _, kwargs = nuxeo.client.request.call_args
+    nxql = kwargs["params"]["queryParams"]
+    assert "l''accord de confidentialité" in nxql
 
 
 def test_semantic_search_include_chunks_false_omits_chunks() -> None:
