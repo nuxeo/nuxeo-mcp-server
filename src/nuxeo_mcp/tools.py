@@ -1295,6 +1295,7 @@ def register_tools(
         pageSize: int = 10,
         currentPageIndex: int = 0,
         include_chunks: bool = True,
+        nxql_filter: str = "ecm:isProxy=0 AND ecm:isVersion=0",
     ) -> str:
         """
         [REQUIRES VECTOR INDEX — Nuxeo 2025.22+] Search documents by meaning (semantic / vector search).
@@ -1304,11 +1305,11 @@ def register_tools(
         underlying model is multilingual: a query in one language (e.g. French or German) can
         retrieve documents written in another (e.g. English).
 
-        How it works: the query is embedded by the Nuxeo server's OpenSearch ML model and run
-        as a k-NN neural search against a dedicated vector index built from the documents'
-        extracted full text. Results are document-level (chunks are collapsed) and filtered by
-        the calling user's ACLs server-side. The matching passage of each document is returned
-        as ``chunks`` (from the Nuxeo ``highlight`` enricher).
+        How it works: the full NXQL sent to the server is:
+            SELECT * FROM Document WHERE ecm:fulltext = '{query}' AND {nxql_filter}
+        The ``search_check_nxql`` page provider (a native searchServicePageProvider) routes
+        the query through the SearchService, which the vector client intercepts when
+        ``index=vector`` is set. ACLs are enforced server-side.
 
         Each result includes a ``score`` field (cosine similarity, 0–1 range, higher is better)
         that reflects how closely the document matches the query. Use it to filter out low-
@@ -1330,15 +1331,63 @@ def register_tools(
         servers without the vector package return an error pointing to the keyword search tools.
 
         Args:
-            query: Free-text query in any supported language (e.g. "contract termination clause").
+            query: Free-text query in any supported language. Prefer descriptive, multi-word
+                phrases over short keyword strings: the hybrid scoring combines neural (semantic)
+                similarity with BM25 keyword matching, and BM25 performs better when several
+                meaningful terms co-occur in the same chunk. A natural-language question or a
+                domain-rich phrase (e.g. "what causes musty cork taint in beer from chlorine and
+                mold" rather than "cork smell") yields better ranking and higher scores.
             pageSize: Maximum number of documents to return (default 10, max 100).
             currentPageIndex: Zero-based page index for pagination (default 0).
             include_chunks: Include the matching passage(s) of each document (default True).
+            nxql_filter: NXQL WHERE conditions appended after ``ecm:fulltext = '{query}' AND``.
+                Default: ``"ecm:isProxy=0 AND ecm:isVersion=0"`` — excludes proxies and versions.
+                Override this to scope or restrict the search. The vector client translates
+                predicates on scalar fields declared in the index mapping into OpenSearch filters;
+                unsupported predicates are silently skipped (not an error).
+
+                Supported field predicates:
+                  - ``ecm:primaryType`` — document type, e.g. ``ecm:primaryType = 'File'``
+                  - ``ecm:mixinType`` — facet, e.g. ``ecm:mixinType = 'Commentable'``
+                  - ``ecm:ancestorId`` — ancestor folder UUID (scopes search to a subtree),
+                    e.g. ``ecm:ancestorId = 'uid-of-folder'``
+                  - ``ecm:path STARTSWITH '/...'`` — path prefix filter,
+                    e.g. ``ecm:path STARTSWITH '/default-domain/workspaces/ProjectX'``
+                  - ``ecm:tag`` — tag value, e.g. ``ecm:tag = 'confidential'``
+                  - ``ecm:isProxy``, ``ecm:isVersion`` — boolean flags (0/1),
+                    e.g. ``ecm:isProxy=0 AND ecm:isVersion=0``
+                  - ``dc:modified`` — date range,
+                    e.g. ``dc:modified >= DATE '2024-01-01'``
+                  - Operators: ``=``, ``<>``, ``IN``, ``NOT IN``, ``IS NULL``, ``IS NOT NULL``,
+                    ``<``, ``<=``, ``>``, ``>=``, ``BETWEEN``, ``STARTSWITH``
+
+                FROM-clause shorthand (alternative to ecm:primaryType):
+                  The full NXQL is ``SELECT * FROM Document WHERE ecm:fulltext = '...' AND {nxql_filter}``.
+                  The ``FROM Document`` part is fixed; to filter by type use ``ecm:primaryType``.
+
+                Not supported (clause is skipped): ``OR``, ``NOT``, ``LIKE``, predicates on
+                non-indexed fields (e.g. ``dc:title``, ``dc:description``).
+
+                ``ORDER BY`` is always ignored — results are ranked by relevance score.
+
+                Single quotes inside string values must be escaped by doubling them (NXQL rule),
+                e.g. ``"dc:title = 'Dupont''s report'"`` for a value containing an apostrophe.
+
+                Examples:
+                  Scope to a folder:
+                    ``"ecm:ancestorId = 'uid-xxx' AND ecm:isProxy=0 AND ecm:isVersion=0"``
+                  Only File documents, no proxies/versions:
+                    ``"ecm:primaryType = 'File' AND ecm:isProxy=0 AND ecm:isVersion=0"``
+                  Combine folder + type + date:
+                    ``"ecm:ancestorId = 'uid-xxx' AND ecm:primaryType IN ('File', 'Note') AND dc:modified >= DATE '2024-01-01' AND ecm:isProxy=0 AND ecm:isVersion=0"``
+                  Path prefix:
+                    ``"ecm:path STARTSWITH '/default-domain/workspaces/ProjectX' AND ecm:isProxy=0 AND ecm:isVersion=0"``
 
         Returns:
-            JSON string with keys: ``success``, ``total`` (resultsCount), ``query`` and
-            ``results`` (a list of ``{title, path, uid, score, chunks}``, ordered by relevance —
-            best match first). ``score`` is a float in ~0..1 range (cosine similarity).
+            JSON string with keys: ``success``, ``total`` (resultsCount), ``query``,
+            ``nxql`` (the full NXQL sent) and ``results`` (a list of
+            ``{title, path, uid, score, chunks}``, ordered by relevance — best match first).
+            ``score`` is a float in ~0..1 range (cosine similarity).
             On failure, ``{success: false, error, message, alternative_tools}``.
         """
         # Clamp paging to safe bounds.
@@ -1349,18 +1398,23 @@ def register_tools(
         if currentPageIndex < 0:
             currentPageIndex = 0
 
+        # Escape single quotes in the query text to keep the NXQL literal valid.
+        escaped_query = query.replace("'", "''")
+        nxql = f"SELECT * FROM Document WHERE ecm:fulltext = '{escaped_query}' AND {nxql_filter}"
+
         try:
-            # Route the built-in 'default_search' page provider to the vector index via the
-            # 'index' override parameter. The neural query is built server-side by the vector
-            # client, so no model id is needed here, and ACLs are applied for the authenticated
-            # user. The 'highlight' enricher returns the best-matching chunk text per document;
-            # the 'score' enricher (Nuxeo 2025.22+, NXP-33775) exposes the cosine similarity.
+            # 'search_check_nxql' is a native searchServicePageProvider whose pattern is a
+            # bare "?", so the full NXQL is passed as 'queryParams'. Routing it to the vector
+            # index via 'index=vector' makes the SearchService delegate to the vector client,
+            # which embeds the ecm:fulltext value and runs k-NN, while still honouring any
+            # extra NXQL clauses (ecm:ancestorId, ecm:primaryType, ecm:path, …).
+            # The 'score' enricher (Nuxeo 2025.22+, NXP-33775) exposes cosine similarity.
             response = nuxeo.client.request(
                 "GET",
-                "api/v1/search/pp/default_search/execute",
+                "api/v1/search/pp/search_check_nxql/execute",
                 headers={"enrichers-document": "highlight, score"},
                 params={
-                    "ecm_fulltext": query,
+                    "queryParams": nxql,
                     "index": "vector",
                     "pageSize": pageSize,
                     "currentPageIndex": currentPageIndex,
@@ -1394,6 +1448,7 @@ def register_tools(
                     "success": True,
                     "total": data.get("resultsCount"),
                     "query": query,
+                    "nxql": nxql,
                     "results": results,
                 },
                 indent=2,
