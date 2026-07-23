@@ -3,11 +3,11 @@
 
 These tests mock the Nuxeo client's ``request`` method so they run without a live
 server (collected under ``--no-integration``). They cover the success path (entries
-mapped to results with extracted chunks), the ``include_chunks`` toggle, page-size
-clamping, the graceful fallback when the vector index is not configured (e.g. on
-Nuxeo 2023), where the page provider rejects the ``index=vector`` override with a 4xx,
-and that a genuine 5xx server error is surfaced as a generic failure rather than the
-"not configured" fallback.
+mapped to results with extracted chunks and relevance score), the ``include_chunks``
+toggle, page-size clamping, the graceful fallback when the vector index is not
+configured (e.g. on Nuxeo 2023 or 2025 < 2025.22), where the page provider rejects
+the ``index=vector`` override with a 4xx, and that a genuine 5xx server error is
+surfaced as a generic failure rather than the "not configured" fallback.
 """
 
 import asyncio
@@ -63,6 +63,7 @@ def test_semantic_search_success_maps_entries_and_chunks() -> None:
                     "path": "/default-domain/Contract.pdf",
                     "uid": "uid-1",
                     "contextParameters": {
+                        "score": 0.87,
                         "highlight": [
                             {
                                 "segments": [
@@ -70,14 +71,14 @@ def test_semantic_search_success_maps_entries_and_chunks() -> None:
                                     "second seg",
                                 ]
                             }
-                        ]
+                        ],
                     },
                 },
                 {
                     "title": "Notes.pdf",
                     "path": "/default-domain/Notes.pdf",
                     "uid": "uid-2",
-                    "contextParameters": {"highlight": []},
+                    "contextParameters": {"score": 0.42, "highlight": []},
                 },
             ],
         }
@@ -92,18 +93,20 @@ def test_semantic_search_success_maps_entries_and_chunks() -> None:
     assert len(result["results"]) == 2
     assert result["results"][0]["title"] == "Contract.pdf"
     assert result["results"][0]["uid"] == "uid-1"
+    assert result["results"][0]["score"] == 0.87
     assert result["results"][0]["chunks"] == [
         "the termination clause states",
         "second seg",
     ]
+    assert result["results"][1]["score"] == 0.42
     assert result["results"][1]["chunks"] == []
 
-    # The page provider is routed to the vector index via the 'index' override and the
-    # highlight enricher is requested.
+    # The page provider is routed to the vector index via the 'index' override; both the
+    # 'highlight' and 'score' enrichers are requested (score requires Nuxeo 2025.22+).
     _, kwargs = nuxeo.client.request.call_args
     assert kwargs["params"]["index"] == "vector"
     assert kwargs["params"]["ecm_fulltext"] == "termination clause"
-    assert kwargs["headers"]["enrichers-document"] == "highlight"
+    assert kwargs["headers"]["enrichers-document"] == "highlight, score"
 
 
 def test_semantic_search_include_chunks_false_omits_chunks() -> None:
