@@ -5,9 +5,10 @@ Nuxeo MCP Server resources.
 This module defines the resources for the Nuxeo MCP Server.
 """
 
+import json
 import logging
 import os
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Callable
 from nuxeo_mcp.utility import format_doc, return_blob
 
 # Configure logging
@@ -33,15 +34,14 @@ def register_resources(mcp, nuxeo) -> None:
         name="Nuxeo Server Information",
         description="Basic information about the connected Nuxeo server",
     )
-    def get_nuxeo_info() -> Dict[str, Any]:
+    def get_nuxeo_info() -> str:
         """
         Get basic information about the Nuxeo server.
 
         Returns:
-            Basic information about the Nuxeo server
+            JSON string with basic Nuxeo server information
         """
         try:
-            # Get server information from the Nuxeo client
             try:
                 server_info = nuxeo.client.server_info()
                 version = server_info.get("productVersion", "Unknown")
@@ -53,10 +53,10 @@ def register_resources(mcp, nuxeo) -> None:
                 "connected": True,
                 "version": version,
             }
-            return info
+            return json.dumps(info)
         except Exception as e:
             logger.error(f"Error getting Nuxeo info: {e}")
-            return {"error": str(e)}
+            return json.dumps({"error": str(e)})
 
     @mcp.resource(
         uri="nuxeo://{uid}",
@@ -85,10 +85,12 @@ def register_resources(mcp, nuxeo) -> None:
             adapter = parts[0]
             adapter_param = None
             if len(parts) > 1:
-                adapter_param = adapter_path[len[adapter] :]
+                adapter_param = adapter_path[len(adapter) :]
 
+            # Fetch the document by path to get its uid
+            doc = nuxeo.documents.get(path=path)
             return get_document_with_dapater(
-                uid, adapter=adapter, adapter_param=adapter_param
+                doc.uid, adapter=adapter, adapter_param=adapter_param
             )
 
         return format_doc(nuxeo.documents.get(path=path).as_dict())
@@ -102,13 +104,13 @@ def register_resources(mcp, nuxeo) -> None:
         uid: str, adapter: str, adapter_param: str | None
     ) -> Dict[str, Any]:
 
-        uid = uid.trim()
+        uid = uid.strip()
 
         uri: str = f"api/v1/repo/default/id/{uid}/@{adapter}"
         if adapter_param:
             uri = f"{uri}/{adapter_param}"
 
-        print(f"CALLING adapter api on {uri}")
+        logger.debug("Calling adapter API: %s", uri)
         r = nuxeo.client.request("GET", uri)
 
         disposition = r.headers.get("content-disposition", None)
@@ -133,30 +135,21 @@ def register_resources(mcp, nuxeo) -> None:
         name="NXQL Query Language Guide",
         description="Comprehensive documentation for NXQL (Nuxeo Query Language) syntax and usage",
     )
-    def get_nxql_guide() -> Dict[str, Any]:
+    def get_nxql_guide() -> str:
         """
         Get the NXQL guide documentation.
 
         Returns:
-            The NXQL guide content or error message
+            The NXQL guide markdown content or a JSON error string
         """
         try:
-            # Get the path to the NXQL guide file
             guide_path = os.path.join(os.path.dirname(__file__), "../../specs/19_nxql_guide.md")
 
-            # Read the guide content
             if os.path.exists(guide_path):
                 with open(guide_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                return {
-                    "content": content,
-                    "format": "markdown",
-                    "title": "NXQL Query Language Guide",
-                    "description": "Complete reference for NXQL syntax, operators, properties, and MongoDB limitations",
-                }
+                    return f.read()
             else:
-                return {"error": "NXQL guide file not found", "path": guide_path}
+                return json.dumps({"error": "NXQL guide file not found", "path": guide_path})
         except Exception as e:
             logger.error(f"Error reading NXQL guide: {e}")
-            return {"error": str(e)}
+            return json.dumps({"error": str(e)})
