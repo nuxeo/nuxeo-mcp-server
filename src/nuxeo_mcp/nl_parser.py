@@ -716,6 +716,10 @@ class NaturalLanguageParser:
                         "fragment_size": highlight_fragment_size,
                         "number_of_fragments": highlight_number_of_fragments,
                     },
+                    "note:note": {
+                        "fragment_size": highlight_fragment_size,
+                        "number_of_fragments": highlight_number_of_fragments,
+                    },
                 }
             }
 

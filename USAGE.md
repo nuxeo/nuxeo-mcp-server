@@ -90,6 +90,7 @@ The Nuxeo MCP Server provides the following tools:
 - `search`: Search for documents using NXQL queries
 - `natural_search`: Search for documents using natural language queries (automatically converted to NXQL)
 - `search_repository`: **NEW** - Search the Nuxeo repository using Elasticsearch with natural language and ACL filtering
+- `semantic_search`: **NEW** - Semantic (vector) search by meaning; multilingual and cross-lingual (requires Nuxeo 2025 + the vector search client)
 - `search_audit`: **NEW** - Search audit logs using natural language (administrators only)
 - `get_document`: Get a document by path or ID, with options for blob and renditions
 - `create_document`: Create a new document
@@ -179,6 +180,44 @@ result = use_tool("nuxeo", "search_repository", {
     "query": "water chemistry pH",
     "limit": 3,
     "source_fields": ["ecm:binarytext"],   # include full extracted text in results
+})
+```
+
+### Semantic (Vector) Search (NEW)
+
+Semantic search matches on the *meaning* of the query rather than exact keywords, and is
+multilingual: a query in one language can retrieve documents written in another. It runs a
+k-NN neural search over a dedicated vector index built from the documents' extracted full
+text, with results filtered by the calling user's ACLs. The matching passage of each
+document is returned in `chunks`.
+
+Requires a Nuxeo 2025 server with the vector search client configured (the
+`nuxeo-search-client-opensearch2-vector` package). On servers without it (e.g. 2023), the
+tool returns `{"success": false, "error": "Vector search not available", ...}` pointing to
+the keyword search tools.
+
+Use `semantic_search` for conceptual / "find documents about X" / cross-lingual queries;
+use `search_repository` (keyword/BM25) for exact terms, proper names, and codes.
+
+```python
+from fastmcp import use_tool
+
+# Find documents by meaning (cross-lingual: a French query can match English documents)
+result = use_tool("nuxeo", "semantic_search", {
+    "query": "résiliation de contrat",
+    "pageSize": 10
+})
+
+for doc in result['results']:
+    print(f"{doc['title']}  ({doc['path']})")
+    for chunk in doc.get('chunks', []):
+        print(f"  matched: {chunk}")
+
+# Omit the matching passages for a lighter response
+result = use_tool("nuxeo", "semantic_search", {
+    "query": "budget report",
+    "pageSize": 5,
+    "include_chunks": False
 })
 ```
 
