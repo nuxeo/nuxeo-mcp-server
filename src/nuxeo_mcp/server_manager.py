@@ -4,13 +4,16 @@ and maintains context about which server is currently active.
 """
 
 import json
-import os
 from typing import Dict, Optional, Any
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Name of the default server activated on first run
+DEFAULT_SERVER_NAME = "local"
+
 
 @dataclass
 class ServerConfig:
@@ -70,7 +73,7 @@ class ServerManager:
         """Initialize with default server configurations."""
         default_servers = [
             ServerConfig(
-                name="local",
+                name=DEFAULT_SERVER_NAME,
                 url="http://localhost:8080/nuxeo",
                 username="Administrator",
                 password="Administrator",
@@ -90,8 +93,7 @@ class ServerManager:
         for server in default_servers:
             self.add_server(server)
         
-        # Set demo as active by default
-        self.set_active_server("demo")
+        self.set_active_server(DEFAULT_SERVER_NAME)
         self._save_config()
         self._save_context()
     
