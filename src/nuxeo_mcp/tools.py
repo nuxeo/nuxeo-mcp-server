@@ -5,20 +5,22 @@ Nuxeo MCP Server tools.
 This module defines the tools for the Nuxeo MCP Server.
 """
 
-import logging
 import json
+import logging
 import os
-from typing import Any, Dict, Optional, Callable, List, Annotated
+from typing import Annotated, Any, Callable, Dict, List, Optional
+
+from mcp.types import ImageContent as Image
+from nuxeo.models import Document
+from pydantic import BaseModel, Field, model_validator
+
 from nuxeo_mcp.utility import (
     format,
-    format_docs,
     format_doc,
-    return_blob,
+    format_docs,
     is_uuid,
+    return_blob,
 )
-from nuxeo.models import Document
-from mcp.types import ImageContent as Image
-from pydantic import BaseModel, Field, model_validator
 
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.tools")
@@ -44,7 +46,9 @@ from typing import Union
 ES_PROBE_TIMEOUT = 10
 
 
-def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool = False) -> None:
+def register_tools(
+    mcp, nuxeo, auth_middleware=None, skip_server_selection: bool = False
+) -> None:
     """
     Register MCP tools with the FastMCP server.
 
@@ -338,6 +342,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
             # Upload the file and use it as input
             from nuxeo.models import FileBlob
+
             blob = FileBlob(file_path)
             uploaded = nuxeo.uploads.batch().upload(blob, chunked=True)
             operation.input_obj = uploaded
@@ -445,6 +450,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
             # Upload file to batch
             from nuxeo.models import FileBlob
+
             blob = FileBlob(file_path)
             batch = nuxeo.uploads.batch().upload(blob, chunked=True)
 
@@ -463,8 +469,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
         # Return a structured response with document information
         # Get title from properties or use the name as fallback
-        doc_title = doc.properties.get("dc:title", name) if hasattr(doc, 'properties') else name
-        
+        doc_title = (
+            doc.properties.get("dc:title", name) if hasattr(doc, "properties") else name
+        )
+
         return {
             "status": "success",
             "message": f"Document '{name}' created successfully",
@@ -473,7 +481,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             "title": doc_title,
             "type": type,
             "url": f"{nuxeo.client.host}/ui/#!/browse{doc.path}",
-            "details": format_doc(doc)  # Include full formatted details as a string
+            "details": format_doc(doc),  # Include full formatted details as a string
         }
 
     @mcp.tool(
@@ -774,9 +782,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         description="Move a document to a different location in the Nuxeo repository",
     )
     def move_document(
-        document_uid: str,
-        target_path: str,
-        new_name: str = None
+        document_uid: str, target_path: str, new_name: str = None
     ) -> Dict[str, Any]:
         """
         Move a document to a different location in the Nuxeo repository.
@@ -830,10 +836,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         operation = nuxeo.operations.new("Document.Move")
         operation.params = params
         operation.input_obj = f"doc:{document_uid}"
-        
+
         # Execute the operation
         result = operation.execute()
-        
+
         # Format and return the result
         if hasattr(result, "uid"):
             return {
@@ -841,14 +847,18 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 "message": f"Document moved successfully to {target_path}",
                 "uid": result.uid,
                 "path": result.path,
-                "title": result.properties.get("dc:title", "") if hasattr(result, 'properties') else "",
-                "url": f"{nuxeo.client.host}/ui/#!/browse{result.path}"
+                "title": (
+                    result.properties.get("dc:title", "")
+                    if hasattr(result, "properties")
+                    else ""
+                ),
+                "url": f"{nuxeo.client.host}/ui/#!/browse{result.path}",
             }
         else:
             return {
                 "status": "success",
                 "message": f"Document moved to {target_path}",
-                "details": str(result)
+                "details": str(result),
             }
 
     @mcp.tool(
@@ -967,20 +977,18 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             # Execute the generated NXQL query directly using Nuxeo client
             # Note: We need to handle LIMIT separately as it's not part of NXQL
             effective_page_size = (
-                parsed.limit
-                if parsed.limit and parsed.limit < pageSize
-                else pageSize
+                parsed.limit if parsed.limit and parsed.limit < pageSize else pageSize
             )
-            
+
             # Execute the NXQL query directly
             query_result = nuxeo.client.query(
                 nxql,
                 params={
                     "pageSize": effective_page_size,
-                    "currentPageIndex": currentPageIndex
-                }
+                    "currentPageIndex": currentPageIndex,
+                },
             )
-            
+
             # Format the result based on content_type
             if content_type == "text/markdown":
                 result = format_query_results(query_result)
@@ -990,7 +998,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                     "resultsCount": query_result.get("resultsCount", 0),
                     "currentPageIndex": query_result.get("currentPageIndex", 0),
                     "pageSize": query_result.get("pageSize", effective_page_size),
-                    "entries": query_result.get("entries", [])
+                    "entries": query_result.get("entries", []),
                 }
 
             # Add metadata about the natural language processing
@@ -1047,13 +1055,20 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             return result
 
     @mcp.tool()
-    async def search_repository(query: str, limit: int = 20, offset: int = 0, source_fields: Optional[List[str]] = None, highlight_fragment_size: int = 150, highlight_number_of_fragments: int = 3) -> str:
+    async def search_repository(
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+        source_fields: Optional[List[str]] = None,
+        highlight_fragment_size: int = 150,
+        highlight_number_of_fragments: int = 3,
+    ) -> str:
         """
         [REQUIRES ELASTICSEARCH] Search the Nuxeo repository using Elasticsearch passthrough.
 
         This tool provides direct Elasticsearch access for advanced search capabilities.
         It requires Elasticsearch to be configured and accessible on your Nuxeo server.
-        
+
         ⚠️ For most use cases, use 'natural_search' or 'search' tools instead, which work
         without Elasticsearch and use Nuxeo's built-in query capabilities.
 
@@ -1076,8 +1091,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         """
         try:
             # Import here to avoid circular dependency
-            from .es_passthrough import ElasticsearchPassthrough
             import requests
+
+            from .es_passthrough import ElasticsearchPassthrough
 
             # Limit max results
             if limit > 100:
@@ -1093,9 +1109,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             # Initialize passthrough with Nuxeo URL and auth from the active client
             nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
             auth = nuxeo.client.auth
-            
+
             passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
-            
+
             # Check if Elasticsearch is accessible through Nuxeo passthrough
             try:
                 # Test with a simple match_all query
@@ -1192,8 +1208,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         """
         try:
             # Import here to avoid circular dependency
-            from .es_passthrough import ElasticsearchPassthrough
             import requests
+
+            from .es_passthrough import ElasticsearchPassthrough
 
             # Limit max results
             if limit > 100:
@@ -1205,7 +1222,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             # Initialize passthrough with Nuxeo URL and auth from the active client
             nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
             auth = nuxeo.client.auth
-            
+
             passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
 
             # Check if Elasticsearch audit index is accessible and user has permission.
@@ -1272,6 +1289,214 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 {"success": False, "error": "Audit search failed", "message": str(e)}
             )
 
+    @mcp.tool()
+    async def semantic_search(
+        query: str,
+        pageSize: int = 10,
+        currentPageIndex: int = 0,
+        include_chunks: bool = True,
+        nxql_filter: str = "ecm:isProxy=0 AND ecm:isVersion=0",
+    ) -> str:
+        """
+        [REQUIRES VECTOR INDEX — Nuxeo 2025.22+] Search documents by meaning (semantic / vector search).
+
+        Unlike keyword search, this matches on the *meaning* of the query rather than exact
+        terms, so it retrieves relevant documents even when they use different wording. The
+        underlying model is multilingual: a query in one language (e.g. French or German) can
+        retrieve documents written in another (e.g. English).
+
+        How it works: the full NXQL sent to the server is:
+            SELECT * FROM Document WHERE ecm:fulltext = '{query}' AND {nxql_filter}
+        The ``search_check_nxql`` page provider (a native searchServicePageProvider) routes
+        the query through the SearchService, which the vector client intercepts when
+        ``index=vector`` is set. ACLs are enforced server-side.
+
+        Each result includes a ``score`` field (cosine similarity, 0–1 range, higher is better)
+        that reflects how closely the document matches the query. Use it to filter out low-
+        relevance results: scores above ~0.7 are typically a strong match, below ~0.4 are weak.
+
+        When to use which search tool:
+        - ``semantic_search`` — conceptual / "find documents about X" / cross-lingual queries.
+        - ``search`` / ``natural_search`` — exact metadata, dates, authors, NXQL.
+        - ``search_repository`` — keyword (BM25) full-text; best for exact terms, names, codes.
+
+        Ranking is hybrid: the server fuses BM25 keyword scores with the neural (vector)
+        scores, so exact-term matches are still weighted. Even so, pure keyword search can be
+        stronger for exact terms, proper names, and very short tokens; for those, prefer
+        ``search_repository``.
+
+        Requires a Nuxeo server with the vector search client configured (Nuxeo 2025.22+ and
+        the ``nuxeo-search-client-opensearch2-vector`` package). Score reporting via the
+        ``score`` enricher was introduced in Nuxeo 2025.22 (NXP-33775); earlier versions and
+        servers without the vector package return an error pointing to the keyword search tools.
+
+        Args:
+            query: Free-text query in any supported language. Prefer descriptive, multi-word
+                phrases over short keyword strings: the hybrid scoring combines neural (semantic)
+                similarity with BM25 keyword matching, and BM25 performs better when several
+                meaningful terms co-occur in the same chunk. A natural-language question or a
+                domain-rich phrase (e.g. "what causes musty cork taint in beer from chlorine and
+                mold" rather than "cork smell") yields better ranking and higher scores.
+            pageSize: Maximum number of documents to return (default 10, max 100).
+            currentPageIndex: Zero-based page index for pagination (default 0).
+            include_chunks: Include the matching passage(s) of each document (default True).
+            nxql_filter: NXQL WHERE conditions appended after ``ecm:fulltext = '{query}' AND``.
+                Default: ``"ecm:isProxy=0 AND ecm:isVersion=0"`` — excludes proxies and versions.
+                Override this to scope or restrict the search. The vector client translates
+                predicates on scalar fields declared in the index mapping into OpenSearch filters;
+                unsupported predicates are silently skipped (not an error).
+
+                Supported field predicates:
+                  - ``ecm:primaryType`` — document type, e.g. ``ecm:primaryType = 'File'``
+                  - ``ecm:mixinType`` — facet, e.g. ``ecm:mixinType = 'Commentable'``
+                  - ``ecm:ancestorId`` — ancestor folder UUID (scopes search to a subtree),
+                    e.g. ``ecm:ancestorId = 'uid-of-folder'``
+                  - ``ecm:path STARTSWITH '/...'`` — path prefix filter,
+                    e.g. ``ecm:path STARTSWITH '/default-domain/workspaces/ProjectX'``
+                  - ``ecm:tag`` — tag value, e.g. ``ecm:tag = 'confidential'``
+                  - ``ecm:isProxy``, ``ecm:isVersion`` — boolean flags (0/1),
+                    e.g. ``ecm:isProxy=0 AND ecm:isVersion=0``
+                  - ``dc:modified`` — date range,
+                    e.g. ``dc:modified >= DATE '2024-01-01'``
+                  - Operators: ``=``, ``<>``, ``IN``, ``NOT IN``, ``IS NULL``, ``IS NOT NULL``,
+                    ``<``, ``<=``, ``>``, ``>=``, ``BETWEEN``, ``STARTSWITH``
+
+                FROM-clause shorthand (alternative to ecm:primaryType):
+                  The full NXQL is ``SELECT * FROM Document WHERE ecm:fulltext = '...' AND {nxql_filter}``.
+                  The ``FROM Document`` part is fixed; to filter by type use ``ecm:primaryType``.
+
+                Not supported (clause is skipped): ``OR``, ``NOT``, ``LIKE``, predicates on
+                non-indexed fields (e.g. ``dc:title``, ``dc:description``).
+
+                ``ORDER BY`` is always ignored — results are ranked by relevance score.
+
+                Single quotes inside string values must be escaped by doubling them (NXQL rule),
+                e.g. ``"dc:title = 'Dupont''s report'"`` for a value containing an apostrophe.
+
+                Examples:
+                  Scope to a folder:
+                    ``"ecm:ancestorId = 'uid-xxx' AND ecm:isProxy=0 AND ecm:isVersion=0"``
+                  Only File documents, no proxies/versions:
+                    ``"ecm:primaryType = 'File' AND ecm:isProxy=0 AND ecm:isVersion=0"``
+                  Combine folder + type + date:
+                    ``"ecm:ancestorId = 'uid-xxx' AND ecm:primaryType IN ('File', 'Note') AND dc:modified >= DATE '2024-01-01' AND ecm:isProxy=0 AND ecm:isVersion=0"``
+                  Path prefix:
+                    ``"ecm:path STARTSWITH '/default-domain/workspaces/ProjectX' AND ecm:isProxy=0 AND ecm:isVersion=0"``
+
+        Returns:
+            JSON string with keys: ``success``, ``total`` (resultsCount), ``query``,
+            ``nxql`` (the full NXQL sent) and ``results`` (a list of
+            ``{title, path, uid, score, chunks}``, ordered by relevance — best match first).
+            ``score`` is a float in ~0..1 range (cosine similarity).
+            On failure, ``{success: false, error, message, alternative_tools}``.
+        """
+        # Clamp paging to safe bounds.
+        if pageSize > 100:
+            pageSize = 100
+        if pageSize < 1:
+            pageSize = 1
+        if currentPageIndex < 0:
+            currentPageIndex = 0
+
+        # Escape single quotes in the query text to keep the NXQL literal valid.
+        escaped_query = query.replace("'", "''")
+        nxql = f"SELECT * FROM Document WHERE ecm:fulltext = '{escaped_query}' AND {nxql_filter}"
+
+        try:
+            # 'search_check_nxql' is a native searchServicePageProvider whose pattern is a
+            # bare "?", so the full NXQL is passed as 'queryParams'. Routing it to the vector
+            # index via 'index=vector' makes the SearchService delegate to the vector client,
+            # which embeds the ecm:fulltext value and runs k-NN, while still honouring any
+            # extra NXQL clauses (ecm:ancestorId, ecm:primaryType, ecm:path, …).
+            # The 'score' enricher (Nuxeo 2025.22+, NXP-33775) exposes cosine similarity.
+            response = nuxeo.client.request(
+                "GET",
+                "api/v1/search/pp/search_check_nxql/execute",
+                headers={"enrichers-document": "highlight, score"},
+                params={
+                    "queryParams": nxql,
+                    "index": "vector",
+                    "pageSize": pageSize,
+                    "currentPageIndex": currentPageIndex,
+                },
+            )
+
+            # nuxeo.client.request returns a requests.Response (it does not parse the body).
+            data = response.json()
+
+            results = []
+            for entry in data.get("entries", []):
+                ctx = entry.get("contextParameters", {})
+                item: dict[str, object] = {
+                    "title": entry.get("title"),
+                    "path": entry.get("path"),
+                    "uid": entry.get("uid"),
+                    "score": ctx.get("score"),
+                }
+                if include_chunks:
+                    chunks = []
+                    for hl in ctx.get("highlight", []):
+                        for segment in hl.get("segments") or []:
+                            text = (segment or "").replace("\n", " ").strip()
+                            if text:
+                                chunks.append(text)
+                    item["chunks"] = chunks
+                results.append(item)
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "total": data.get("resultsCount"),
+                    "query": query,
+                    "nxql": nxql,
+                    "results": results,
+                },
+                indent=2,
+            )
+
+        except Exception as e:
+            # Nuxeo's client raises nuxeo.exceptions.HTTPError (with .status/.message)
+            # parsed from the server's exception body. When the vector index is not
+            # configured (e.g. on 2023), the page provider rejects the 'index=vector'
+            # override with a 4xx; surface a friendly hint toward the keyword tools.
+            # A 5xx (e.g. 500) is a genuine server-side failure, not a "not configured"
+            # signal, so it falls through to the generic failure branch below.
+            status = getattr(e, "status", None)
+            server_message = getattr(e, "message", None) or str(e)
+            if status in (400, 404):
+                logger.warning(
+                    f"Semantic search unavailable (HTTP {status}): {server_message}"
+                )
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": "Vector search not available",
+                        "message": (
+                            "Semantic search requires Nuxeo 2025.22+ with the vector search "
+                            "client (nuxeo-search-client-opensearch2-vector). "
+                            f"Server response (HTTP {status}): {server_message}"
+                        ),
+                        "alternative_tools": [
+                            "search_repository",
+                            "natural_search",
+                            "search",
+                        ],
+                    }
+                )
+            logger.error(f"Semantic search error: {e}")
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "Semantic search failed",
+                    "message": str(e),
+                    "alternative_tools": [
+                        "search_repository",
+                        "natural_search",
+                        "search",
+                    ],
+                }
+            )
+
     """
     Register MCP tools with the FastMCP server.
 
@@ -1280,27 +1505,28 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         nuxeo: The Nuxeo client instance
         auth_middleware: Optional authentication middleware to wrap tools
     """
-    
+
     # Import server manager
-    from nuxeo_mcp.server_manager import get_server_manager, ServerConfig
     from nuxeo.client import Nuxeo
-    
+
+    from nuxeo_mcp.server_manager import ServerConfig, get_server_manager
+
     # Get the global server manager
     server_manager = get_server_manager()
-    
+
     # Create a mutable container for the Nuxeo client
     # This allows us to switch servers dynamically
     class NuxeoClientContainer:
         def __init__(self, initial_client):
             self.client = initial_client
             self.current_server_name = None
-            
+
         def switch_to_server(self, server_config: ServerConfig):
             """Switch to a different Nuxeo server."""
             try:
                 new_client = Nuxeo(
                     host=server_config.url,
-                    auth=(server_config.username, server_config.password)
+                    auth=(server_config.username, server_config.password),
                 )
                 # Test the connection
                 new_client.client.server_info()
@@ -1311,47 +1537,41 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             except Exception as e:
                 logger.error(f"Failed to connect to server {server_config.name}: {e}")
                 return False
-    
+
     # Create the container with the initial client
     nuxeo_container = NuxeoClientContainer(nuxeo)
-    
+
     # Override the nuxeo variable to use the container's client
     # This allows all tools to automatically use the current server
     nuxeo = nuxeo_container.client
-    
+
     # Tool: List available servers
-    @mcp.tool(
-        name="list_servers",
-        description="List all configured Nuxeo servers"
-    )
+    @mcp.tool(name="list_servers", description="List all configured Nuxeo servers")
     def list_servers() -> Dict[str, Any]:
         """
         List all configured Nuxeo servers.
-        
+
         Returns:
             Dictionary containing all server configurations and their status
         """
         servers = server_manager.list_servers()
         active_server = server_manager.get_active_server()
-        
+
         return {
             "servers": servers,
             "active_server": active_server.name if active_server else None,
-            "message": f"Currently connected to: {active_server.name if active_server else 'None'}"
+            "message": f"Currently connected to: {active_server.name if active_server else 'None'}",
         }
-    
+
     # Tool: Switch server
-    @mcp.tool(
-        name="switch_server",
-        description="Switch to a different Nuxeo server"
-    )
+    @mcp.tool(name="switch_server", description="Switch to a different Nuxeo server")
     def switch_server(server_name: str) -> Dict[str, Any]:
         """
         Switch to a different Nuxeo server.
-        
+
         Args:
             server_name: Name of the server to switch to (e.g., 'demo', 'local')
-            
+
         Returns:
             Status of the switch operation
         """
@@ -1361,43 +1581,43 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             return {
                 "status": "error",
                 "message": f"Server '{server_name}' not found",
-                "available_servers": available
+                "available_servers": available,
             }
-        
+
         # Try to switch the client
         if nuxeo_container.switch_to_server(server_config):
             # Update the global nuxeo reference for all tools
             nonlocal nuxeo
             nuxeo = nuxeo_container.client
-            
+
             # Save the active server
             server_manager.set_active_server(server_name)
-            
+
             return {
                 "status": "success",
                 "message": f"Successfully switched to server: {server_name}",
                 "server": {
                     "name": server_config.name,
                     "url": server_config.url,
-                    "description": server_config.description
-                }
+                    "description": server_config.description,
+                },
             }
         else:
             return {
                 "status": "error",
                 "message": f"Failed to connect to server: {server_name}",
-                "error": "Connection failed - check server URL and credentials"
+                "error": "Connection failed - check server URL and credentials",
             }
-    
+
     # Tool: Get current server
     @mcp.tool(
         name="get_current_server",
-        description="Get information about the currently active Nuxeo server"
+        description="Get information about the currently active Nuxeo server",
     )
     def get_current_server() -> Dict[str, Any]:
         """
         Get information about the currently active Nuxeo server.
-        
+
         Returns:
             Information about the current server
         """
@@ -1411,9 +1631,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                     "server": {
                         "name": active_server.name,
                         "url": active_server.url,
-                        "description": active_server.description
+                        "description": active_server.description,
                     },
-                    "nuxeo_info": server_info
+                    "nuxeo_info": server_info,
                 }
             except Exception as e:
                 return {
@@ -1421,33 +1641,30 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                     "server": {
                         "name": active_server.name,
                         "url": active_server.url,
-                        "description": active_server.description
+                        "description": active_server.description,
                     },
-                    "error": f"Cannot connect to server: {str(e)}"
+                    "error": f"Cannot connect to server: {str(e)}",
                 }
         else:
             return {
                 "status": "not_configured",
                 "message": "No server is currently active. Use 'switch_server' to select one.",
-                "available_servers": list(server_manager.servers.keys())
+                "available_servers": list(server_manager.servers.keys()),
             }
-    
+
     # Tool: Add server configuration
-    @mcp.tool(
-        name="add_server",
-        description="Add a new Nuxeo server configuration"
-    )
+    @mcp.tool(name="add_server", description="Add a new Nuxeo server configuration")
     def add_server(
         name: str,
         url: str,
         username: str,
         password: str,
         description: str = "",
-        set_as_active: bool = False
+        set_as_active: bool = False,
     ) -> Dict[str, Any]:
         """
         Add a new Nuxeo server configuration.
-        
+
         Args:
             name: Unique name for the server (e.g., 'production', 'staging')
             url: URL of the Nuxeo server (e.g., 'https://nuxeo.example.com/nuxeo')
@@ -1455,7 +1672,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             password: Password for authentication
             description: Optional description of the server
             set_as_active: Whether to immediately switch to this server
-            
+
         Returns:
             Status of the operation
         """
@@ -1463,9 +1680,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         if server_manager.get_server(name):
             return {
                 "status": "error",
-                "message": f"Server '{name}' already exists. Use a different name or remove the existing one first."
+                "message": f"Server '{name}' already exists. Use a different name or remove the existing one first.",
             }
-        
+
         # Create new server config
         server_config = ServerConfig(
             name=name,
@@ -1473,26 +1690,23 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             username=username,
             password=password,
             description=description or f"Nuxeo server at {url}",
-            is_default=False
+            is_default=False,
         )
-        
+
         # Test the connection
         try:
-            test_client = Nuxeo(
-                host=url,
-                auth=(username, password)
-            )
+            test_client = Nuxeo(host=url, auth=(username, password))
             test_client.client.server_info()
         except Exception as e:
             return {
                 "status": "warning",
                 "message": f"Server added but connection test failed: {str(e)}",
-                "server": server_config.to_dict()
+                "server": server_config.to_dict(),
             }
-        
+
         # Add the server
         server_manager.add_server(server_config)
-        
+
         # Switch to it if requested
         if set_as_active:
             switch_result = switch_server(name)
@@ -1500,49 +1714,43 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 "status": "success",
                 "message": f"Server '{name}' added and activated",
                 "server": server_config.to_dict(),
-                "switch_result": switch_result
+                "switch_result": switch_result,
             }
-        
+
         return {
             "status": "success",
             "message": f"Server '{name}' added successfully",
-            "server": server_config.to_dict()
+            "server": server_config.to_dict(),
         }
-    
+
     # Tool: Remove server configuration
-    @mcp.tool(
-        name="remove_server",
-        description="Remove a Nuxeo server configuration"
-    )
+    @mcp.tool(name="remove_server", description="Remove a Nuxeo server configuration")
     def remove_server(name: str) -> Dict[str, Any]:
         """
         Remove a Nuxeo server configuration.
-        
+
         Args:
             name: Name of the server to remove
-            
+
         Returns:
             Status of the operation
         """
         if not server_manager.get_server(name):
-            return {
-                "status": "error",
-                "message": f"Server '{name}' not found"
-            }
-        
+            return {"status": "error", "message": f"Server '{name}' not found"}
+
         # Check if it's the active server
         active_server = server_manager.get_active_server()
         is_active = active_server and active_server.name == name
-        
+
         server_manager.remove_server(name)
-        
+
         return {
             "status": "success",
             "message": f"Server '{name}' removed successfully",
             "was_active": is_active,
-            "note": "You may need to switch to another server" if is_active else None
+            "note": "You may need to switch to another server" if is_active else None,
         }
-    
+
     # Check if we need server selection on first use
     # Skip if server is pre-configured (e.g., from Docker environment variables)
     if not skip_server_selection and server_manager.needs_server_selection():
