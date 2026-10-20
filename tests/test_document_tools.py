@@ -147,7 +147,7 @@ def test_get_picture_document_blob(nuxeo_container: Any, nuxeo_url: str, nuxeo_c
     
     # An image blob is returned as MCP ImageContent carrying base64 data.
     assert isinstance(result, ImageContent), "Expected an ImageContent result"
-    assert result.mimeType.startswith("image/"), "Expected an image mime type"
+    assert result.mime_type.startswith("image/"), "Expected an image mime type"
     assert base64.b64decode(result.data), "Expected decodable base64 image data"
     
     print("Successfully retrieved Picture document blob")
@@ -206,56 +206,25 @@ def test_get_picture_document_conversion(nuxeo_container: Any, nuxeo_url: str, n
     
     print(f"Found Picture document at path: {picture_path}")
     
-    # Call the tool to get the Picture document converted to JPEG
-    result = get_document_tool(ref=picture_path, conversion_format="jpeg")
-    
-    # Print the type of result for debugging
-    print(f"Result type: {type(result)}")
-    
-    # Check if the result is an Image object or bytes
-    from mcp.types import ImageContent as Image
-    if isinstance(result, Image):
-        # If it's an Image object, check its attributes
-        print(f"Image object attributes: {dir(result)}")
-        assert hasattr(result, 'data'), "Expected image to have data attribute"
-        assert result.data is not None, "Expected image data to be present"
-        assert len(result.data) > 0, "Expected non-empty image data"
-        
-        # The Image object should have a _mime_type attribute or a _get_mime_type method
-        if hasattr(result, '_mime_type'):
-            assert result._mime_type is not None, "Expected mime type to be present"
-            assert "image/jpeg" in result._mime_type.lower(), "Expected JPEG mime type"
-        elif hasattr(result, '_get_mime_type'):
-            mime_type = result._get_mime_type()
-            assert mime_type is not None, "Expected mime type to be present"
-            assert "image/jpeg" in mime_type.lower(), "Expected JPEG mime type"
-        else:
-            # If neither attribute is available, we'll check if there's another way to get the mime type
-            print("Image object does not have _mime_type or _get_mime_type")
-            # We'll assume the test passes if we've gotten this far
-    elif isinstance(result, bytes):
-        # If it's bytes, it should be the raw image data
-        assert len(result) > 0, "Expected non-empty image data"
-        print("Result is raw bytes image data")
-    elif isinstance(result, dict):
-        # If it's a dict, it might be an error or unexpected format
-        print(f"Result is a dictionary: {result}")
-        if "error" in result:
-            # Check if it's a known conversion limitation
-            if "No converted Blob for" in result['error'] and "mime type" in result['error']:
-                print(f"Conversion not supported by Nuxeo: {result['error']}")
-                print("This is a Nuxeo server limitation, not a bug in the MCP server")
-                # This is acceptable - the tool correctly reported the error
-            else:
-                assert False, f"Unexpected error in result: {result['error']}"
-        else:
-            # It might be the blob info dictionary
-            assert "content" in result, "Expected content in result"
-            assert isinstance(result["content"], bytes), "Expected content to be bytes"
-            assert len(result["content"]) > 0, "Expected non-empty content"
+    # Call the tool to get the Picture document converted to JPEG.
+    # A conversion the server cannot perform must raise, not return an error dict.
+    from mcp.types import ImageContent
+
+    try:
+        result = get_document_tool(ref=picture_path, conversion_format="jpeg")
+    except Exception as e:
+        assert "Conversion failed" in str(e), f"Unexpected error: {e}"
+        pytest.skip(f"Nuxeo has no jpeg converter available: {e}")
+
+    assert isinstance(result, (ImageContent, bytes)), (
+        f"Unexpected result type: {type(result)}"
+    )
+    if isinstance(result, ImageContent):
+        assert "image/jpeg" in result.mime_type.lower(), "Expected JPEG mime type"
+        assert base64.b64decode(result.data), "Expected decodable base64 image data"
     else:
-        assert False, f"Unexpected result type: {type(result)}"
-    
+        assert len(result) > 0, "Expected non-empty image data"
+
     print("Successfully converted Picture document to JPEG")
 
 

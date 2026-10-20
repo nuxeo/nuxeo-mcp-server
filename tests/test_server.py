@@ -87,11 +87,9 @@ class MockFastMCP:
     def run(self) -> None:
         pass
 
-# Patch the FastMCP class for unit tests
-sys.modules['fastmcp'] = mock_fastmcp
-sys.modules['fastmcp'].FastMCP = MockFastMCP
-
-# Import the server module after patching
+# NuxeoMCPServer takes the FastMCP class as a parameter, so these tests inject
+# MockFastMCP directly. Do not patch sys.modules['fastmcp']: that leaks a mock
+# into every other test module for the whole session.
 from nuxeo_mcp.server import NuxeoMCPServer
 
 

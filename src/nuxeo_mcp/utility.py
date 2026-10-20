@@ -238,6 +238,6 @@ def return_blob(blob_info: dict):
         # ImageContent.data is a base64-encoded string, never raw bytes.
         if isinstance(content, bytes):
             content = base64.b64encode(content).decode("ascii")
-        return Image(type="image", data=content, mimeType=blob_info["mime_type"])
+        return Image(type="image", data=content, mime_type=blob_info["mime_type"])
 
     return blob_info["content"]

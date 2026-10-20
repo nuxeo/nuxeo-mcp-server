@@ -17,6 +17,7 @@ from nuxeo_mcp.utility import (
     is_uuid,
 )
 from nuxeo.models import Document
+from fastmcp.exceptions import ToolError
 from mcp.types import ImageContent as Image
 from pydantic import BaseModel, Field, model_validator
 
@@ -616,8 +617,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             except Exception as e:
                 # Log the error for debugging
                 logger.error(f"Conversion error: {e}")
-                # Return error information instead of continuing
-                return {"error": f"Conversion failed: {str(e)}"}
+                # Surface as a tool error: an error dict would be reported to the
+                # client as a successful call and violates the return type.
+                raise ToolError(f"Conversion failed: {e}")
 
         if rendition:
             try:
