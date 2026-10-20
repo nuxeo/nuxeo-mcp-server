@@ -5,11 +5,13 @@ These tests focus on the `get_document` tool and its capabilities for handling
 different document types and blob operations.
 """
 
+import base64
 import os
 import re
 import pytest
 import json
 from typing import List, Dict, Any, Optional, Callable, Union, Type, Tuple
+from mcp.types import ImageContent
 from nuxeo.client import Nuxeo
 from nuxeo_mcp.server import NuxeoMCPServer
 import logging
@@ -143,11 +145,10 @@ def test_get_picture_document_blob(nuxeo_container: Any, nuxeo_url: str, nuxeo_c
     # Call the tool to get the Picture document with its blob
     result = get_document_tool(ref=picture_path, fetch_blob=True)
     
-    # Check the result - now returns a string for document metadata
-    # In the real implementation, this should return an Image object, but in the mock it returns a string
-    assert isinstance(result, str), "Expected a string result"
-    assert "# Document:" in result, "Expected document title in result"
-    assert "Sample Picture" in result, "Expected document title to contain 'Sample Picture'"
+    # An image blob is returned as MCP ImageContent carrying base64 data.
+    assert isinstance(result, ImageContent), "Expected an ImageContent result"
+    assert result.mimeType.startswith("image/"), "Expected an image mime type"
+    assert base64.b64decode(result.data), "Expected decodable base64 image data"
     
     print("Successfully retrieved Picture document blob")
 

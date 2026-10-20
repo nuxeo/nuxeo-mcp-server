@@ -6,7 +6,7 @@ This test suite validates the functionality of the Nuxeo MCP Server.
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Required packages: `pip install -r requirements.txt`
 - (Optional) Docker for integration tests
 - Valid Nuxeo server credentials for live server tests

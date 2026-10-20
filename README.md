@@ -21,7 +21,7 @@ A Model Context Protocol (MCP) server for interacting with a Nuxeo Content Repos
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - Nuxeo Server (can be run via Docker)
 - Docker (for testing)
 

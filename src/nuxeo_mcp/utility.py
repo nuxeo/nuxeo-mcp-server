@@ -6,6 +6,7 @@ This module provides utility functions for working with Nuxeo documents and othe
 common tasks.
 """
 
+import base64
 import re
 from typing import Dict, Any, List, Tuple, Set, Union
 from nuxeo.models import Document
@@ -88,10 +89,10 @@ def format_docs(
     docs: list[Document], md_output: list[str] | None = None, as_resource: bool = False
 ) -> str:
     if as_resource:
-        return [f"nuxeo://{doc.uid}" for doc in docs]
+        return "\n".join(f"nuxeo://{doc.uid}" for doc in docs)
 
     if md_output is None:
-        md_output: list[str] = []
+        md_output = []
 
     md_output.append("| uuid | name | title | type |")
     md_output.append("| ---- | ---- | ----- | ---- |")
@@ -101,7 +102,7 @@ def format_docs(
             f"| {doc.uid} | {doc.path.split('/')[-1]} | {doc.title} | {doc.type} |"
         )
 
-    return ("\n".join(md_output),)
+    return "\n".join(md_output)
 
 
 def format_doc(
@@ -233,6 +234,10 @@ def format_property_value(value: Any) -> str:
 def return_blob(blob_info: dict):
 
     if "image/" in blob_info["mime_type"]:
-        return Image(data=blob_info["content"])
+        content = blob_info["content"]
+        # ImageContent.data is a base64-encoded string, never raw bytes.
+        if isinstance(content, bytes):
+            content = base64.b64encode(content).decode("ascii")
+        return Image(type="image", data=content, mimeType=blob_info["mime_type"])
 
     return blob_info["content"]

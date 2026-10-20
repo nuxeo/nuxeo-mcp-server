@@ -225,8 +225,8 @@ def test_get_children_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentia
     result = get_children_tool(ref="/default-domain/workspaces")
     
     # Check the result - now returns a string directly
-    assert isinstance(result, tuple), "Expected a tuple result"
-    content = result[0]
+    assert isinstance(result, str), "Expected a string result"
+    content = result
     assert "| uuid | name | title | type |" in content, "Expected table header in result"
     
     # The result should contain the seeded folder
@@ -286,18 +286,18 @@ def test_search_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tu
     print(f"Search results for 'SELECT * FROM Folder':\n{docs}")
 
     result = search_tool(content_type="text/markdown", query="SELECT * FROM Folder")
-    # Check the result - now returns a tuple with a string
-    assert isinstance(result, dict), "Expected a tuple result"
+    # Check the result - a dict whose content is the markdown string
+    assert isinstance(result, dict), "Expected a dict result"
     content = result["content"]
-    assert isinstance(content, tuple), "Expected a tuple result"
-    assert "| uuid | name | title | type |" in content[0], (
+    assert isinstance(content, str), "Expected a string content"
+    assert "| uuid | name | title | type |" in content, (
         "Expected table header in result"
     )
 
     # The result should contain the seeded folder
-    assert "MCP Test Folder" in content[0], "Expected seeded folder in result"
+    assert "MCP Test Folder" in content, "Expected seeded folder in result"
 
-    print(f"Search results for 'SELECT * FROM Folder':\n{content[0]}")
+    print(f"Search results for 'SELECT * FROM Folder':\n{content}")
 
 
 @pytest.mark.integration

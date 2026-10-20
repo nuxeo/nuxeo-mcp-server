@@ -1,4 +1,4 @@
-ARG PYTHON_VERSION=3.10.20
+ARG PYTHON_VERSION=3.13.16
 FROM python:${PYTHON_VERSION}-slim
 
 # Install curl for healthcheck

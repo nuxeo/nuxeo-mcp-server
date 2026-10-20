@@ -32,10 +32,10 @@ class DocRef(BaseModel):
     uid: Annotated[str | None, Field(description="Nuxeo UID")] = None
 
     @model_validator(mode="after")
-    def one_of_path_or_uid(cls, v):
-        if bool(v.path) == bool(v.uid):  # both or neither
+    def one_of_path_or_uid(self) -> "DocRef":
+        if bool(self.path) == bool(self.uid):  # both or neither
             raise ValueError("Provide *exactly* one of 'path' or 'uid'")
-        return v
+        return self
 
 
 from typing import Union
@@ -82,7 +82,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         as_resource: Annotated[
             bool, Field(description="Return Document as nuxeo:// resource")
         ] = False,
-    ) -> Dict[str, Any]:
+    ) -> str:
         """
         List children from a parent document about the Nuxeo repository.
 
@@ -655,7 +655,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
     )
     def update_document(
         path: str = None, uid: str = None, properties: Union[Dict[str, Any], str] = None
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, str] | str:
         """
         Update an existing document in the Nuxeo repository.
 
