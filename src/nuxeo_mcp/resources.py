@@ -8,6 +8,10 @@ This module defines the resources for the Nuxeo MCP Server.
 import logging
 import os
 from typing import Any, Dict, Optional, Callable
+from importlib import resources
+
+from fastmcp.exceptions import ToolError
+
 from nuxeo_mcp import query_dsl
 from nuxeo_mcp.utility import format_doc, return_blob
 
@@ -135,32 +139,34 @@ def register_resources(mcp, nuxeo) -> None:
         description="Comprehensive documentation for NXQL (Nuxeo Query Language) syntax and usage",
     )
     def get_nxql_guide() -> Dict[str, Any]:
-        """
-        Get the NXQL guide documentation.
+        """Return the NXQL syntax reference.
 
-        Returns:
-            The NXQL guide content or error message
+        Read from the installed package rather than a path relative to this
+        file: the guide used to live in specs/, which ships in neither the
+        wheel nor the container image, so this resource only ever worked from
+        a source checkout.
+
+        Raises:
+            ToolError: if the packaged guide is missing, rather than returning
+                an error payload a model would read as content.
         """
         try:
-            # Get the path to the NXQL guide file
-            guide_path = os.path.join(os.path.dirname(__file__), "../../specs/19_nxql_guide.md")
+            content = (
+                resources.files("nuxeo_mcp.guides").joinpath("nxql.md").read_text(encoding="utf-8")
+            )
+        except (FileNotFoundError, ModuleNotFoundError) as e:
+            logger.error(f"Packaged NXQL guide is missing: {e}")
+            raise ToolError(
+                "The NXQL guide is missing from this installation. "
+                "Reinstall the package or report this as a packaging bug."
+            )
 
-            # Read the guide content
-            if os.path.exists(guide_path):
-                with open(guide_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                return {
-                    "content": content,
-                    "format": "markdown",
-                    "title": "NXQL Query Language Guide",
-                    "description": "Complete reference for NXQL syntax, operators, properties, and MongoDB limitations",
-                }
-            else:
-                return {"error": "NXQL guide file not found", "path": guide_path}
-        except Exception as e:
-            logger.error(f"Error reading NXQL guide: {e}")
-            return {"error": str(e)}
+        return {
+            "content": content,
+            "format": "markdown",
+            "title": "NXQL Query Language Guide",
+            "description": "Complete reference for NXQL syntax, operators, properties, and MongoDB limitations",
+        }
 
     # Resource: Query DSL field references
     #

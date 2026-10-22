@@ -49,11 +49,7 @@ An `<operator>` can be:
 *   [`NOT`] (`LIKE`|`ILIKE`) (only between an `<identifier>` and a `<string>`)
 *   `STARTSWITH` (only between an `<identifier>` and a `<string>`)
 
-{{#> callout type='note' }}
-
-Be careful with Oracle when comparing a value with an empty string, as in Oracle an empty string is `NULL`. For instance `dc:description <> ''` will never match any document, and `dc:description IS NULL` will also match for an empty description.
-
-{{/callout}}
+> **Note:** Be careful with Oracle when comparing a value with an empty string, as in Oracle an empty string is `NULL`. For instance `dc:description <> ''` will never match any document, and `dc:description IS NULL` will also match for an empty description.
 
 An `<expression>` can be:
 
@@ -143,7 +139,7 @@ To find documents whose list field is empty, you will use the `/*` syntax:
 SELECT * FROM Document WHERE dc:subjects/* IS NULL
 ```
 
-## {{> anchor 'reference'}} Complex Properties
+## Complex Properties
 
 You can refer to complex properties in NXQL, after the `SELECT`, in the `WHERE` clause, and in the `ORDER BY` clause (cf [NXP-4464](https://jira.nuxeo.com/browse/NXP-4464)).
 
@@ -236,7 +232,7 @@ Using it in the `<order-by-clause>` carries a large performance penalty when usi
 
 **ecm:lock**: deprecated name for **ecm:lockOwner**.
 
-**ecm:fulltext**: a special field to make full-text queries, see [Full-Text Queries]({{page page='full-text-queries'}}) for more.
+**ecm:fulltext**: a special field to make full-text queries, see the full-text query section below.
 
 **ecm:fulltextScore**: a special field representing the full-text score. This can be used in an `ORDER BY` clause, or in the `SELECT` clause when using `CoreSession.queryAndFetch`. It must be used in conjunction with an **ecm:fulltext** match in the `WHERE` clause. (Since Nuxeo 5.9.6)
 
@@ -246,7 +242,7 @@ Using it in the `<order-by-clause>` carries a large performance penalty when usi
 
 **ecm:acl**: a pseudo-list giving access to ACLs, which needs to be used with a suffix specifying which part of the ACL is accessed. Available are **ecm:acl/*/principal** (ACL principal), **ecm:acl/*/permission** (ACL permission), **ecm:acl/*/grant** (ACL grant/deny, a boolean), **ecm:acl/*/name** (ACL name), **ecm:acl/*/pos** (ACL position). If you want to refer several times to the same ACL but still have flexibility, use correlated wildcards like for lists: **ecm:acl/*1/principal**, **ecm:acl/*2/permission**, etc. See the examples below for more. Note that this is a query on the ACLs that were set on a specific folder or document, _NOT_ on the resolved permissions according to the inheritance rules. (Since Nuxeo 6.0-HF06 or Nuxeo 7.2)
 
-## {{> anchor 'nxql-examples'}} Examples
+## Examples
 
 ```sql
 SELECT * FROM Document
@@ -419,7 +415,7 @@ SELECT * FROM Document WHERE dc:subjects NOT LIKE '%oo%'
 
 ```
 
-This is a standard full-text query (see [Full-Text Queries]({{page page='full-text-queries'}}) for more):
+This is a standard full-text query (see the full-text query section below):
 
 ```sql
 SELECT * FROM Document WHERE ecm:fulltext = 'foo'
@@ -446,7 +442,7 @@ SELECT * FROM Document WHERE ecm:fulltext = 'foo' ORDER BY ecm:fulltextScore DES
 SELECT ecm:uuid, ecm:fulltextScore FROM Document WHERE ecm:fulltext = 'foo'        -- with queryAndFetch
 ```
 
-## {{> anchor 'mongodblimitations'}} Notes about MongoDB
+## Notes about MongoDB
 
 The above describes the NXQL capabilities for a VCS repository, but if MongoDB is used a few limitations to the query model have to be taken into account.
 
@@ -461,9 +457,9 @@ The following limitations apply:
 *   Aggregates (`COUNT`, `AVERAGE`, `MAX`, `MIN`) are not supported.
 *   `DISTINCT` is supported only for `ecm:uuid`.
 
-## {{> anchor 'elasticsearchlimitations'}} Notes about Elasticsearch
+## Notes about Elasticsearch
 
-When an NXQL query is processed by an [Elasticsearch PageProvider]({{page page='how-to-make-a-page-provider-or-content-view-query-elasticsearch-index'}}) or using the Nuxeo Elasticsearch search service, there are some limitations, specific configuration and more features available.
+When an NXQL query is processed by an Elasticsearch PageProvider or using the Nuxeo Elasticsearch search service, there are some limitations, specific configuration and more features available.
 
 ### Elasticsearch NXQL Limitations
 
@@ -482,26 +478,6 @@ When an NXQL query is processed by an [Elasticsearch PageProvider]({{page page='
 *   When using `query`, `queryAndFetch` or `queryAndAggregate` the select clause is limited to scalar properties: There is no support of NXQL aggregate like: `DISTINCT`, `COUNT`, `AVERAGE`, `MAX`, `MIN`, or operators like: `+ - / *`.
 *   Custom securityPolicy expressible in NXQL is taken in account since [NXP-17371](https://jira.nuxeo.com/browse/NXP-17371), if the securityPolicy is not expressible in NXQL then total count or aggregates counts can be wrong.
 *   `ecm:acl` and `ecm:tag` queries are not supported.
-
-### Required Elasticsearch Configuration
-
-#### Mapping
-
-Without a proper mapping the following NXQL operators will not work by default:
-
-*   Full-text search: `ecm:fulltext.my:field = 'foo'` works only if there is a multi field `my:field.fulltext` defined in the mapping.
-*   `ILIKE`: `my:field ILIKE 'Foo'` works only if there is a multi field `my:field.lowercase` defined in the mapping.
-*   `STARTSWITH`: `my:field STARTSWITH '/foo/bar'`: works only if there is a multi field `my:field.children` defined with proper analyzer. Note that `ecm:path.children` is already defined in the default mapping..
-
-Visit the [mapping documentation]({{page page='configuring-the-elasticsearch-mapping'}}) for more information.
-
-#### Full-Text Search
-
-The full-text search is not configured the same way:
-
-*   The `ecm:fulltext` matches the `all_field` field which is the concatenation of all fields. This is different from the NXQL `ecm:fulltext` which matches only some explicit fields. You can [adapt the mapping to exclude some fields]({{page page='elasticsearch-setup'}}).
-*   Custom full-text indexes are not supported. `ecm:fulltext_someindex` will match the `all_field` field. It is possible to select a list of field using hints, see below.
-*   In addition to the NXQL full-text syntax, it is also possible to use the Elasticsearch [simple query string syntax](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/query-dsl-simple-query-string-query.html#_simple_query_string_syntax).
 
 ### Elasticsearch NXQL Hints
 
@@ -566,17 +542,3 @@ SELECT * FROM Document WHERE /*+ES: OPERATOR(geo_hash_cell) */ osm:location IN (
 
 ```
 
-* * *
-
-<div class="row" data-equalizer data-equalize-on="medium"><div class="column medium-6">{{#> panel heading='NXQL Related Topics'}}
-
-- [Examples of SQL Generated by VCS]({{page page='examples-of-sql-generated-by-vcs'}})
-- [Full-Text Queries]({{page page='full-text-queries'}})
-- [Monitoring Slow NXQL Queries]({{page page='monitoring-slow-nxql-queries'}})
-- [How to Query Workflow Objects]({{page page='how-to-query-workflow-objects'}})
-
-{{/panel}}</div><div class="column medium-6">
-
-&nbsp;
-
-</div></div>
