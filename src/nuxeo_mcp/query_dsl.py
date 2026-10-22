@@ -279,11 +279,9 @@ def _render_guide(
         "",
         "## Examples",
         "",
-        "```json",
         examples.split("needs an Elasticsearch/OpenSearch request body.\n\n")[1]
         .split("\nRead nuxeo://")[0]
         .strip(),
-        "```",
     ]
     return "\n".join(lines)
 
