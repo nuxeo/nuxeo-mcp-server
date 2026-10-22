@@ -17,6 +17,7 @@ from nuxeo_mcp.utility import (
     is_uuid,
 )
 from nuxeo_mcp import query_dsl
+from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
 from nuxeo_mcp.query_dsl import QueryDslRejected, apply_guardrails
 from nuxeo_mcp.search_models import (
     MODE_NATURAL,
@@ -74,12 +75,29 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         skip_server_selection: If True, skip automatic server selection (useful when server is pre-configured)
     """
 
+    def tool(**kwargs):
+        """Register a tool, attaching its declared safety annotations by name.
+
+        Going through here rather than @mcp.tool directly keeps the annotations
+        in one readable table and makes an unannotated tool a startup failure
+        rather than something a client only notices at call time.
+        """
+        name = kwargs.get("name")
+        annotations = TOOL_ANNOTATIONS.get(name)
+        if annotations is None:
+            raise RuntimeError(
+                f"Tool {name!r} has no entry in TOOL_ANNOTATIONS. Declare its "
+                "safety hints in nuxeo_mcp.annotations before registering it."
+            )
+        kwargs.setdefault("annotations", annotations)
+        return mcp.tool(**kwargs)
+
     # Tool: Get repository info
-    @mcp.tool(
-        name="get_repository_info",
+    @tool(
+        name="nuxeo_get_repository_info",
         description="Get information about the Nuxeo repository",
     )
-    def get_repository_info() -> Dict[str, Any]:
+    def nuxeo_get_repository_info() -> Dict[str, Any]:
         """
         Get information about the Nuxeo repository.
 
@@ -93,8 +111,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
         return server_info
 
-    @mcp.tool(name="get_children", description="list children of a folder document ")
-    def get_children(
+    @tool(name="nuxeo_list_children", description="list children of a folder document ")
+    def nuxeo_list_children(
         ref: Annotated[
             str, Field(description="reference can be either a uuid or a path ")
         ],
@@ -119,11 +137,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
         return format_docs(docs, as_resource=as_resource)
 
-    @mcp.tool(
-        name="get_document_types",
+    @tool(
+        name="nuxeo_list_document_types",
         description="Get information about document types and schemas defined in the Nuxeo server",
     )
-    def get_document_types() -> Dict[str, Any]:
+    def nuxeo_list_document_types() -> Dict[str, Any]:
         """
         Get information about document types and schemas defined in the Nuxeo server.
 
@@ -142,11 +160,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         types_info = nuxeo.client.request("GET", "api/v1/config/types/")
         return types_info.json()
 
-    @mcp.tool(
-        name="get_schemas",
+    @tool(
+        name="nuxeo_get_metadata_schema",
         description="Get detailed information about schemas defined in the Nuxeo server",
     )
-    def get_schemas() -> List[Dict[str, Any]]:
+    def nuxeo_get_metadata_schema() -> List[Dict[str, Any]]:
         """
         Get detailed information about schemas defined in the Nuxeo server.
 
@@ -163,11 +181,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         schemas = nuxeo.client.request("GET", "api/v1/config/schemas/")
         return schemas.json()
 
-    @mcp.tool(
-        name="get_operations",
+    @tool(
+        name="nuxeo_list_operations",
         description="Get information about available Automation Operations in the Nuxeo server",
     )
-    def get_operations() -> Dict[str, Any]:
+    def nuxeo_list_operations() -> Dict[str, Any]:
         """
         Get information about available Automation Operations in the Nuxeo server.
 
@@ -190,11 +208,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         """
         return nuxeo.operations.operations
 
-    @mcp.tool(
-        name="execute_operation",
+    @tool(
+        name="nuxeo_execute_operation",
         description="Execute a Nuxeo Operation with the specified parameters and input",
     )
-    def execute_operation(
+    def nuxeo_execute_operation(
         operation_id: str,
         params: Dict[str, Any] = None,
         input_type: str = None,
@@ -319,11 +337,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         # Return the raw result for other types
         return result
 
-    @mcp.tool(
-        name="create_document",
+    @tool(
+        name="nuxeo_create_document",
         description="Create a new document in the Nuxeo repository with optional file attachment",
     )
-    def create_document(
+    def nuxeo_create_document(
         name: str,
         type: str,
         properties: Dict[str, Any],
@@ -436,10 +454,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             "details": format_doc(doc)  # Include full formatted details as a string
         }
 
-    @mcp.tool(
-        name="get_document", description="Get a document from the Nuxeo repository"
+    @tool(
+        name="nuxeo_get_document", description="Get a document from the Nuxeo repository"
     )
-    def get_document(
+    def nuxeo_get_document(
         ref: Annotated[
             str, Field(description="reference can be either a uuid or a path ")
         ],
@@ -610,11 +628,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
         return result
 
-    @mcp.tool(
-        name="update_document",
+    @tool(
+        name="nuxeo_update_metadata",
         description="Update an existing document in the Nuxeo repository",
     )
-    def update_document(
+    def nuxeo_update_metadata(
         path: str = None, uid: str = None, properties: Union[Dict[str, Any], str] = None
     ) -> Dict[str, str] | str:
         """
@@ -695,11 +713,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         doc.save()
         return format_doc(doc)
 
-    @mcp.tool(
-        name="delete_document",
+    @tool(
+        name="nuxeo_delete_document",
         description="Delete a document from the Nuxeo repository",
     )
-    def delete_document(uid: str = None) -> Dict[str, Any]:
+    def nuxeo_delete_document(uid: str = None) -> Dict[str, Any]:
         """
         Delete a document from the Nuxeo repository.
 
@@ -730,11 +748,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         result = nuxeo.documents.delete(uid)
         return {"status": "success", "message": f"Document deleted successfully"}
 
-    @mcp.tool(
-        name="move_document",
+    @tool(
+        name="nuxeo_move_document",
         description="Move a document to a different location in the Nuxeo repository",
     )
-    def move_document(
+    def nuxeo_move_document(
         document_uid: str,
         target_path: str,
         new_name: str = None
@@ -840,7 +858,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         "nuxeo_search_documents_with_query_dsl for aggregations and highlighting."
     )
 
-    @mcp.tool(
+    @tool(
         name="nuxeo_search_documents",
         description=(
             "Search documents in the Nuxeo repository. Use mode='natural' for a "
@@ -982,7 +1000,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         response["_nuxeo_executed_query"] = guarded
         return response
 
-    @mcp.tool(
+    @tool(
         name="nuxeo_search_documents_with_query_dsl",
         description=(
             "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "
@@ -1010,7 +1028,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             "nuxeo", query, default_source=query_dsl.DEFAULT_SOURCE_FIELDS
         )
 
-    @mcp.tool(
+    @tool(
         name="nuxeo_search_audit_with_query_dsl",
         description=(
             "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "

@@ -40,7 +40,7 @@ def test_get_picture_document(nuxeo_container: Any, nuxeo_url: str, nuxeo_creden
     # Find the get_document tool
     get_document_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "get_document":
+        if tool["name"] == "nuxeo_get_document":
             get_document_tool = tool["func"]
             break
     
@@ -107,7 +107,7 @@ def test_get_picture_document_blob(nuxeo_container: Any, nuxeo_url: str, nuxeo_c
     # Find the get_document tool
     get_document_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "get_document":
+        if tool["name"] == "nuxeo_get_document":
             get_document_tool = tool["func"]
             break
     
@@ -171,7 +171,7 @@ def test_get_picture_document_conversion(nuxeo_container: Any, nuxeo_url: str, n
     # Find the get_document tool
     get_document_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "get_document":
+        if tool["name"] == "nuxeo_get_document":
             get_document_tool = tool["func"]
             break
     
@@ -246,7 +246,7 @@ def test_get_picture_document_thumbnail(nuxeo_container: Any, nuxeo_url: str, nu
     # Find the get_document tool
     get_document_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "get_document":
+        if tool["name"] == "nuxeo_get_document":
             get_document_tool = tool["func"]
             break
     
