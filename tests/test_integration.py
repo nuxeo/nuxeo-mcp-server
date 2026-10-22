@@ -145,9 +145,9 @@ def test_nuxeo_mcp_server_with_real_nuxeo(nuxeo_container: Any, nuxeo_url: str, 
     tools = server.mcp.list_tools()
     tool_names = [tool.name for tool in tools]
     print(f"Registered tools: {tool_names}")
-    assert "get_repository_info" in tool_names
-    assert "get_children" in tool_names
-    assert "search" in tool_names
+    assert "nuxeo_get_repository_info" in tool_names
+    assert "nuxeo_list_children" in tool_names
+    assert "nuxeo_search_documents" in tool_names
     
     # Check that the resources are registered
     print("Checking MCP server resources...")
@@ -179,7 +179,7 @@ def test_get_repository_info_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_cr
     # Find the get_repository_info tool
     get_repository_info_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "get_repository_info":
+        if tool["name"] == "nuxeo_get_repository_info":
             get_repository_info_tool = tool["func"]
             break
     
@@ -215,7 +215,7 @@ def test_get_children_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentia
     # Find the get_children tool
     get_children_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "get_children":
+        if tool["name"] == "nuxeo_list_children":
             get_children_tool = tool["func"]
             break
     
@@ -253,7 +253,7 @@ def test_search_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tu
     # Find the search tool
     search_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "search":
+        if tool["name"] == "nuxeo_search_documents":
             search_tool = tool["func"]
             break
     
