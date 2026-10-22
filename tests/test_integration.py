@@ -25,7 +25,8 @@ class MockFastMCP:
         self.prompts: List[Dict[str, Any]] = []
         self.custom_routes: List[Dict[str, Any]] = []
     
-    def tool(self, name: Optional[str] = None, description: Optional[str] = None, input_schema: Optional[Dict[str, Any]] = None):
+    def tool(self, name: Optional[str] = None, description: Optional[str] = None,
+             input_schema: Optional[Dict[str, Any]] = None, annotations: Any = None):
         def decorator(func):
             # Support both @mcp.tool() and @mcp.tool(name="...", description="...")
             tool_name = name if name else func.__name__
@@ -34,6 +35,7 @@ class MockFastMCP:
                 "name": tool_name, 
                 "description": tool_desc, 
                 "input_schema": input_schema,
+                "annotations": annotations,
                 "func": func
             })
             return func
