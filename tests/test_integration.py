@@ -199,8 +199,8 @@ def test_get_repository_info_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_cr
 
 @pytest.mark.integration
 def test_get_children_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str], seeded_folder_info: Dict[str, str]) -> None:
-    """Test the get_children tool."""
-    print("\nTesting get_children tool...")
+    """Test the nuxeo_list_children tool."""
+    print("\nTesting nuxeo_list_children tool...")
     
     username, password = nuxeo_credentials
     
@@ -212,14 +212,14 @@ def test_get_children_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentia
         fastmcp_class=MockFastMCP,
     )
     
-    # Find the get_children tool
+    # Find the nuxeo_list_children tool
     get_children_tool = None
     for tool in server.mcp.tools:
         if tool["name"] == "nuxeo_list_children":
             get_children_tool = tool["func"]
             break
     
-    assert get_children_tool is not None, "get_children tool not found"
+    assert get_children_tool is not None, "nuxeo_list_children tool not found"
     
     # Call the tool with the path to the workspaces folder
     result = get_children_tool(ref="/default-domain/workspaces")

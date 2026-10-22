@@ -85,16 +85,16 @@ python -m nuxeo_mcp
 
 The Nuxeo MCP Server provides the following tools:
 
-- `get_repository_info`: Get information about the Nuxeo repository
-- `get_children`: Get the children of a document
-- `search`: Search for documents using NXQL queries
-- `natural_search`: Search for documents using natural language queries (automatically converted to NXQL)
-- `search_repository`: **NEW** - Search the Nuxeo repository using Elasticsearch with natural language and ACL filtering
-- `search_audit`: **NEW** - Search audit logs using natural language (administrators only)
-- `get_document`: Get a document by path or ID, with options for blob and renditions
-- `create_document`: Create a new document
-- `update_document`: Update an existing document
-- `delete_document`: Delete a document
+- `nuxeo_get_repository_info`: Get information about the Nuxeo repository
+- `nuxeo_list_children`: Get the children of a document
+- `nuxeo_search_documents`: Search for documents using NXQL queries
+- `nuxeo_search_documents`: Search for documents using natural language queries (automatically converted to NXQL)
+- `nuxeo_search_documents_with_query_dsl`: **NEW** - Search the Nuxeo repository using Elasticsearch with natural language and ACL filtering
+- `nuxeo_search_audit_with_query_dsl`: **NEW** - Search audit logs using natural language (administrators only)
+- `nuxeo_get_document`: Get a document by path or ID, with options for blob and renditions
+- `nuxeo_create_document`: Create a new document
+- `nuxeo_update_metadata`: Update an existing document
+- `nuxeo_delete_document`: Delete a document
 
 ## Available Resources
 
@@ -112,7 +112,7 @@ The Nuxeo MCP Server provides the following resources:
 ```python
 from fastmcp import use_tool
 
-result = use_tool("nuxeo", "get_repository_info", {})
+result = use_tool("nuxeo", "nuxeo_get_repository_info", {})
 print(result)
 ```
 
@@ -122,7 +122,7 @@ print(result)
 from fastmcp import use_tool
 
 # Using NXQL directly
-result = use_tool("nuxeo", "search", {
+result = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "SELECT * FROM Document WHERE ecm:primaryType = 'File'",
     "pageSize": 10,
     "currentPageIndex": 0
@@ -130,7 +130,7 @@ result = use_tool("nuxeo", "search", {
 print(result)
 
 # Using Natural Language Search
-result = use_tool("nuxeo", "natural_search", {
+result = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "find all PDFs created by john in the last month",
     "pageSize": 10,
     "currentPageIndex": 0
@@ -138,7 +138,7 @@ result = use_tool("nuxeo", "natural_search", {
 print(result)
 
 # Get explanation of the generated NXQL
-result = use_tool("nuxeo", "natural_search", {
+result = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "show me draft invoices from this week sorted by date",
     "explain": True,
     "pageSize": 5
@@ -153,7 +153,7 @@ print(f"Explanation: {result['explanation']}")
 from fastmcp import use_tool
 
 # Search repository with natural language via Elasticsearch
-result = use_tool("nuxeo", "search_repository", {
+result = use_tool("nuxeo", "nuxeo_search_documents_with_query_dsl", {
     "query": "PDFs created last week by John",
     "limit": 10
 })
@@ -167,7 +167,7 @@ for doc in result['results']:
 
 # Use larger highlight fragments to get meaningful content context
 # without downloading the full ecm:binarytext source field (up to 1 MiB)
-result = use_tool("nuxeo", "search_repository", {
+result = use_tool("nuxeo", "nuxeo_search_documents_with_query_dsl", {
     "query": "priming sugar carbonation temperature",
     "limit": 5,
     "highlight_fragment_size": 2000,       # chars per fragment (default 150, max ~9000000)
@@ -175,7 +175,7 @@ result = use_tool("nuxeo", "search_repository", {
 })
 
 # Request extra _source fields when raw content is needed
-result = use_tool("nuxeo", "search_repository", {
+result = use_tool("nuxeo", "nuxeo_search_documents_with_query_dsl", {
     "query": "water chemistry pH",
     "limit": 3,
     "source_fields": ["ecm:binarytext"],   # include full extracted text in results
@@ -188,7 +188,7 @@ result = use_tool("nuxeo", "search_repository", {
 from fastmcp import use_tool
 
 # Search audit logs (requires administrator privileges)
-result = use_tool("nuxeo", "search_audit", {
+result = use_tool("nuxeo", "nuxeo_search_audit_with_query_dsl", {
     "query": "show deletions from yesterday",
     "limit": 20
 })
@@ -248,19 +248,19 @@ The natural language search tool understands various query patterns:
 from fastmcp import use_tool
 
 # Get document metadata
-result = use_tool("nuxeo", "get_document", {
+result = use_tool("nuxeo", "nuxeo_get_document", {
     "path": "/default-domain/workspaces/My Workspace/My Document"
 })
 print(result)
 
 # Get document blob
-blob = use_tool("nuxeo", "get_document", {
+blob = use_tool("nuxeo", "nuxeo_get_document", {
     "path": "/default-domain/workspaces/My Workspace/My Document",
     "blob": True
 })
 
 # Get document thumbnail
-thumbnail = use_tool("nuxeo", "get_document", {
+thumbnail = use_tool("nuxeo", "nuxeo_get_document", {
     "path": "/default-domain/workspaces/My Workspace/My Document",
     "rendition": "thumbnail"
 })
@@ -271,7 +271,7 @@ thumbnail = use_tool("nuxeo", "get_document", {
 ```python
 from fastmcp import use_tool
 
-result = use_tool("nuxeo", "create_document", {
+result = use_tool("nuxeo", "nuxeo_create_document", {
     "parent_path": "/default-domain/workspaces/My Workspace",
     "name": "My New Document",
     "type": "File",
@@ -288,7 +288,7 @@ print(result)
 ```python
 from fastmcp import use_tool
 
-result = use_tool("nuxeo", "update_document", {
+result = use_tool("nuxeo", "nuxeo_update_metadata", {
     "path": "/default-domain/workspaces/My Workspace/My Document",
     "properties": {
         "dc:title": "Updated Title",
@@ -303,7 +303,7 @@ print(result)
 ```python
 from fastmcp import use_tool
 
-result = use_tool("nuxeo", "delete_document", {
+result = use_tool("nuxeo", "nuxeo_delete_document", {
     "path": "/default-domain/workspaces/My Workspace/My Document"
 })
 print(result)
@@ -404,7 +404,7 @@ Always handle errors when using the Nuxeo MCP Server. Tools and resources may re
 from fastmcp import use_tool
 
 try:
-    result = use_tool("nuxeo", "get_document", {
+    result = use_tool("nuxeo", "nuxeo_get_document", {
         "path": "/default-domain/workspaces/My Workspace/My Document"
     })
     print(result)
