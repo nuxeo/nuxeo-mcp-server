@@ -8,6 +8,7 @@ This module defines the resources for the Nuxeo MCP Server.
 import logging
 import os
 from typing import Any, Dict, Optional, Callable
+from nuxeo_mcp import query_dsl
 from nuxeo_mcp.utility import format_doc, return_blob
 
 # Configure logging
@@ -160,3 +161,42 @@ def register_resources(mcp, nuxeo) -> None:
         except Exception as e:
             logger.error(f"Error reading NXQL guide: {e}")
             return {"error": str(e)}
+
+    # Resource: Query DSL field references
+    #
+    # Nuxeo's /site/es passthrough exposes _search only -- _mapping, _field_caps
+    # and _settings all answer 404 -- so field names cannot be discovered at
+    # runtime and are served from here instead. This matters because an unknown
+    # field name is not an error: it matches nothing and returns HTTP 200 with
+    # zero hits, which reads as "no document matches".
+    @mcp.resource(
+        uri="nuxeo://query-dsl-guide",
+        name="Repository Query DSL Field Reference",
+        description=(
+            "Field names, limits and worked examples for "
+            "nuxeo_search_documents_with_query_dsl"
+        ),
+    )
+    def get_query_dsl_guide() -> Dict[str, Any]:
+        """Return the repository index field reference."""
+        return {
+            "content": query_dsl.field_guide(),
+            "format": "markdown",
+            "title": "Repository Query DSL Field Reference",
+        }
+
+    @mcp.resource(
+        uri="nuxeo://audit-query-dsl-guide",
+        name="Audit Query DSL Field Reference",
+        description=(
+            "Field names, limits and worked examples for "
+            "nuxeo_search_audit_with_query_dsl"
+        ),
+    )
+    def get_audit_query_dsl_guide() -> Dict[str, Any]:
+        """Return the audit index field reference."""
+        return {
+            "content": query_dsl.audit_field_guide(),
+            "format": "markdown",
+            "title": "Audit Query DSL Field Reference",
+        }
