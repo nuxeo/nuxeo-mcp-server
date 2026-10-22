@@ -7,7 +7,7 @@ worked from a source checkout. These tests pin it to the package.
 
 from importlib import resources
 from typing import Any, Callable, Dict
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -58,3 +58,92 @@ def test_query_dsl_guides_document_their_own_limits() -> None:
     assert str(query_dsl.MAX_SIZE) in guide
     assert str(query_dsl.MAX_FROM) in guide
     assert str(query_dsl.MAX_RESPONSE_BYTES) in guide
+
+
+# ---------------------------------------------------------------------------
+# Runtime field discovery
+# ---------------------------------------------------------------------------
+
+
+def _sampler(*field_sets: Dict[str, Any]) -> Any:
+    """Return a fake execute_query yielding documents with the given _source."""
+
+    def execute_query(index: str, query: Dict[str, Any]) -> Dict[str, Any]:
+        return {"hits": {"hits": [{"_source": fields} for fields in field_sets]}}
+
+    return execute_query
+
+
+def test_sampling_unions_source_keys_across_documents() -> None:
+    from nuxeo_mcp import query_dsl
+
+    query_dsl.reset_sample_cache()
+    names = query_dsl.sample_field_names(
+        _sampler({"dc:title": "a", "invoice:amount": 1}, {"dc:title": "b", "x:y": 2}),
+        "nuxeo",
+    )
+
+    assert names == ["dc:title", "invoice:amount", "x:y"]
+
+
+def test_sampling_is_cached_per_index() -> None:
+    from nuxeo_mcp import query_dsl
+
+    query_dsl.reset_sample_cache()
+    calls = []
+
+    def counting(index: str, query: Dict[str, Any]) -> Dict[str, Any]:
+        calls.append(index)
+        return {"hits": {"hits": [{"_source": {"dc:title": "a"}}]}}
+
+    query_dsl.sample_field_names(counting, "nuxeo")
+    query_dsl.sample_field_names(counting, "nuxeo")
+
+    assert calls == ["nuxeo"]
+
+
+def test_discovered_fields_appear_in_the_guide() -> None:
+    from nuxeo_mcp import query_dsl
+
+    guide = query_dsl.field_guide(["dc:title", "invoice:amount"])
+
+    assert "invoice:amount" in guide
+    # Curated fields are not repeated in the discovered section.
+    assert guide.count("`dc:title`") == 1
+
+
+def test_curated_field_families_are_not_listed_again() -> None:
+    """ecm:path@level* stands for level1..level5; listing them is noise."""
+    from nuxeo_mcp import query_dsl
+
+    guide = query_dsl.field_guide(["ecm:path@level1", "ecm:path@level4"])
+
+    assert "Schema fields on this instance" not in guide
+
+
+def test_guide_degrades_to_curated_fields_when_sampling_fails() -> None:
+    """A slightly less complete guide beats a guide that errors."""
+    nuxeo = MagicMock()
+    nuxeo.client.host = "http://unreachable:8080/nuxeo"
+    nuxeo.client.auth = ("user", "pass")
+
+    captured: Dict[str, Callable[..., Any]] = {}
+
+    class FakeMCP:
+        def resource(self, *args: Any, **kwargs: Any) -> Callable[[Callable], Callable]:
+            def decorator(fn: Callable) -> Callable:
+                captured[kwargs.get("uri", "")] = fn
+                return fn
+
+            return decorator
+
+    register_resources(FakeMCP(), nuxeo)
+
+    with patch(
+        "nuxeo_mcp.es_passthrough.ElasticsearchPassthrough.execute_query",
+        side_effect=Exception("connection refused"),
+    ):
+        result = captured["nuxeo://query-dsl-guide"]()
+
+    assert "ecm:primaryType" in result["content"]
+    assert "Schema fields on this instance" not in result["content"]
