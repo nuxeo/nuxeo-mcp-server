@@ -7,7 +7,7 @@ This module defines the resources for the Nuxeo MCP Server.
 
 import logging
 import os
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Callable, Dict, Optional
 from importlib import resources
 
 from fastmcp.exceptions import ToolError
@@ -171,10 +171,29 @@ def register_resources(mcp, nuxeo) -> None:
     # Resource: Query DSL field references
     #
     # Nuxeo's /site/es passthrough exposes _search only -- _mapping, _field_caps
-    # and _settings all answer 404 -- so field names cannot be discovered at
-    # runtime and are served from here instead. This matters because an unknown
-    # field name is not an error: it matches nothing and returns HTTP 200 with
-    # zero hits, which reads as "no document matches".
+    # and _settings all answer 404 -- so there is no schema endpoint to read.
+    # The curated tables cover the fields every Nuxeo has; the instance-specific
+    # ones are discovered by sampling _source keys from real documents. This
+    # matters because an unknown field name is not an error: it matches nothing
+    # and returns HTTP 200 with zero hits, which reads as "no document matches".
+    def _discover_fields(index: str) -> Optional[list]:
+        """Sample field names from an index, or None if the engine is unreachable.
+
+        A guide that is slightly less complete is far better than a guide that
+        fails, so every error here degrades to the curated tables.
+        """
+        try:
+            from .es_passthrough import ElasticsearchPassthrough
+
+            passthrough = ElasticsearchPassthrough(
+                nuxeo_url=os.environ.get("NUXEO_URL", nuxeo.client.host),
+                auth=nuxeo.client.auth,
+            )
+            return query_dsl.sample_field_names(passthrough.execute_query, index)
+        except Exception as e:
+            logger.info(f"Could not sample {index} fields, serving curated guide only: {e}")
+            return None
+
     @mcp.resource(
         uri="nuxeo://query-dsl-guide",
         name="Repository Query DSL Field Reference",
@@ -186,7 +205,7 @@ def register_resources(mcp, nuxeo) -> None:
     def get_query_dsl_guide() -> Dict[str, Any]:
         """Return the repository index field reference."""
         return {
-            "content": query_dsl.field_guide(),
+            "content": query_dsl.field_guide(_discover_fields("nuxeo")),
             "format": "markdown",
             "title": "Repository Query DSL Field Reference",
         }
@@ -202,7 +221,7 @@ def register_resources(mcp, nuxeo) -> None:
     def get_audit_query_dsl_guide() -> Dict[str, Any]:
         """Return the audit index field reference."""
         return {
-            "content": query_dsl.audit_field_guide(),
+            "content": query_dsl.audit_field_guide(_discover_fields("audit")),
             "format": "markdown",
             "title": "Audit Query DSL Field Reference",
         }
