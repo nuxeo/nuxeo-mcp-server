@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Test the fixed natural_search functionality
+Test natural-language search via nuxeo_search_documents
 """
 
 import sys

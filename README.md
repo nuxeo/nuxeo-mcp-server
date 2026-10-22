@@ -31,13 +31,13 @@ The MCP server connects to Nuxeo using the credentials you provide through confi
 
 | Privilege | Tools |
 |---|---|
-| **Any authenticated user** | `get_repository_info`, `get_children`, `search`, `natural_search`, `search_repository`, `get_document`, `create_document`, `update_document`, `delete_document`, `move_document`, `get_document_types`, `get_schemas`, `get_operations` |
-| **Administrator only** | `search_audit` — the Nuxeo ES passthrough enforces this server-side and returns HTTP 403 for non-admins, which the MCP tool surfaces as a clear permission error |
-| **Depends on operation** | `execute_operation` — privilege is determined by the specific Nuxeo Automation operation invoked; enforced server-side |
+| **Any authenticated user** | `nuxeo_get_repository_info`, `nuxeo_list_children`, `nuxeo_search_documents`, `nuxeo_search_documents`, `nuxeo_search_documents_with_query_dsl`, `nuxeo_get_document`, `nuxeo_create_document`, `nuxeo_update_metadata`, `nuxeo_delete_document`, `nuxeo_move_document`, `nuxeo_list_document_types`, `nuxeo_get_metadata_schema`, `nuxeo_list_operations` |
+| **Administrator only** | `nuxeo_search_audit_with_query_dsl` — the Nuxeo ES passthrough enforces this server-side and returns HTTP 403 for non-admins, which the MCP tool surfaces as a clear permission error |
+| **Depends on operation** | `nuxeo_execute_operation` — privilege is determined by the specific Nuxeo Automation operation invoked; enforced server-side |
 
 Using a least-privilege account (a regular Nuxeo user) is recommended for production deployments. The `Administrator/Administrator` default is a convenience for local development only.
 
-> **Note:** read and write tools are still subject to per-document ACLs enforced by Nuxeo — a user only sees documents they have `Read` on, and can only modify documents where they have `Write`. The `search_repository` tool additionally requires the Nuxeo `/site/es` passthrough to be accessible to non-admin users (a server-side configuration decision); the tool's probe returns a clear `"Permission denied"` error if it is not.
+> **Note:** read and write tools are still subject to per-document ACLs enforced by Nuxeo — a user only sees documents they have `Read` on, and can only modify documents where they have `Write`. The `nuxeo_search_documents_with_query_dsl` tool additionally requires the Nuxeo `/site/es` passthrough to be accessible to non-admin users (a server-side configuration decision); the tool's probe returns a clear `"Permission denied"` error if it is not.
 
 
 ## Quick Start

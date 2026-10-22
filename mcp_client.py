@@ -47,7 +47,7 @@ async def search(
         async with client:
             print("Connected successfully, calling search tool...")
             result = await client.call_tool(
-                "search",
+                "nuxeo_search_documents",
                 {
                     "content_type": content_type,
                     "query": query,
@@ -69,7 +69,7 @@ async def search(
         raise
 
 
-async def get_document(url: str, path: Optional[str] = None, uid: Optional[str] = None, 
+async def nuxeo_get_document(url: str, path: Optional[str] = None, uid: Optional[str] = None, 
                       fetch_blob: bool = False, conversion_format: Optional[str] = None, 
                       rendition: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -113,8 +113,8 @@ async def get_document(url: str, path: Optional[str] = None, uid: Optional[str] 
         client = Client(mcp_url)
         
         async with client:
-            print("Connected successfully, calling get_document tool...")
-            result = await client.call_tool("get_document", arguments)
+            print("Connected successfully, calling nuxeo_get_document tool...")
+            result = await client.call_tool("nuxeo_get_document", arguments)
 
             if isinstance(result, Iterable):
                 for content in result:
@@ -127,7 +127,7 @@ async def get_document(url: str, path: Optional[str] = None, uid: Optional[str] 
         
 
     except Exception as e:
-        print(f"Error in get_document: {e}")
+        print(f"Error in nuxeo_get_document: {e}")
         print(f"Error type: {type(e)}")
         raise
 
@@ -139,7 +139,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     
     # Search command
-    search_parser = subparsers.add_parser("search", help="Search for documents")
+    search_parser = subparsers.add_parser("nuxeo_search_documents", help="Search for documents")
     search_parser.add_argument("query", help="NXQL query")
     search_parser.add_argument("--page-size", type=int, default=20, help="Number of results per page")
     search_parser.add_argument("--page-index", type=int, default=0, help="Page index")
@@ -159,7 +159,7 @@ def main():
     
     args = parser.parse_args()
     
-    if args.command == "search":
+    if args.command == "nuxeo_search_documents":
         print(
             asyncio.run(
                 search(
@@ -172,7 +172,7 @@ def main():
             )
         )
     elif args.command == "get-document":
-        result = asyncio.run(get_document(args.url, args.path, args.uid, args.fetch_blob, 
+        result = asyncio.run(nuxeo_get_document(args.url, args.path, args.uid, args.fetch_blob, 
                                         args.conversion_format, args.rendition))
         print(result)
         
