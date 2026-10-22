@@ -99,9 +99,10 @@ class SearchResult(BaseModel):
             "generated query, so the caller can see how the request was understood."
         ),
     )
-    aggregations: Optional[Dict[str, Any]] = Field(
-        default=None, description="Aggregation results, when requested."
-    )
+    # Deliberately no aggregations field. This tool returns documents; counts and
+    # groupings are served by nuxeo_search_documents_with_query_dsl, which can
+    # express them natively. A field the normalized modes never populate would
+    # only invite a model to ask for aggregations here.
     degraded: Optional[str] = Field(
         default=None,
         description=(

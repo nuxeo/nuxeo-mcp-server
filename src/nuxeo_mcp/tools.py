@@ -863,7 +863,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         description=(
             "Search documents in the Nuxeo repository. Use mode='natural' for a "
             "plain-English query, mode='nxql' for an exact NXQL statement. Returns "
-            "a normalized result envelope that is identical for every mode."
+            "a normalized result envelope that is identical for every mode. For "
+            "counts, groupings or aggregations, use "
+            "nuxeo_search_documents_with_query_dsl instead."
         ),
     )
     def nuxeo_search_documents(
