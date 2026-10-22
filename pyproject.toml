@@ -5,6 +5,11 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# The nuxeo:// guide resources are read from the installed package, so the
+# markdown has to ship in the wheel.
+[tool.setuptools.package-data]
+"nuxeo_mcp.guides" = ["*.md"]
+
 [project]
 name = "nuxeo-mcp"
 version = "0.1.0"
