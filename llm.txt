@@ -77,9 +77,11 @@ The server will output a message indicating it's running and listening for conne
    - Example: `use_tool("nuxeo", "nuxeo_list_children", {"path": "/default-domain/workspaces"})`
 
 3. `nuxeo_search_documents`
-   - Description: Search for documents
-   - Input: `{"query": "SELECT * FROM Document", "pageSize": 10, "currentPageIndex": 0}`
-   - Example: `use_tool("nuxeo", "nuxeo_search_documents", {"query": "SELECT * FROM Document", "pageSize": 10, "currentPageIndex": 0})`
+   - Description: Search documents. One envelope for every mode.
+   - Input: `{"query": "...", "mode": "nxql"|"natural"|"semantic", "page_size": 10, "page_index": 0}`
+   - Example: `use_tool("nuxeo", "nuxeo_search_documents", {"query": "SELECT * FROM Document", "mode": "nxql", "page_size": 10})`
+   - Returns: `documents[]` (id, documentType, title, path, createdAt, modifiedAt, createdBy, modifiedBy, metadata, score, snippets, extensions) plus totalCount, pageIndex, pageSize, hasMore, mode, interpretedQuery, degraded
+   - `interpretedQuery` is the NXQL that actually ran. For counts or groupings use `nuxeo_search_documents_with_query_dsl`.
 
 4. `nuxeo_get_document`
    - Description: Get a document by path or ID
@@ -193,9 +195,10 @@ print(f"Connected to repository: {repo_info['name']}")
 # Search for documents
 search_results = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "SELECT * FROM Document WHERE ecm:primaryType = 'File'",
-    "pageSize": 5
+    "mode": "nxql",
+    "page_size": 5
 })
-print(f"Found {search_results['resultsCount']} documents")
+print(f"Found {search_results['totalCount']} documents")
 
 # Create a new document
 new_doc = use_tool("nuxeo", "nuxeo_create_document", {
