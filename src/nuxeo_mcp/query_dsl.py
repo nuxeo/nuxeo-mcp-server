@@ -12,7 +12,7 @@ more than it looks: an unknown field name returns HTTP 200 with zero hits, which
 a model reads as "nothing matches" rather than "my query was wrong".
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 # A single response must stay small enough to be worth putting in a context
 # window. Measured: size=10000 over 3179 documents returns ~5.5 MB.
@@ -85,7 +85,7 @@ CORE_FIELDS: Dict[str, str] = {
     "ecm:title": "text - document title",
     "ecm:path": "keyword - full repository path",
     "ecm:path@depth": "integer - path depth",
-    "ecm:path@level1..level5": "keyword - path segment at each level",
+    "ecm:path@level*": "keyword - path segment at each level, level1 to level5",
     "ecm:primaryType": "keyword - document type, e.g. File, Note, Folder",
     "ecm:mixinType": "keyword[] - facets",
     "ecm:currentLifeCycleState": "keyword - lifecycle state, e.g. project, deleted",
@@ -93,6 +93,7 @@ CORE_FIELDS: Dict[str, str] = {
     "ecm:ancestorId": "keyword[] - every ancestor UUID; use to search a subtree",
     "ecm:isVersion": "boolean",
     "ecm:isLatestVersion": "boolean",
+    "ecm:isLatestMajorVersion": "boolean",
     "ecm:isProxy": "boolean",
     "ecm:isTrashed": "boolean - filter on false to exclude the trash",
     "ecm:isRecord": "boolean",
@@ -101,6 +102,7 @@ CORE_FIELDS: Dict[str, str] = {
     "ecm:binarytext": "text - extracted text of the attached binary",
     "ecm:acl": "keyword[] - principals allowed to read; applied by Nuxeo, do not filter on it",
     "ecm:changeToken": "keyword",
+    "ecm:pos": "integer - position among its siblings, for ordered folders",
     "ecm:repository": "keyword - repository name",
     "dc:title": "text - title",
     "dc:description": "text - description",
@@ -205,21 +207,96 @@ def apply_guardrails(
     return guarded
 
 
-def field_guide() -> str:
+# Number of documents sampled to discover instance-specific field names. Large
+# enough to cover the common document types, small enough to stay cheap.
+SAMPLE_SIZE = 50
+
+_SAMPLE_CACHE: Dict[str, List[str]] = {}
+
+
+def sample_field_names(
+    execute_query: Callable[..., Dict[str, Any]], index: str
+) -> List[str]:
+    """Return the field names actually present in ``index``, sorted.
+
+    The curated tables above are a floor, not the truth: every deployment adds
+    its own schemas, and ``_mapping`` is not reachable through the passthrough.
+    Sampling ``_source`` keys from real documents is the only discovery channel
+    left, and it is the difference between a guide that mentions
+    ``invoice:amount`` and one that tells the model to go look it up.
+
+    Cached per index for the life of the process -- content models do not change
+    between two reads of a guide.
+
+    This bypasses ``apply_guardrails`` deliberately: the body is ours, not the
+    caller's, and the guardrails would project ``_source`` down to the very
+    fields we are trying to discover beyond.
+    """
+    if index in _SAMPLE_CACHE:
+        return _SAMPLE_CACHE[index]
+
+    response = execute_query(
+        index=index,
+        query={"size": SAMPLE_SIZE, "_source": True, "query": {"match_all": {}}},
+    )
+
+    names: set = set()
+    for hit in response.get("hits", {}).get("hits", []):
+        names.update((hit.get("_source") or {}).keys())
+
+    discovered = sorted(names)
+    _SAMPLE_CACHE[index] = discovered
+    return discovered
+
+
+def reset_sample_cache() -> None:
+    """Drop the cached samples. For tests, and for a server that switched target."""
+    _SAMPLE_CACHE.clear()
+
+
+def _discovered_section(discovered: Optional[List[str]], known: Dict[str, str]) -> List[str]:
+    """Render the fields found on this instance that the curated table misses."""
+    if discovered is None:
+        return [
+            "## Schema fields",
+            "",
+            "Document-schema properties are indexed under their prefixed name, for",
+            "example `invoice:amount`. Which ones exist depends on the content model",
+            "deployed on this instance; use nuxeo_list_document_types and",
+            "nuxeo_get_metadata_schema to discover them.",
+            "",
+        ]
+
+    # A curated key ending in * stands for a family of fields, like
+    # ecm:path@level* for level1..level5. Listing the members again is noise.
+    families = tuple(name[:-1] for name in known if name.endswith("*"))
+    extra = [
+        name
+        for name in discovered
+        if name not in known and not name.startswith(families)
+    ]
+    if not extra:
+        return []
+
+    return [
+        "## Schema fields on this instance",
+        "",
+        f"Observed by sampling {SAMPLE_SIZE} documents, so this lists what is in use",
+        "rather than everything the content model allows. Types are not shown;",
+        "use nuxeo_get_metadata_schema for those.",
+        "",
+        *(f"- `{name}`" for name in extra),
+        "",
+    ]
+
+
+def field_guide(discovered: Optional[List[str]] = None) -> str:
     """Render the field reference served by the nuxeo://query-dsl-guide resource."""
     return _render_guide(
         title="Nuxeo search index - Query DSL field reference",
         tool="nuxeo_search_documents_with_query_dsl",
         fields=CORE_FIELDS,
-        schema_note=[
-            "## Schema fields",
-            "",
-            "Document-schema properties are indexed under their prefixed name, for",
-            "example `invoice:amount` or `rnode:taskDueDateExpr`. Which ones exist",
-            "depends on the content model deployed on this instance; use",
-            "nuxeo_list_document_types and nuxeo_get_metadata_schema to discover them.",
-            "",
-        ],
+        schema_note=_discovered_section(discovered, CORE_FIELDS),
         examples=USAGE,
         acl_note=(
             "Results are already filtered to what the authenticated user may read.\n"
@@ -228,13 +305,13 @@ def field_guide() -> str:
     )
 
 
-def audit_field_guide() -> str:
+def audit_field_guide(discovered: Optional[List[str]] = None) -> str:
     """Render the field reference served by nuxeo://audit-query-dsl-guide."""
     return _render_guide(
         title="Nuxeo audit index - Query DSL field reference",
         tool="nuxeo_search_audit_with_query_dsl",
         fields=AUDIT_FIELDS,
-        schema_note=[],
+        schema_note=_discovered_section(discovered, AUDIT_FIELDS) if discovered else [],
         examples=AUDIT_USAGE,
         acl_note=(
             "The audit index is restricted to administrators; Nuxeo answers HTTP 403\n"
