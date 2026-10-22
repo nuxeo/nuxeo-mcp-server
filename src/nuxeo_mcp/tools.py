@@ -16,6 +16,15 @@ from nuxeo_mcp.utility import (
     return_blob,
     is_uuid,
 )
+from nuxeo_mcp import query_dsl
+from nuxeo_mcp.query_dsl import QueryDslRejected, apply_guardrails
+from nuxeo_mcp.search_models import (
+    MODE_NATURAL,
+    MODE_SEMANTIC,
+    SEARCH_MODES,
+    SearchResult,
+    to_search_result,
+)
 from nuxeo.models import Document
 from fastmcp.exceptions import ToolError
 from mcp.types import ImageContent as Image
@@ -23,6 +32,15 @@ from pydantic import BaseModel, Field, model_validator
 
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.tools")
+
+# Dropped before building the fulltext fallback query: they carry no search
+# signal and would otherwise narrow the fallback to nothing.
+_NL_STOP_WORDS = frozenset(
+    {
+        "find", "show", "list", "get", "search", "for", "all", "the", "me",
+        "with", "in", "from", "by", "a", "an", "of", "to", "and", "please",
+    }
+)
 
 # Type aliases
 ToolFunction = Callable[[Dict[str, Any]], Dict[str, Any]]
@@ -100,65 +118,6 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             docs = nuxeo.documents.get_children(path=ref)
 
         return format_docs(docs, as_resource=as_resource)
-
-    @mcp.tool(name="search", description="search document using a NXQL query")
-    def search(
-        query: str,
-        pageSize: int = 20,
-        currentPageIndex: int = 0,
-        content_type="application/json",
-    ) -> dict[str, Any]:
-        """
-        Executes a Nuxeo Query Language (NXQL) statement and returns the matching documents.
-
-        NXQL is a SQL-like language designed to query the Nuxeo content repository. This tool accepts
-        a full NXQL query string, executes it, and returns the results.
-
-        ## Query Syntax
-        Basic NXQL syntax:
-            SELECT (* | [DISTINCT] <select-clause>)
-            FROM <doc-type>
-            [WHERE <conditions>]
-            [ORDER BY <sort-clause>]
-
-        Example queries:
-        - SELECT * FROM Document WHERE dc:title LIKE 'Invoice%'
-        - SELECT ecm:uuid, dc:title FROM File WHERE ecm:fulltext = 'contract' ORDER BY dc:modified DESC
-        - SELECT COUNT(ecm:uuid) FROM Document WHERE dc:created >= DATE '2024-01-01'
-
-        ## Notes
-        - You can query metadata, including standard fields like `dc:title`, `ecm:uuid`, `ecm:primaryType`, etc.
-        - Use `NOW()` to compare against the current timestamp (e.g., `dc:modified < NOW('-P7D')`).
-        - Full-text search is supported via `ecm:fulltext`.
-        - List and complex properties can be addressed using `/` or wildcards (e.g., `dc:subjects/* = 'finance'`).
-        - Aggregates like COUNT, MIN, MAX are supported (in VCS mode only).
-
-        ## Limitations
-        - NXQL execution depends on repository type (VCS, MongoDB, Elasticsearch).
-        - Ensure query validity to avoid syntax errors or unsupported patterns.
-
-        Parameters:
-            query (str): A valid NXQL query string.
-            pageSize (int) : Number of documents to list per page
-            currentPageIndex (int) : index of the page to retrieve
-
-
-        Returns:
-            json object with 2 keys:
-                "content" : the formatted list of documents,
-                "content_type" : format used - for example "text/markdown"
-        """
-
-        return format(
-            nuxeo.documents.query(
-                {
-                    "query": query,
-                    "pageSize": pageSize,
-                    "currentPageIndex": currentPageIndex,
-                }
-            ),
-            content_type,
-        )
 
     @mcp.tool(
         name="get_document_types",
@@ -853,317 +812,191 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 "details": str(result)
             }
 
-    @mcp.tool(
-        name="natural_search",
-        description="Search for documents using natural language queries that get automatically converted to NXQL",
+    # --- Search -------------------------------------------------------------
+    #
+    # One tool for repository search, one escape hatch for the search engine.
+    #
+    # nuxeo_search_documents keeps a single envelope across every mode: a mode
+    # changes how the caller expresses the query, never the shape that comes
+    # back, so a model never has to branch on the result before reading it.
+    #
+    # nuxeo_search_documents_with_query_dsl is deliberately separate rather than
+    # a fourth mode: its input is an arbitrary engine query, which makes it
+    # open-world where the other modes are closed, and its value is fidelity to
+    # the engine response -- the opposite of the normalized envelope.
+
+    _SEARCH_USAGE = (
+        "nuxeo_search_documents needs a non-empty query.\n"
+        "\n"
+        'mode="natural" (default) -- plain English:\n'
+        '  "invoices created by Alice in the last 30 days"\n'
+        '  "PDFs modified this week in /default-domain/workspaces"\n'
+        '\n'
+        'mode="nxql" -- a NXQL statement, when you need exact control:\n'
+        "  SELECT * FROM File WHERE dc:title LIKE 'Invoice%' ORDER BY dc:modified DESC\n"
+        "  SELECT * FROM Document WHERE ecm:fulltext = 'contract' AND ecm:isTrashed = 0\n"
+        "\n"
+        "See the nuxeo://nxql-guide resource for the full NXQL syntax, and "
+        "nuxeo_search_documents_with_query_dsl for aggregations and highlighting."
     )
-    def natural_search(
-        query: str,
-        explain: bool = False,
-        pageSize: int = 20,
-        currentPageIndex: int = 0,
-        content_type: str = "application/json",
-    ) -> dict[str, Any]:
-        """
-        Search for documents using natural language that gets intelligently converted to NXQL.
 
-        This tool allows users to search using natural language queries instead of writing NXQL directly.
-        The natural language is parsed and converted to proper NXQL syntax automatically.
-
-        Note: Since Nuxeo uses MongoDB (DBS), aggregates like COUNT, AVG, SUM, MIN, MAX are not supported.
-
-        ## Supported Natural Language Patterns
-
-        ### Document Types
-        - "invoices", "files", "folders", "notes", "documents", "PDFs", "images", "videos"
-
-        ### Time-based Queries
-        - "documents from today/yesterday/this week/last month/last year"
-        - "files created in the last 7 days"
-        - "documents modified since 2024-01-01"
-        - "files between 2024-01-01 and 2024-12-31"
-
-        ### User-based Queries
-        - "documents created by John"
-        - "files from Alice"
-        - "Bob's documents"
-
-        ### Content Queries
-        - "documents containing 'quarterly report'"
-        - "files with content 'budget'"
-        - "search for 'project proposal'"
-
-        ### Title/Name Queries
-        - "documents named 'Invoice 2024'"
-        - "files with title containing 'report'"
-        - "documents titled 'Meeting Notes'"
-
-        ### Path/Location Queries
-        - "documents in folder '/workspaces/project'"
-        - "files under '/default-domain/workspaces'"
-
-        ### State Queries
-        - "draft documents"
-        - "published files"
-        - "deleted documents"
-        - "locked files"
-
-        ### Special Filters
-        - "latest documents" (ordered by modification date)
-        - "largest files" (ordered by size)
-        - "first 10 documents"
-        - "documents not in trash"
-        - "latest versions only"
-
-        ## Examples
-
-        Simple queries:
-        - "Find all invoices from last month"
-        - "Show me documents created by John"
-        - "List PDFs modified this week"
-        - "Search for documents containing budget"
-
-        Complex queries:
-        - "Find invoices created by Alice in the last 30 days not in trash"
-        - "Show me the 10 latest documents in folder '/workspaces/accounting'"
-        - "List all PDF files created this year"
-
-        Parameters:
-            query (str): Natural language search query
-            explain (bool): If True, returns the generated NXQL query and explanation
-            pageSize (int): Number of documents per page
-            currentPageIndex (int): Page number to retrieve
-            content_type (str): Output format ("application/json" or "text/markdown")
-
-        Returns:
-            If explain=True: Returns explanation with generated NXQL
-            If explain=False: Returns search results
-        """
-        try:
-            from nuxeo_mcp.nl_parser import NaturalLanguageParser, NXQLBuilder
-
-            # Parse the natural language query
-            parser = NaturalLanguageParser()
-            parsed = parser.parse(query)
-
-            # Build the NXQL query
-            builder = NXQLBuilder(parsed)
-            nxql = builder.build()
-
-            # If explain mode, return the generated query and explanation
-            if explain:
-                return {
-                    "natural_query": query,
-                    "generated_nxql": nxql,
-                    "explanation": parsed.explanation,
-                    "parsed_components": {
-                        "intent": parsed.intent,
-                        "document_type": parsed.doc_type,
-                        "conditions": parsed.conditions,
-                        "order_by": parsed.order_by,
-                        "order_direction": parsed.order_direction,
-                        "limit": parsed.limit,
-                    },
-                }
-
-            # Execute the generated NXQL query directly using Nuxeo client
-            # Note: We need to handle LIMIT separately as it's not part of NXQL
-            effective_page_size = (
-                parsed.limit
-                if parsed.limit and parsed.limit < pageSize
-                else pageSize
-            )
-            
-            # Execute the NXQL query directly
-            query_result = nuxeo.client.query(
-                nxql,
-                params={
-                    "pageSize": effective_page_size,
-                    "currentPageIndex": currentPageIndex
-                }
-            )
-            
-            # Format the result based on content_type
-            if content_type == "text/markdown":
-                result = format_query_results(query_result)
-            else:
-                # Return JSON format
-                result = {
-                    "resultsCount": query_result.get("resultsCount", 0),
-                    "currentPageIndex": query_result.get("currentPageIndex", 0),
-                    "pageSize": query_result.get("pageSize", effective_page_size),
-                    "entries": query_result.get("entries", [])
-                }
-
-            # Add metadata about the natural language processing
-            if isinstance(result, dict):
-                result["_natural_query"] = query
-                result["_generated_nxql"] = nxql
-
-            return result
-
-        except Exception as e:
-            # Fall back to regular search if natural language parsing fails
-            logger.warning(
-                f"Natural language parsing failed: {e}. Falling back to fulltext search."
-            )
-
-            # Extract keywords for fulltext search
-            # Remove common words that aren't useful for search
-            stop_words = {
-                "find",
-                "show",
-                "list",
-                "get",
-                "search",
-                "for",
-                "all",
-                "the",
-                "me",
-                "with",
-                "in",
-                "from",
-                "by",
-            }
-            keywords = [
-                word for word in query.lower().split() if word not in stop_words
-            ]
-
-            if keywords:
-                fallback_query = f"SELECT * FROM Document WHERE ecm:fulltext = '{' '.join(keywords)}'"
-            else:
-                fallback_query = "SELECT * FROM Document"
-
-            result = search(
-                query=fallback_query,
-                pageSize=pageSize,
-                currentPageIndex=currentPageIndex,
-                content_type=content_type,
-            )
-
-            if isinstance(result, dict):
-                result["_natural_query"] = query
-                result["_fallback_mode"] = True
-                result["_generated_nxql"] = fallback_query
-
-            return result
-
-    @mcp.tool()
-    async def search_repository(query: str, limit: int = 20, offset: int = 0, source_fields: Optional[List[str]] = None, highlight_fragment_size: int = 150, highlight_number_of_fragments: int = 3) -> str:
-        """
-        [REQUIRES ELASTICSEARCH] Search the Nuxeo repository using Elasticsearch passthrough.
-
-        This tool provides direct Elasticsearch access for advanced search capabilities.
-        It requires Elasticsearch to be configured and accessible on your Nuxeo server.
-        
-        ⚠️ For most use cases, use 'natural_search' or 'search' tools instead, which work
-        without Elasticsearch and use Nuxeo's built-in query capabilities.
+    @mcp.tool(
+        name="nuxeo_search_documents",
+        description=(
+            "Search documents in the Nuxeo repository. Use mode='natural' for a "
+            "plain-English query, mode='nxql' for an exact NXQL statement. Returns "
+            "a normalized result envelope that is identical for every mode."
+        ),
+    )
+    def nuxeo_search_documents(
+        query: str = "",
+        mode: str = MODE_NATURAL,
+        page_size: int = 20,
+        page_index: int = 0,
+    ) -> SearchResult:
+        """Search the repository and return the normalized envelope.
 
         Args:
-            query: Natural language search query (e.g., "PDFs created last week by John")
-            limit: Maximum number of results to return (default: 20, max: 100)
-            offset: Pagination offset for results (default: 0)
-            source_fields: Extra fields to include in results (e.g. ["ecm:binarytext"])
-            highlight_fragment_size: Size in chars of each highlight fragment (default 150, max ~9000000)
-            highlight_number_of_fragments: Number of highlight fragments to return per doc (default 3, 0=entire field)
+            query: Plain English (mode="natural") or a NXQL statement (mode="nxql").
+            mode: One of "natural", "nxql", "semantic".
+            page_size: Documents per page.
+            page_index: Zero-based page to retrieve.
 
         Returns:
-            JSON string containing search results with document metadata and highlights
+            SearchResult. ``interpretedQuery`` always reports the NXQL actually
+            executed, so a generated query can be inspected and corrected.
 
-        Examples:
-            - "documents created today"
-            - "files modified by alice in /workspaces"
-            - "PDFs containing annual report"
-            - "images from last month"
+        Raises:
+            ToolError: on an empty query, an unknown mode, or a mode that is not
+                yet available.
         """
-        try:
-            # Import here to avoid circular dependency
-            from .es_passthrough import ElasticsearchPassthrough
-            import requests
+        if not query or not query.strip():
+            raise ToolError(_SEARCH_USAGE)
 
-            # Limit max results
-            if limit > 100:
-                limit = 100
-            # Clamp to non-negative so result slicing / ES paging stay valid
-            limit = max(0, limit)
-            offset = max(0, offset)
+        if mode not in SEARCH_MODES:
+            raise ToolError(
+                f"Unknown mode {mode!r}. Supported modes: {', '.join(SEARCH_MODES)}."
+            )
 
-            # Clamp highlight params to safe values
-            highlight_fragment_size = max(1, highlight_fragment_size)
-            highlight_number_of_fragments = max(0, highlight_number_of_fragments)
+        if mode == MODE_SEMANTIC:
+            raise ToolError(
+                "mode='semantic' is not yet available on this server. Use "
+                "mode='natural' or mode='nxql'."
+            )
 
-            # Initialize passthrough with Nuxeo URL and auth from the active client
-            nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
-            auth = nuxeo.client.auth
-            
-            passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
-            
-            # Check if Elasticsearch is accessible through Nuxeo passthrough
+        page_size = max(1, min(page_size, 100))
+        page_index = max(0, page_index)
+
+        nxql = query
+        degraded = None
+
+        if mode == MODE_NATURAL:
+            from nuxeo_mcp.nl_parser import NaturalLanguageParser, NXQLBuilder
+
             try:
-                # Test with a simple match_all query
-                test_url = f"{passthrough.base_url}/nuxeo/_search"
-                test_query = {"query": {"match_all": {}}, "size": 0}
-                probe = requests.post(
-                    test_url, json=test_query, auth=auth, timeout=ES_PROBE_TIMEOUT
+                parsed = NaturalLanguageParser().parse(query)
+                nxql = NXQLBuilder(parsed).build()
+                if parsed.limit and parsed.limit < page_size:
+                    page_size = parsed.limit
+            except Exception as e:
+                # A parse failure must not look like "no documents match", so fall
+                # back to fulltext and say so rather than returning an empty page.
+                logger.warning(f"Natural language parsing failed: {e}; using fulltext")
+                terms = " ".join(
+                    w for w in query.split() if w.lower() not in _NL_STOP_WORDS
+                ).replace("'", "''")
+                nxql = (
+                    f"SELECT * FROM Document WHERE ecm:fulltext = '{terms}'"
+                    if terms
+                    else "SELECT * FROM Document"
                 )
-                if probe.status_code == 401:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": "Authentication failed",
-                            "message": "Authentication failed (HTTP 401): check the configured Nuxeo credentials.",
-                        }
-                    )
-                if probe.status_code == 403:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": "Permission denied",
-                            "message": "Access to the Elasticsearch passthrough is not allowed for this user.",
-                        }
-                    )
-                probe.raise_for_status()
-            except requests.exceptions.RequestException as e:
-                logger.warning(
-                    f"Elasticsearch not accessible at {passthrough.base_url}: {e}"
-                )
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": "Elasticsearch not available",
-                        "message": "Elasticsearch passthrough is not accessible. Please use 'natural_search' or 'search' tools instead.",
-                        "alternative_tools": ["natural_search", "search"],
-                    }
+                degraded = (
+                    "Natural-language parsing failed; fell back to a fulltext search."
                 )
 
-            # Execute search — ACL enforcement is handled server-side by the Nuxeo passthrough
-            results = passthrough.search_repository(
-                query=query,
-                limit=limit,
-                offset=offset,
-                source_fields=source_fields,
-                highlight_fragment_size=highlight_fragment_size,
-                highlight_number_of_fragments=highlight_number_of_fragments,
+        try:
+            query_result = nuxeo.client.query(
+                nxql, params={"pageSize": page_size, "currentPageIndex": page_index}
             )
-
-            # Format response
-            response = {
-                "success": True,
-                "total": results["total"],
-                "query_time_ms": results["query_time_ms"],
-                "results": results["results"],
-                "query": query,
-                "translated_query": results.get("translated_query", ""),
-            }
-
-            return json.dumps(response, indent=2)
-
         except Exception as e:
-            logger.error(f"Repository search error: {e}")
-            return json.dumps(
-                {"success": False, "error": "Search failed", "message": str(e)}
+            raise ToolError(f"Search failed for query {nxql!r}: {e}")
+
+        return to_search_result(
+            query_result,
+            mode=mode,
+            interpreted_query=nxql,
+            page_size=page_size,
+            page_index=page_index,
+            degraded=degraded,
+        )
+
+    @mcp.tool(
+        name="nuxeo_search_documents_with_query_dsl",
+        description=(
+            "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "
+            "repository index and return the engine response unchanged. Use this for "
+            "aggregations, highlighting, sorting and any query the normalized search "
+            "cannot express. Read nuxeo://query-dsl-guide first for the field names."
+        ),
+    )
+    def nuxeo_search_documents_with_query_dsl(
+        query: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Forward a Query DSL request body to Nuxeo's search-engine passthrough.
+
+        ACLs are enforced by Nuxeo server-side, so the response only ever contains
+        documents the authenticated user may read. The guardrails here are about
+        cost and response size, which the engine does not bound on its own: an
+        unqualified match_all with size 10000 returns several megabytes.
+
+        Args:
+            query: An Elasticsearch/OpenSearch request body.
+
+        Returns:
+            The engine response, unchanged apart from the applied guardrails.
+
+        Raises:
+            ToolError: on a missing body, a scripted query, or a response that
+                exceeds the size limit.
+        """
+        if not query:
+            raise ToolError(query_dsl.USAGE)
+
+        try:
+            guarded = apply_guardrails(query)
+        except QueryDslRejected as e:
+            raise ToolError(str(e))
+
+        from .es_passthrough import ElasticsearchPassthrough
+
+        passthrough = ElasticsearchPassthrough(
+            nuxeo_url=os.environ.get("NUXEO_URL", nuxeo.client.host),
+            auth=nuxeo.client.auth,
+        )
+
+        try:
+            response = passthrough.execute_query(index="nuxeo", query=guarded)
+        except Exception as e:
+            raise ToolError(f"Query DSL search failed: {e}")
+
+        size = len(json.dumps(response))
+        if size > query_dsl.MAX_RESPONSE_BYTES:
+            raise ToolError(
+                f"Response is {size} bytes, over the {query_dsl.MAX_RESPONSE_BYTES} "
+                "byte limit. Narrow it with a smaller 'size', a '_source' include "
+                "list, or an aggregation with 'size': 0."
             )
 
+        hits = response.get("hits", {}).get("hits", [])
+        if not hits and "aggregations" not in response:
+            # Silently empty results are the main failure mode here: a hallucinated
+            # field name returns 200 with no hits, which reads as "nothing matches".
+            response["_nuxeo_hint"] = (
+                "No hits. Verify field names against the nuxeo://query-dsl-guide "
+                "resource -- unknown fields match nothing rather than erroring."
+            )
+        response["_nuxeo_executed_query"] = guarded
+        return response
     @mcp.tool()
     async def search_audit(query: str, limit: int = 20, offset: int = 0) -> str:
         """
