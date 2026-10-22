@@ -75,7 +75,7 @@ def _call(mcp: FastMCP, name: str, args: Dict[str, Any]) -> Any:
 @pytest.mark.unit
 def test_get_children_returns_markdown_table(mcp: FastMCP) -> None:
     """get_children must return a markdown string, not a dict or a tuple."""
-    result = _call(mcp, "get_children", {"ref": "/default-domain/workspaces"})
+    result = _call(mcp, "nuxeo_list_children", {"ref": "/default-domain/workspaces"})
 
     text = result.content[0].text
     assert "| uuid | name | title | type |" in text
@@ -86,7 +86,7 @@ def test_get_children_returns_markdown_table(mcp: FastMCP) -> None:
 def test_get_children_as_resource_returns_uris(mcp: FastMCP) -> None:
     """as_resource must also satisfy the declared string return type."""
     result = _call(
-        mcp, "get_children", {"ref": "/default-domain/workspaces", "as_resource": True}
+        mcp, "nuxeo_list_children", {"ref": "/default-domain/workspaces", "as_resource": True}
     )
 
     assert result.content[0].text == "nuxeo://uid-1\nnuxeo://uid-2"
@@ -97,7 +97,7 @@ def test_update_document_returns_markdown(mcp: FastMCP) -> None:
     """update_document returns formatted markdown, not a dict."""
     result = _call(
         mcp,
-        "update_document",
+        "nuxeo_update_metadata",
         {"uid": "uid-1", "properties": {"dc:description": "updated"}},
     )
 
@@ -118,7 +118,7 @@ def test_image_blob_returns_base64_image_content(
     }
     nuxeo.client.request.return_value = response
 
-    result = _call(mcp, "get_document", {"ref": "uid-1", "fetch_blob": True})
+    result = _call(mcp, "nuxeo_get_document", {"ref": "uid-1", "fetch_blob": True})
 
     content = result.content[0]
     assert isinstance(content, ImageContent)
@@ -134,4 +134,84 @@ def test_failed_conversion_raises_tool_error(
     nuxeo.client.request.side_effect = RuntimeError("boom")
 
     with pytest.raises(Exception, match="Conversion failed"):
-        _call(mcp, "get_document", {"ref": "uid-1", "conversion_format": "pdf"})
+        _call(mcp, "nuxeo_get_document", {"ref": "uid-1", "conversion_format": "pdf"})
+
+
+# ---------------------------------------------------------------------------
+# Server-wide conventions
+#
+# These assert the contract every tool must satisfy, so a new tool cannot
+# silently ship without a prefix or without safety hints.
+# ---------------------------------------------------------------------------
+
+
+def _list_tools(mcp: FastMCP) -> Dict[str, Any]:
+    async def run() -> Any:
+        async with Client(mcp) as client:
+            return {t.name: t for t in await client.list_tools()}
+
+    return asyncio.run(run())
+
+
+@pytest.mark.unit
+def test_every_tool_is_namespaced(mcp: FastMCP) -> None:
+    """Bare names collide when a client is connected to several MCP servers."""
+    unprefixed = [name for name in _list_tools(mcp) if not name.startswith("nuxeo_")]
+
+    assert unprefixed == []
+
+
+@pytest.mark.unit
+def test_every_tool_declares_safety_annotations(mcp: FastMCP) -> None:
+    """Without hints a cautious client must prompt for confirmation on reads."""
+    missing = []
+    for name, tool in _list_tools(mcp).items():
+        annotations = tool.annotations
+        if annotations is None or annotations.read_only_hint is None:
+            missing.append(name)
+
+    assert missing == []
+
+
+@pytest.mark.unit
+def test_destructive_tools_are_marked_destructive(mcp: FastMCP) -> None:
+    """A client gating writes relies on these being honest."""
+    tools = _list_tools(mcp)
+
+    for name in (
+        "nuxeo_delete_document",
+        "nuxeo_update_metadata",
+        "nuxeo_move_document",
+        "nuxeo_execute_operation",
+    ):
+        annotations = tools[name].annotations
+        assert annotations.read_only_hint is False, name
+        assert annotations.destructive_hint is True, name
+
+
+@pytest.mark.unit
+def test_search_tools_are_read_only(mcp: FastMCP) -> None:
+    tools = _list_tools(mcp)
+
+    for name in (
+        "nuxeo_search_documents",
+        "nuxeo_search_documents_with_query_dsl",
+        "nuxeo_search_audit_with_query_dsl",
+    ):
+        assert tools[name].annotations.read_only_hint is True, name
+
+
+@pytest.mark.unit
+def test_only_caller_supplied_payload_tools_are_open_world(mcp: FastMCP) -> None:
+    """Open-world means the reachable surface is not described by the schema."""
+    open_world = {
+        name
+        for name, tool in _list_tools(mcp).items()
+        if tool.annotations.open_world_hint
+    }
+
+    assert open_world == {
+        "nuxeo_execute_operation",
+        "nuxeo_search_documents_with_query_dsl",
+        "nuxeo_search_audit_with_query_dsl",
+    }
