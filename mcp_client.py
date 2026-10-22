@@ -19,16 +19,17 @@ from fastmcp import Client
 async def search(
     url: str,
     query: str,
+    mode: str = "nxql",
     page_size: int = 20,
     page_index: int = 0,
-    content_type: str = "text/markdown",
-) -> dict[str, Any]:
+) -> str:
     """
     Search for documents using the search tool.
     
     Args:
         url: The URL of the MCP server
-        query: The NXQL query to execute
+        query: Natural language (mode="natural") or NXQL (mode="nxql")
+        mode: Query mode -- natural, nxql or semantic
         page_size: Number of results per page
         page_index: Page index
         
@@ -49,19 +50,15 @@ async def search(
             result = await client.call_tool(
                 "nuxeo_search_documents",
                 {
-                    "content_type": content_type,
                     "query": query,
-                    "pageSize": page_size,
-                    "currentPageIndex": page_index,
+                    "mode": mode,
+                    "page_size": page_size,
+                    "page_index": page_index,
                 },
             )
-            match content_type:
-                case "application/json":
-                    return json.dumps(result.structured_content, indent=2)
-                case "text/markdown":
-                    return result.structured_content["content"][0]
-                case _:
-                    return result
+            # The tool returns one envelope for every mode, so there is nothing
+            # to branch on here.
+            return json.dumps(result.structured_content, indent=2)
 
     except Exception as e:
         print(f"Error in search: {e}")
@@ -139,14 +136,15 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     
     # Search command
-    search_parser = subparsers.add_parser("nuxeo_search_documents", help="Search for documents")
+    search_parser = subparsers.add_parser("search", help="Search for documents")
     search_parser.add_argument("query", help="NXQL query")
     search_parser.add_argument("--page-size", type=int, default=20, help="Number of results per page")
     search_parser.add_argument("--page-index", type=int, default=0, help="Page index")
     search_parser.add_argument(
-        "--content-type",
-        help="The format of the output: application/json, text/markdown",
-        default="text/markdown"
+        "--mode",
+        choices=["natural", "nxql", "semantic"],
+        default="nxql",
+        help="How the query is expressed (default: nxql)",
     )
 
     # Get document command
@@ -159,15 +157,15 @@ def main():
     
     args = parser.parse_args()
     
-    if args.command == "nuxeo_search_documents":
+    if args.command == "search":
         print(
             asyncio.run(
                 search(
                     args.url,
                     args.query,
+                    args.mode,
                     args.page_size,
                     args.page_index,
-                    args.content_type,
                 )
             )
         )
