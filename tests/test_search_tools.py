@@ -177,10 +177,19 @@ def test_repository_error_surfaces_as_tool_error() -> None:
 
 
 def test_guardrails_apply_defaults() -> None:
-    guarded = apply_guardrails({"query": {"match_all": {}}})
+    guarded = apply_guardrails(
+        {"query": {"match_all": {}}}, default_source=["dc:title"]
+    )
 
     assert guarded["size"] == 10
-    assert "_source" in guarded
+    assert guarded["_source"] == ["dc:title"]
+
+
+def test_guardrails_leave_source_alone_without_a_default() -> None:
+    """The audit index shares no field names with the repository index."""
+    guarded = apply_guardrails({"query": {"match_all": {}}})
+
+    assert "_source" not in guarded
 
 
 def test_guardrails_cap_size() -> None:
@@ -195,7 +204,10 @@ def test_guardrails_keep_size_zero_for_aggregation_only_requests() -> None:
 
 
 def test_guardrails_respect_an_explicit_source() -> None:
-    guarded = apply_guardrails({"_source": ["dc:title"], "query": {"match_all": {}}})
+    guarded = apply_guardrails(
+        {"_source": ["dc:title"], "query": {"match_all": {}}},
+        default_source=["ecm:uuid"],
+    )
 
     assert guarded["_source"] == ["dc:title"]
 
