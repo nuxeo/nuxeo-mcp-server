@@ -12,7 +12,7 @@ more than it looks: an unknown field name returns HTTP 200 with zero hits, which
 a model reads as "nothing matches" rather than "my query was wrong".
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # A single response must stay small enough to be worth putting in a context
 # window. Measured: size=10000 over 3179 documents returns ~5.5 MB.
@@ -39,6 +39,42 @@ Filter on type and path, newest first:
    "sort": [{"dc:modified": "desc"}]}
 
 Read nuxeo://query-dsl-guide for the available field names."""
+
+AUDIT_USAGE = """nuxeo_search_audit_with_query_dsl needs an Elasticsearch/OpenSearch request body.
+
+What happened to one document, newest first:
+  {"size": 20, "query": {"term": {"docUUID": "<uuid>"}},
+   "sort": [{"eventDate": "desc"}]}
+
+Deletions over the last day:
+  {"size": 50, "query": {"bool": {"filter": [
+       {"term": {"eventId": "documentRemoved"}},
+       {"range": {"eventDate": {"gte": "now-1d"}}}]}},
+   "sort": [{"eventDate": "desc"}]}
+
+Who is most active (no hits, just the aggregation):
+  {"size": 0, "aggs": {"users": {"terms": {"field": "principalName", "size": 20}}}}
+
+Read nuxeo://audit-query-dsl-guide for the available field names."""
+
+# Audit index fields. Audit entries are events, not documents, so they share no
+# schema with the repository index.
+AUDIT_FIELDS: Dict[str, str] = {
+    "id": "keyword - audit entry id",
+    "eventId": "keyword - event name, e.g. documentCreated, documentModified, documentRemoved, loginSuccess",
+    "eventDate": "date - when the event happened; the usual sort field",
+    "logDate": "date - when the entry was written",
+    "category": "keyword - event category, e.g. eventDocumentCategory, eventLifeCycleCategory",
+    "principalName": "keyword - user who caused the event",
+    "docUUID": "keyword - UUID of the document concerned",
+    "docPath": "keyword - path of the document at the time of the event",
+    "docType": "keyword - document type",
+    "docLifeCycle": "keyword - lifecycle state at the time of the event",
+    "repositoryId": "keyword - repository name",
+    "comment": "text - free-text comment attached to the event",
+    "extended": "object - event-specific extra properties",
+}
+
 
 # Core index fields, stable across Nuxeo instances. Schema-specific fields exist
 # too but depend on the deployed content model.
@@ -120,12 +156,21 @@ def _reject_scripts(node: Any, path: str = "") -> None:
             _reject_scripts(value, f"{path}[{index}]")
 
 
-def apply_guardrails(query: Dict[str, Any]) -> Dict[str, Any]:
+def apply_guardrails(
+    query: Dict[str, Any], default_source: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """Return a bounded copy of ``query``.
 
     The caller keeps control of size, ``_source`` and highlighting; these are
     bounds, not a fixed policy. Only the defaults change, and only when the
     caller expressed no preference.
+
+    Args:
+        query: The request body.
+        default_source: ``_source`` projection to apply when the caller supplied
+            none. Index-specific -- the repository and audit indices share no
+            field names, so a projection for one returns nothing but nulls on
+            the other. ``None`` leaves ``_source`` untouched.
     """
     _reject_scripts(query)
 
@@ -154,36 +199,74 @@ def apply_guardrails(query: Dict[str, Any]) -> Dict[str, Any]:
             )
         guarded["from"] = max(0, offset)
 
-    if "_source" not in guarded and guarded.get("size", 0) > 0:
-        guarded["_source"] = list(DEFAULT_SOURCE_FIELDS)
+    if default_source and "_source" not in guarded and guarded.get("size", 0) > 0:
+        guarded["_source"] = list(default_source)
 
     return guarded
 
 
 def field_guide() -> str:
     """Render the field reference served by the nuxeo://query-dsl-guide resource."""
+    return _render_guide(
+        title="Nuxeo search index - Query DSL field reference",
+        tool="nuxeo_search_documents_with_query_dsl",
+        fields=CORE_FIELDS,
+        schema_note=[
+            "## Schema fields",
+            "",
+            "Document-schema properties are indexed under their prefixed name, for",
+            "example `invoice:amount` or `rnode:taskDueDateExpr`. Which ones exist",
+            "depends on the content model deployed on this instance; use",
+            "nuxeo_list_document_types and nuxeo_get_metadata_schema to discover them.",
+            "",
+        ],
+        examples=USAGE,
+        acl_note=(
+            "Results are already filtered to what the authenticated user may read.\n"
+            "Do not filter on `ecm:acl` yourself."
+        ),
+    )
+
+
+def audit_field_guide() -> str:
+    """Render the field reference served by nuxeo://audit-query-dsl-guide."""
+    return _render_guide(
+        title="Nuxeo audit index - Query DSL field reference",
+        tool="nuxeo_search_audit_with_query_dsl",
+        fields=AUDIT_FIELDS,
+        schema_note=[],
+        examples=AUDIT_USAGE,
+        acl_note=(
+            "The audit index is restricted to administrators; Nuxeo answers HTTP 403\n"
+            "for everyone else."
+        ),
+    )
+
+
+def _render_guide(
+    *,
+    title: str,
+    tool: str,
+    fields: Dict[str, str],
+    schema_note: List[str],
+    examples: str,
+    acl_note: str,
+) -> str:
     lines = [
-        "# Nuxeo search index - Query DSL field reference",
+        f"# {title}",
         "",
-        "Fields available to nuxeo_search_documents_with_query_dsl.",
+        f"Fields available to {tool}.",
         "",
         "An unknown field name does not raise an error: it matches nothing and the",
         "search returns zero hits. Check names here before concluding that no",
-        "document matches.",
+        "entry matches.",
         "",
-        "## Core fields",
+        "## Fields",
         "",
     ]
-    lines += [f"- `{name}` - {desc}" for name, desc in CORE_FIELDS.items()]
+    lines += [f"- `{name}` - {desc}" for name, desc in fields.items()]
+    lines += ["", *schema_note]
     lines += [
-        "",
-        "## Schema fields",
-        "",
-        "Document-schema properties are indexed under their prefixed name, for",
-        "example `invoice:amount` or `rnode:taskDueDateExpr`. Which ones exist",
-        "depends on the content model deployed on this instance; use",
-        "nuxeo_list_document_types and nuxeo_get_metadata_schema to discover them.",
-        "",
         "## Limits",
         "",
         f"- `size` defaults to 10 and is capped at {MAX_SIZE}",
@@ -192,15 +275,15 @@ def field_guide() -> str:
         "- `_source` defaults to a small projection; pass your own list to override",
         "- scripted queries (`script`, `script_fields`, `script_score`) are rejected",
         "",
-        "Results are already filtered to what the authenticated user may read.",
-        "Do not filter on `ecm:acl` yourself.",
+        acl_note,
         "",
         "## Examples",
         "",
         "```json",
-        USAGE.split("Full-text search with highlighting:\n")[1].split(
-            "\nRead nuxeo://"
-        )[0],
+        examples.split("needs an Elasticsearch/OpenSearch request body.\n\n")[1]
+        .split("\nRead nuxeo://")[0]
+        .strip(),
         "```",
     ]
     return "\n".join(lines)
+

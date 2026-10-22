@@ -105,43 +105,31 @@ def test_query_dsl_oversized_response_raises_tool_error(mock_post: MagicMock) ->
 
 
 # ---------------------------------------------------------------------------
-# search_audit probe tests
+# nuxeo_search_audit_with_query_dsl
 # ---------------------------------------------------------------------------
 
 
 @patch("requests.post")
-def test_search_audit_probe_403_returns_permission_denied(mock_post: MagicMock) -> None:
-    mock_post.return_value = _mock_probe(403)
-    fn = _register_and_capture(_make_nuxeo())["search_audit"]
+def test_audit_non_admin_403_raises_tool_error(mock_post: MagicMock) -> None:
+    """Nuxeo restricts the audit index server-side; the 403 must surface."""
+    response = MagicMock()
+    response.status_code = 403
+    response.text = "forbidden"
+    mock_post.return_value = response
+    fn = _register_and_capture(_make_nuxeo())["nuxeo_search_audit_with_query_dsl"]
 
-    result = _call(fn, "deletions yesterday")
+    with pytest.raises(ToolError) as excinfo:
+        fn({"query": {"match_all": {}}})
 
-    assert result["success"] is False
-    assert result["error"] == "Permission denied"
-    assert "administrator" in result["message"].lower()
-
-
-@patch("requests.post")
-def test_search_audit_probe_401_returns_authentication_failed(
-    mock_post: MagicMock,
-) -> None:
-    mock_post.return_value = _mock_probe(401)
-    fn = _register_and_capture(_make_nuxeo())["search_audit"]
-
-    result = _call(fn, "deletions yesterday")
-
-    assert result["success"] is False
-    assert result["error"] == "Authentication failed"
+    assert "audit" in str(excinfo.value)
 
 
-@patch("requests.post")
-def test_search_audit_probe_connection_error_returns_not_available(
-    mock_post: MagicMock,
-) -> None:
-    mock_post.side_effect = requests_lib.exceptions.ConnectionError("refused")
-    fn = _register_and_capture(_make_nuxeo())["search_audit"]
+def test_audit_missing_body_returns_audit_usage_help() -> None:
+    fn = _register_and_capture(_make_nuxeo())["nuxeo_search_audit_with_query_dsl"]
 
-    result = _call(fn, "deletions yesterday")
+    with pytest.raises(ToolError) as excinfo:
+        fn(None)
 
-    assert result["success"] is False
-    assert result["error"] == "Elasticsearch audit not available"
+    message = str(excinfo.value)
+    assert "eventDate" in message
+    assert "nuxeo://audit-query-dsl-guide" in message

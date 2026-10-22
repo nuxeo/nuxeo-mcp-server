@@ -930,40 +930,24 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             degraded=degraded,
         )
 
-    @mcp.tool(
-        name="nuxeo_search_documents_with_query_dsl",
-        description=(
-            "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "
-            "repository index and return the engine response unchanged. Use this for "
-            "aggregations, highlighting, sorting and any query the normalized search "
-            "cannot express. Read nuxeo://query-dsl-guide first for the field names."
-        ),
-    )
-    def nuxeo_search_documents_with_query_dsl(
-        query: Optional[Dict[str, Any]] = None,
+    def _run_query_dsl(
+        index: str,
+        query: Optional[Dict[str, Any]],
+        default_source: Optional[List[str]] = None,
+        guide: str = "nuxeo://query-dsl-guide",
     ) -> Dict[str, Any]:
-        """Forward a Query DSL request body to Nuxeo's search-engine passthrough.
+        """Execute a guarded Query DSL request against one Nuxeo search index.
 
-        ACLs are enforced by Nuxeo server-side, so the response only ever contains
-        documents the authenticated user may read. The guardrails here are about
-        cost and response size, which the engine does not bound on its own: an
-        unqualified match_all with size 10000 returns several megabytes.
-
-        Args:
-            query: An Elasticsearch/OpenSearch request body.
-
-        Returns:
-            The engine response, unchanged apart from the applied guardrails.
-
-        Raises:
-            ToolError: on a missing body, a scripted query, or a response that
-                exceeds the size limit.
+        Nuxeo's passthrough applies the caller's ACLs and, for the audit index,
+        rejects non-administrators with HTTP 403. What it does not bound is cost:
+        an unqualified match_all with size 10000 returns megabytes, and Painless
+        executes. Those bounds are applied here.
         """
         if not query:
             raise ToolError(query_dsl.USAGE)
 
         try:
-            guarded = apply_guardrails(query)
+            guarded = apply_guardrails(query, default_source=default_source)
         except QueryDslRejected as e:
             raise ToolError(str(e))
 
@@ -975,9 +959,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         )
 
         try:
-            response = passthrough.execute_query(index="nuxeo", query=guarded)
+            response = passthrough.execute_query(index=index, query=guarded)
         except Exception as e:
-            raise ToolError(f"Query DSL search failed: {e}")
+            raise ToolError(f"Query DSL search failed on index {index!r}: {e}")
 
         size = len(json.dumps(response))
         if size > query_dsl.MAX_RESPONSE_BYTES:
@@ -992,121 +976,72 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             # Silently empty results are the main failure mode here: a hallucinated
             # field name returns 200 with no hits, which reads as "nothing matches".
             response["_nuxeo_hint"] = (
-                "No hits. Verify field names against the nuxeo://query-dsl-guide "
-                "resource -- unknown fields match nothing rather than erroring."
+                f"No hits. Verify field names against the {guide} resource -- "
+                "unknown fields match nothing rather than erroring."
             )
         response["_nuxeo_executed_query"] = guarded
         return response
-    @mcp.tool()
-    async def search_audit(query: str, limit: int = 20, offset: int = 0) -> str:
-        """
-        [REQUIRES ELASTICSEARCH] Search the Nuxeo audit logs (Admin only).
 
-        This tool provides search capabilities across audit logs for tracking
-        system activity, document modifications, and user actions. Requires both
-        administrator privileges and Elasticsearch to be configured and accessible.
-
-        Access control is enforced server-side by the Nuxeo Elasticsearch passthrough:
-        non-administrator users receive HTTP 403, which this tool reports as a clear
-        permission error rather than an availability failure.
+    @mcp.tool(
+        name="nuxeo_search_documents_with_query_dsl",
+        description=(
+            "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "
+            "repository index and return the engine response unchanged. Use this for "
+            "aggregations, highlighting, sorting and any query the normalized search "
+            "cannot express. Read nuxeo://query-dsl-guide first for the field names."
+        ),
+    )
+    def nuxeo_search_documents_with_query_dsl(
+        query: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Search the repository index with a Query DSL body.
 
         Args:
-            query: Natural language audit query (e.g., "deletions by admin yesterday")
-            limit: Maximum number of results to return (default: 20, max: 100)
-            offset: Pagination offset for results (default: 0)
+            query: An Elasticsearch/OpenSearch request body.
 
         Returns:
-            JSON string containing audit entries with event details, or an error object
-            with "error": "Permission denied" when called by a non-administrator.
+            The engine response, unchanged apart from the applied guardrails.
 
-        Examples:
-            - "show all deletions from yesterday"
-            - "what did alice modify this week"
-            - "document creations in the last month"
-            - "failed login attempts today"
+        Raises:
+            ToolError: on a missing body, a scripted query, an engine error, or a
+                response over the size limit.
         """
-        try:
-            # Import here to avoid circular dependency
-            from .es_passthrough import ElasticsearchPassthrough
-            import requests
+        return _run_query_dsl(
+            "nuxeo", query, default_source=query_dsl.DEFAULT_SOURCE_FIELDS
+        )
 
-            # Limit max results
-            if limit > 100:
-                limit = 100
-            # Clamp to non-negative so result slicing / ES paging stay valid
-            limit = max(0, limit)
-            offset = max(0, offset)
+    @mcp.tool(
+        name="nuxeo_search_audit_with_query_dsl",
+        description=(
+            "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "
+            "audit log index and return the engine response unchanged. Administrators "
+            "only. Read nuxeo://audit-query-dsl-guide first for the field names."
+        ),
+    )
+    def nuxeo_search_audit_with_query_dsl(
+        query: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Search the audit index with a Query DSL body.
 
-            # Initialize passthrough with Nuxeo URL and auth from the active client
-            nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
-            auth = nuxeo.client.auth
-            
-            passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
+        Audit entries are events, not documents, so they are returned in the engine
+        shape rather than the normalized document envelope.
 
-            # Check if Elasticsearch audit index is accessible and user has permission.
-            # The Nuxeo passthrough returns 403 for non-admins, 401 for bad/missing
-            # credentials, and a network/5xx error when the index is unavailable.
-            try:
-                test_url = f"{passthrough.base_url}/audit/_search"
-                test_query = {"query": {"match_all": {}}, "size": 0}
-                probe = requests.post(
-                    test_url, json=test_query, auth=auth, timeout=ES_PROBE_TIMEOUT
-                )
-                if probe.status_code == 401:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": "Authentication failed",
-                            "message": "Authentication failed (HTTP 401): check the configured Nuxeo credentials.",
-                        }
-                    )
-                if probe.status_code == 403:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": "Permission denied",
-                            "message": "Only administrators can access audit logs",
-                        }
-                    )
-                probe.raise_for_status()
-            except requests.exceptions.RequestException as e:
-                logger.warning(
-                    f"Elasticsearch audit index not reachable at {passthrough.base_url}: {e}"
-                )
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": "Elasticsearch audit not available",
-                        "message": "Elasticsearch audit index is not accessible. Audit logs require Elasticsearch.",
-                        "alternative": "Check your Nuxeo server's Elasticsearch configuration",
-                    }
-                )
+        Args:
+            query: An Elasticsearch/OpenSearch request body.
 
-            # Execute search — admin-only check is enforced server-side by the Nuxeo passthrough
-            results = passthrough.search_audit(
-                query=query,
-                limit=limit,
-                offset=offset,
-            )
+        Returns:
+            The engine response, unchanged apart from the applied guardrails.
 
-            # Format response
-            response = {
-                "success": True,
-                "total": results["total"],
-                "query_time_ms": results["query_time_ms"],
-                "results": results["results"],
-                "query": query,
-                "translated_query": results.get("translated_query", ""),
-            }
-
-            return json.dumps(response, indent=2)
-
-        except Exception as e:
-            logger.error(f"Audit search error: {e}")
-            return json.dumps(
-                {"success": False, "error": "Audit search failed", "message": str(e)}
-            )
-
+        Raises:
+            ToolError: on a missing body, a scripted query, an engine error
+                (including HTTP 403 for non-administrators), or a response over
+                the size limit.
+        """
+        if not query:
+            raise ToolError(query_dsl.AUDIT_USAGE)
+        # No _source default: audit entries are small and share no field names
+        # with the repository index.
+        return _run_query_dsl("audit", query, guide="nuxeo://audit-query-dsl-guide")
 
     # Server resolution is deliberately not exposed as tools. Streamable HTTP is
     # stateless and shared between agents, so a tool that mutates the active
