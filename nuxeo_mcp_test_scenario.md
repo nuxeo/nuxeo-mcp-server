@@ -226,16 +226,17 @@ Now that we have created some content, let's search for documents in the reposit
 # Use the search tool to search for documents by type
 search_results = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "SELECT * FROM Document WHERE ecm:primaryType = 'File'",
-    "pageSize": 10,
-    "currentPageIndex": 0
+    "mode": "nxql",
+    "page_size": 10,
+    "page_index": 0
 })
 
 # Print the search results
 print("Search Results by Type:")
-print(f"Total Results: {search_results.get('resultsCount', 0)}")
+print(f"Total Results: {search_results['totalCount']}")
 print("Documents:")
-for doc in search_results.get('entries', []):
-    print(f"- {doc.get('title', 'N/A')} ({doc.get('type', 'N/A')}) at {doc.get('path', 'N/A')}")
+for doc in search_results['documents']:
+    print(f"- {doc['title']} ({doc['documentType']}) at {doc['path']}")
 ```
 
 Expected output: A list of File documents in the repository, including our newly created file document.
@@ -250,16 +251,17 @@ Let's search for documents using full-text search capabilities.
 # Use the search tool to search for documents using full-text search
 fulltext_search_results = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "SELECT * FROM Document WHERE ecm:fulltext = 'rich text formatting'",
-    "pageSize": 10,
-    "currentPageIndex": 0
+    "mode": "nxql",
+    "page_size": 10,
+    "page_index": 0
 })
 
 # Print the search results
 print("Full-Text Search Results:")
-print(f"Total Results: {fulltext_search_results.get('resultsCount', 0)}")
+print(f"Total Results: {fulltext_search_results['totalCount']}")
 print("Documents:")
-for doc in fulltext_search_results.get('entries', []):
-    print(f"- {doc.get('title', 'N/A')} ({doc.get('type', 'N/A')}) at {doc.get('path', 'N/A')}")
+for doc in fulltext_search_results['documents']:
+    print(f"- {doc['title']} ({doc['documentType']}) at {doc['path']}")
 ```
 
 Expected output: A list of documents containing the text "rich text formatting", which should include our note document.

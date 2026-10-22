@@ -9,13 +9,13 @@ A Model Context Protocol (MCP) server for interacting with a Nuxeo Content Repos
 
 - 🔄 Connect to a Nuxeo Content Repository Server
 - 🛠️ MCP Tools for common Nuxeo operations (query, retrieve, create, update, delete documents)
-- 🔍 Natural Language Search - convert plain English queries to NXQL automatically
-- ⚡ **NEW: Elasticsearch Passthrough** - Natural language search via Elasticsearch with security filtering
-- 🔐 **NEW: Audit Log Search** - Query audit logs using natural language (admin only)
-- 🔒 **NEW: OAuth2 Authentication** - Secure browser-based authentication with token storage
+- 🔍 Document search in one tool - plain English or exact NXQL, one normalized result envelope either way
+- ⚡ Query DSL search - raw Elasticsearch/OpenSearch request bodies for aggregations, highlighting and sorting
+- 🔐 Audit log search - Query DSL against the audit index (admin only)
+- 🔒 OAuth2 authentication - browser-based, with token storage
 - 📚 MCP Resources for accessing Nuxeo content
 - 🧩 MCP Resource Templates for dynamic content access
-- 📖 NXQL Guide Resource - comprehensive documentation for query syntax
+- 📖 Guide resources - NXQL syntax, and the indexed field names for both Query DSL tools
 - 🐳 Docker support for testing with a Nuxeo server
 - 🧪 Comprehensive test suite with pytest
 
@@ -31,7 +31,7 @@ The MCP server connects to Nuxeo using the credentials you provide through confi
 
 | Privilege | Tools |
 |---|---|
-| **Any authenticated user** | `nuxeo_get_repository_info`, `nuxeo_list_children`, `nuxeo_search_documents`, `nuxeo_search_documents`, `nuxeo_search_documents_with_query_dsl`, `nuxeo_get_document`, `nuxeo_create_document`, `nuxeo_update_metadata`, `nuxeo_delete_document`, `nuxeo_move_document`, `nuxeo_list_document_types`, `nuxeo_get_metadata_schema`, `nuxeo_list_operations` |
+| **Any authenticated user** | `nuxeo_get_repository_info`, `nuxeo_list_children`, `nuxeo_search_documents`, `nuxeo_search_documents_with_query_dsl`, `nuxeo_get_document`, `nuxeo_create_document`, `nuxeo_update_metadata`, `nuxeo_delete_document`, `nuxeo_move_document`, `nuxeo_list_document_types`, `nuxeo_get_metadata_schema`, `nuxeo_list_operations` |
 | **Administrator only** | `nuxeo_search_audit_with_query_dsl` — the Nuxeo ES passthrough enforces this server-side and returns HTTP 403 for non-admins, which the MCP tool surfaces as a clear permission error |
 | **Depends on operation** | `nuxeo_execute_operation` — privilege is determined by the specific Nuxeo Automation operation invoked; enforced server-side |
 

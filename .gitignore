@@ -35,6 +35,25 @@ env/
 *.swp
 *.swo
 
+# Test / type-check / lint caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+
 # Logs
 *.log
 
@@ -45,3 +64,7 @@ env/
 .agent-os/
 .claude/
 .serena/
+
+# Exported assistant transcripts -- these land in the working tree and have
+# been committed by accident before.
+session-*.md
