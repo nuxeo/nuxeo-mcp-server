@@ -168,6 +168,13 @@ if result["degraded"]:
 
 Matches on meaning rather than keywords, against the Nuxeo vector index.
 
+**Use it as a fulltext search by meaning, with basic filtering.** It is not a
+general NXQL engine — the query text is the point, and `nxql_filter` is a
+best-effort narrowing over a small set of indexed scalar fields. If you need
+real query expressiveness (conditions on arbitrary properties, `OR`, `LIKE`,
+sorting) use `mode="nxql"`; for aggregations use
+`nuxeo_search_documents_with_query_dsl`.
+
 ```python
 result = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "what causes musty cork taint from chlorine and mould",

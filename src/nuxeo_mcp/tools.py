@@ -894,6 +894,14 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
     ) -> SearchResult:
         """Execute a semantic search and map it onto the shared envelope.
 
+        **This mode is a fulltext search by meaning, with basic filtering.** It is
+        not a general NXQL engine: the query text is the whole point, and the
+        filter is a best-effort narrowing on a small set of indexed scalar fields.
+        Anything that needs real query expressiveness -- joins of conditions on
+        arbitrary properties, OR, LIKE, sorting -- belongs in mode="nxql", and
+        anything needing aggregations belongs in
+        nuxeo_search_documents_with_query_dsl.
+
         The vector client embeds the ``ecm:fulltext`` value and runs k-NN, while
         still honouring the scalar predicates in the rest of the NXQL. So the query
         the caller sees in ``interpretedQuery`` is the query that ran, exactly as in
