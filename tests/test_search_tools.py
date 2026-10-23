@@ -223,6 +223,22 @@ def test_guardrails_reject_deep_pagination() -> None:
         {"query": {"script": {"script": {"source": "return true"}}}},
         {"script_fields": {"x": {"script": {"source": "1+1"}}}},
         {"query": {"bool": {"must": [{"script_score": {"script": {"source": "1"}}}]}}},
+        # scripted_metric carries Painless under four keys, none of them named
+        # "script", and runs even with size: 0.
+        {
+            "size": 0,
+            "aggs": {
+                "m": {
+                    "scripted_metric": {
+                        "init_script": "state.s = 0",
+                        "map_script": "state.s += 1",
+                        "combine_script": "return state.s",
+                        "reduce_script": "return states.size()",
+                    }
+                }
+            },
+        },
+        {"aggs": {"b": {"bucket_script": {"script": "params.a", "buckets_path": {}}}}},
     ],
 )
 def test_guardrails_reject_scripted_queries_at_any_depth(body: Dict[str, Any]) -> None:
@@ -248,3 +264,79 @@ def test_field_guide_documents_the_catch_all_field() -> None:
     assert "ecm:primaryType" in guide
     # The silent-empty-result failure mode must be called out explicitly.
     assert "matches nothing" in guide
+
+
+def test_natural_mode_degrades_with_an_escaped_literal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A parse failure must still produce executable NXQL, apostrophes included."""
+    from nuxeo_mcp import nl_parser
+
+    def boom(self: Any, query: str) -> Any:
+        raise ValueError("nope")
+
+    monkeypatch.setattr(nl_parser.NaturalLanguageParser, "parse", boom)
+
+    nuxeo = _make_nuxeo()
+    result = _search_tool(nuxeo)("find Alice's report", mode="natural")
+
+    executed = nuxeo.client.query.call_args[0][0]
+    # Backslash escaping, not a doubled quote -- the latter is invalid NXQL.
+    assert executed == "SELECT * FROM Document WHERE ecm:fulltext = 'Alice\\'s report'"
+    assert result.interpretedQuery == executed
+    assert result.degraded is not None
+
+
+def test_query_dsl_size_check_covers_the_echoed_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tiny engine response plus a huge request still exceeds the cap."""
+    from nuxeo_mcp import es_passthrough, query_dsl
+
+    class FakePassthrough:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def execute_query(self, index: str, query: Dict[str, Any]) -> Dict[str, Any]:
+            return {"hits": {"hits": []}}
+
+    monkeypatch.setattr(es_passthrough, "ElasticsearchPassthrough", FakePassthrough)
+
+    ids = ["x" * 64 for _ in range(query_dsl.MAX_RESPONSE_BYTES // 64 + 100)]
+    fn = _register_and_capture(_make_nuxeo())["nuxeo_search_documents_with_query_dsl"]
+
+    with pytest.raises(ToolError) as excinfo:
+        fn({"size": 1, "query": {"ids": {"values": ids}}})
+
+    assert "over the" in str(excinfo.value)
+
+
+def test_field_sampling_excludes_extracted_binary_text() -> None:
+    """Discovery needs key names, not the full text of every binary."""
+    from nuxeo_mcp.query_dsl import (
+        SAMPLE_SOURCE_EXCLUDES,
+        reset_sample_cache,
+        sample_field_names,
+    )
+
+    reset_sample_cache()
+    seen: Dict[str, Any] = {}
+
+    def execute_query(index: str, query: Dict[str, Any]) -> Dict[str, Any]:
+        seen.update(query)
+        return {"hits": {"hits": [{"_source": {"invoice:amount": 1}}]}}
+
+    assert sample_field_names(execute_query, "nuxeo") == ["invoice:amount"]
+    assert seen["_source"] == {"excludes": SAMPLE_SOURCE_EXCLUDES}
+    assert "ecm:binarytext" in SAMPLE_SOURCE_EXCLUDES
+    reset_sample_cache()
+
+
+def test_usage_highlights_source_backed_fields() -> None:
+    """all_field is never stored, so highlighting it yields no fragments."""
+    from nuxeo_mcp.query_dsl import USAGE
+
+    highlight = USAGE[USAGE.index('"highlight"') :]
+    assert '"all_field"' not in highlight
+    assert "require_field_match" in highlight
+    assert "dc:title" in highlight

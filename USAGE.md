@@ -184,15 +184,22 @@ unknown field matches nothing rather than raising an error.
 ```python
 from fastmcp import use_tool
 
-# Full-text search with highlighting
+# Full-text search with highlighting. Query `all_field`, but highlight
+# source-backed fields: `all_field` is a copy_to catch-all, never stored, so
+# the highlighter has no text to fragment for it.
 result = use_tool("nuxeo", "nuxeo_search_documents_with_query_dsl", {
     "query": {
         "size": 10,
         "_source": ["dc:title", "ecm:path"],
         "query": {"match": {"all_field": "quarterly report"}},
-        "highlight": {"fields": {
-            "all_field": {"fragment_size": 150, "number_of_fragments": 3}
-        }},
+        "highlight": {
+            "require_field_match": False,
+            "fields": {
+                "dc:title": {},
+                "dc:description": {},
+                "ecm:binarytext": {"fragment_size": 150, "number_of_fragments": 3},
+            },
+        },
     }
 })
 
