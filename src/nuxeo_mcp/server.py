@@ -135,9 +135,7 @@ class NuxeoMCPServer:
         
         # Register tools and resources without authentication wrapper for basic auth
         # (The Nuxeo client already has the auth configured)
-        # Skip server selection if explicitly configured (e.g., in Docker with pre-configured URL)
-        skip_server_selection = os.environ.get("SKIP_SERVER_SELECTION", "false").lower() in ("true", "1", "yes")
-        register_tools(self.mcp, self.nuxeo, skip_server_selection=skip_server_selection)
+        register_tools(self.mcp, self.nuxeo)
             
         # Register MCP resources.
         register_resources(self.mcp, self.nuxeo)

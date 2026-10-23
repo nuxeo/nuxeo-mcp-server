@@ -26,7 +26,6 @@ nuxeo-mcp-server/
 │   ├── auth.py             # OAuth2 / Basic auth handlers
 │   ├── middleware.py       # Authentication middleware
 │   ├── config.py           # Configuration dataclasses & enums
-│   ├── server_manager.py   # Multi-server management
 │   ├── token_store.py      # OAuth2 token storage
 │   ├── utility.py          # Document formatting helpers
 │   └── __main__.py         # CLI entry-point
@@ -203,7 +202,6 @@ def my_prompt(arg: str) -> str:
 | `auth.py` | `OAuth2AuthHandler` (PKCE flow), `BasicAuthHandler`; browser-based callback server |
 | `middleware.py` | `AuthenticationManager` wraps tool/resource callables to inject auth headers |
 | `token_store.py` | `TokenManager` — persists and refreshes OAuth2 tokens |
-| `server_manager.py` | `ServerManager` — tracks multiple Nuxeo instances, handles switching |
 | `nl_parser.py` | `NaturalLanguageParser` converts English queries to NXQL via `NXQLBuilder` |
 | `es_passthrough.py` | `ElasticsearchPassthrough` — forwards ES queries while enforcing Nuxeo ACLs |
 | `query_dsl.py` | Guardrails (size/from/response caps, script rejection) and field guides for the Query DSL tools |
@@ -220,7 +218,7 @@ __main__.py  →  main()
        ├─ config.py: read NUXEO_URL / NUXEO_AUTH_METHOD / credentials from env
        ├─ auth.py / middleware.py: build Nuxeo client (basic or OAuth2)
        ├─ server.py: create FastMCP instance + /health endpoint
-       ├─ tools.py: register_tools()        ← ServerManager initialised here
+       ├─ tools.py: register_tools()
        ├─ resources.py: register_resources()
        └─ prompts.py: register_prompts()
 ```
@@ -262,7 +260,6 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 | `NUXEO_OAUTH_OPENID_URL` | OpenID Connect configuration URL |
 | `NUXEO_OAUTH_REDIRECT_PORT` | Local port for OAuth2 callback (default: auto) |
 | `NUXEO_OAUTH_SCOPE` | OAuth2 scopes (default: `openid profile email`) |
-| `SKIP_SERVER_SELECTION` | Set to `true` to skip the interactive server-selection prompt at startup |
 
 ### Server Transport Modes
 
