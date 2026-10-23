@@ -81,7 +81,15 @@ class SearchResult(BaseModel):
     """Envelope returned by every search mode."""
 
     documents: List[SearchHit] = Field(default_factory=list)
-    totalCount: int = Field(default=0, description="Total matches, not the page size.")
+    totalCount: int = Field(
+        default=0,
+        description=(
+            "Total matches, not the page size. Exception: ranking modes such as "
+            "semantic have no exhaustive match count -- there it is the number of "
+            "candidates the retrieval considered, which grows with pageSize. Do not "
+            "read it as a corpus-wide total in that mode."
+        ),
+    )
     pageIndex: int = Field(
         default=0, description="Zero-based index of the returned page."
     )
@@ -175,6 +183,35 @@ def to_search_hit(
     )
 
 
+def _evidence(
+    entry: Dict[str, Any], include_snippets: bool
+) -> tuple[Optional[float], List[str]]:
+    """Pull the relevance score and matching passages out of ``contextParameters``.
+
+    Both come from document enrichers, so they are present only when the caller
+    asked for them and the server supports them -- ``score`` needs Nuxeo 2025.22+.
+    Absent enrichers mean a null score and no snippets, never an error, which is
+    what keeps the envelope constant across modes and server versions.
+    """
+    context = entry.get("contextParameters") or {}
+
+    raw_score = context.get("score")
+    try:
+        score = float(raw_score) if raw_score is not None else None
+    except (TypeError, ValueError):
+        score = None
+
+    snippets: List[str] = []
+    if include_snippets:
+        for highlight in context.get("highlight") or []:
+            for segment in highlight.get("segments") or []:
+                text = (segment or "").replace("\n", " ").strip()
+                if text:
+                    snippets.append(text)
+
+    return score, snippets
+
+
 def to_search_result(
     query_result: Dict[str, Any],
     *,
@@ -183,6 +220,7 @@ def to_search_result(
     page_size: int = 0,
     page_index: int = 0,
     degraded: Optional[str] = None,
+    include_snippets: bool = True,
 ) -> SearchResult:
     """Map a Nuxeo paginated query response onto the envelope."""
     entries = query_result.get("entries") or []
@@ -190,8 +228,13 @@ def to_search_result(
     if total is None:
         total = query_result.get("totalSize", len(entries))
 
+    documents = []
+    for entry in entries:
+        score, snippets = _evidence(entry, include_snippets)
+        documents.append(to_search_hit(entry, score=score, snippets=snippets))
+
     return SearchResult(
-        documents=[to_search_hit(entry) for entry in entries],
+        documents=documents,
         totalCount=int(total or 0),
         pageIndex=int(query_result.get("currentPageIndex", page_index) or 0),
         pageSize=int(query_result.get("pageSize", page_size) or 0),

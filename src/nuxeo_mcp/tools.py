@@ -863,15 +863,120 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         "  SELECT * FROM File WHERE dc:title LIKE 'Invoice%' ORDER BY dc:modified DESC\n"
         "  SELECT * FROM Document WHERE ecm:fulltext = 'contract' AND ecm:isTrashed = 0\n"
         "\n"
+        "\n"
+        'mode="semantic" -- meaning rather than keywords; needs the vector index:\n'
+        '  "what causes musty cork taint from chlorine and mold"\n'
+        "  Prefer a full question or a domain-rich phrase over two or three words.\n"
+        "\n"
         "See the nuxeo://nxql-guide resource for the full NXQL syntax, and "
         "nuxeo_search_documents_with_query_dsl for aggregations and highlighting."
     )
+
+    # Semantic mode runs through the standard page-provider REST endpoint rather
+    # than the Query DSL passthrough: the passthrough only whitelists indexes whose
+    # client is "opensearch", and the vector client is not one. Going through the
+    # page provider also keeps the embedding model id server-side -- it is
+    # cluster-specific and the MCP server has no business knowing it -- and applies
+    # the caller's ACLs natively.
+    _SEMANTIC_PAGE_PROVIDER = "search_check_nxql"
+
+    # Excludes proxies and versions, which otherwise return the same content several
+    # times over. Callers can replace it, but every clause has to be one the vector
+    # client understands (see the tool docstring).
+    _SEMANTIC_DEFAULT_FILTER = "ecm:isProxy=0 AND ecm:isVersion=0"
+
+    def _run_semantic(
+        query: str,
+        page_size: int,
+        page_index: int,
+        nxql_filter: str,
+        include_snippets: bool,
+    ) -> SearchResult:
+        """Execute a semantic search and map it onto the shared envelope.
+
+        **This mode is a fulltext search by meaning, with basic filtering.** It is
+        not a general NXQL engine: the query text is the whole point, and the
+        filter is a best-effort narrowing on a small set of indexed scalar fields.
+        Anything that needs real query expressiveness -- joins of conditions on
+        arbitrary properties, OR, LIKE, sorting -- belongs in mode="nxql", and
+        anything needing aggregations belongs in
+        nuxeo_search_documents_with_query_dsl.
+
+        The vector client embeds the ``ecm:fulltext`` value and runs k-NN, while
+        still honouring the scalar predicates in the rest of the NXQL. So the query
+        the caller sees in ``interpretedQuery`` is the query that ran, exactly as in
+        the other two modes.
+
+        One field does not carry its usual meaning here. The client fetches
+        ``k = (offset + page_size) * 5`` chunks, collapses them to distinct
+        documents, and reports that count -- flagged ``totalAccurate(false)``
+        server-side. So ``totalCount`` scales with ``page_size`` (measured: 7, 17,
+        28, 46, 78 for page sizes 2, 5, 10, 20, 50 on one corpus) and is not the
+        number of documents that match. ``hasMore`` is true for the same reason.
+        Ranking modes have no exhaustive match count, so there is nothing truthful
+        to put there.
+
+        Dropped filter clauses are recorded by the engine as SearchLimitation and
+        reach ``SearchResponse.getLimitations()``, but the page-provider REST
+        response carries no ``limitations`` field, so they cannot be surfaced in
+        ``degraded`` from here. Exposing them over REST is a Nuxeo-side change.
+        """
+        nxql = (
+            f"SELECT * FROM Document WHERE ecm:fulltext = "
+            f"'{_escape_nxql_literal(query)}' AND {nxql_filter}"
+        )
+
+        try:
+            response = nuxeo.client.request(
+                "GET",
+                f"api/v1/search/pp/{_SEMANTIC_PAGE_PROVIDER}/execute",
+                # "score" needs Nuxeo 2025.22+; on older servers the enricher is
+                # unknown, the field is simply absent, and score stays null.
+                headers={"enrichers-document": "highlight, score"},
+                params={
+                    "queryParams": nxql,
+                    "index": "vector",
+                    "pageSize": page_size,
+                    "currentPageIndex": page_index,
+                },
+            )
+            data = response.json()
+        except Exception as e:
+            # A failed page provider does not arrive as a 200 carrying hasError.
+            # SearchServicePageProvider swallows QueryParseException into its error
+            # state, but the REST layer re-raises it before serializing --
+            # QueryObject: `if (res.hasError()) throw new NuxeoException(msg,
+            # SC_BAD_REQUEST)`. Confirmed against a live server: invalid NXQL, a
+            # missing ecm:fulltext predicate and an unknown document type all return
+            # 400, not 200. So the hasError/errorMessage fields present in every
+            # paginable response are always false here, and checking them would be
+            # dead code.
+            # Report the engine's own error and stop there. The failure modes look
+            # alike from here -- a missing vector index and an embedding model that
+            # failed to deploy both surface as an opaque 4xx/5xx -- so naming a cause
+            # would send the reader after the wrong one. Name the modes that work
+            # instead, since that is the part we do know.
+            raise ToolError(
+                f"Semantic search failed on this server: {e}. The vector backend may "
+                "not be deployed or ready; check the Nuxeo server log for the cause. "
+                "mode='natural' and mode='nxql' do not depend on it."
+            )
+
+        return to_search_result(
+            data,
+            mode=MODE_SEMANTIC,
+            interpreted_query=nxql,
+            page_size=page_size,
+            page_index=page_index,
+            include_snippets=include_snippets,
+        )
 
     @tool(
         name="nuxeo_search_documents",
         description=(
             "Search documents in the Nuxeo repository. Use mode='natural' for a "
-            "plain-English query, mode='nxql' for an exact NXQL statement. Returns "
+            "plain-English query, mode='nxql' for an exact NXQL statement, "
+            "mode='semantic' to match on meaning rather than keywords. Returns "
             "a normalized result envelope that is identical for every mode. For "
             "counts, groupings or aggregations, use "
             "nuxeo_search_documents_with_query_dsl instead."
@@ -882,22 +987,55 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         mode: str = MODE_NATURAL,
         page_size: int = 20,
         page_index: int = 0,
+        nxql_filter: str = "",
+        include_snippets: bool = True,
     ) -> SearchResult:
         """Search the repository and return the normalized envelope.
 
         Args:
-            query: Plain English (mode="natural") or a NXQL statement (mode="nxql").
+            query: Plain English (mode="natural"), a NXQL statement (mode="nxql"),
+                or a question/phrase to match on meaning (mode="semantic").
             mode: One of "natural", "nxql", "semantic".
             page_size: Documents per page.
             page_index: Zero-based page to retrieve.
+            nxql_filter: **mode="semantic" only.** NXQL WHERE conditions ANDed after
+                the query term, replacing the default
+                "ecm:isProxy=0 AND ecm:isVersion=0".
+
+                **An unsupported clause is dropped, not refused** -- the filter is
+                simply not applied, so you get *more* documents than you asked for,
+                with no error and nothing in ``degraded``. Check the results rather
+                than assuming the filter held. The engine does record what it
+                dropped, but Nuxeo's REST layer does not expose it (see below).
+
+                Filterable fields come from the vector index mapping, not from NXQL.
+                With the default mapping: ecm:primaryType, ecm:mixinType,
+                ecm:ancestorId, ecm:tag, ecm:uuid, ecm:repository (keyword);
+                ecm:path (path); ecm:isProxy, ecm:isVersion (boolean); dc:modified,
+                chunk_id (range). A deployment can extend this with its own mapping
+                file. Anything else -- dc:title, dc:description, any unmapped
+                property -- is dropped.
+
+                Operators: = <> IN "NOT IN" "IS NULL" "IS NOT NULL" on any filterable
+                field; < <= > >= BETWEEN "NOT BETWEEN" on range fields only;
+                STARTSWITH on ecm:path only. Using a range operator on a keyword
+                field, or STARTSWITH on anything but a path, drops the clause.
+
+                Never supported: OR, NOT (the whole sub-expression is discarded),
+                LIKE, ILIKE. ORDER BY is ignored without even being recorded;
+                results are always ranked by relevance.
+
+                Ignored by the other modes, which express filters in the query itself.
+            include_snippets: **mode="semantic" only.** Return the matching passages
+                of each document. The other modes populate no snippets either way.
 
         Returns:
             SearchResult. ``interpretedQuery`` always reports the NXQL actually
             executed, so a generated query can be inspected and corrected.
 
         Raises:
-            ToolError: on an empty query, an unknown mode, or a mode that is not
-                yet available.
+            ToolError: on an empty query, an unknown mode, or a mode whose backing
+                feature is not deployed on this server.
         """
         if not query or not query.strip():
             raise ToolError(_SEARCH_USAGE)
@@ -907,14 +1045,17 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
                 f"Unknown mode {mode!r}. Supported modes: {', '.join(SEARCH_MODES)}."
             )
 
-        if mode == MODE_SEMANTIC:
-            raise ToolError(
-                "mode='semantic' is not yet available on this server. Use "
-                "mode='natural' or mode='nxql'."
-            )
-
         page_size = max(1, min(page_size, 100))
         page_index = max(0, page_index)
+
+        if mode == MODE_SEMANTIC:
+            return _run_semantic(
+                query,
+                page_size=page_size,
+                page_index=page_index,
+                nxql_filter=nxql_filter.strip() or _SEMANTIC_DEFAULT_FILTER,
+                include_snippets=include_snippets,
+            )
 
         nxql = query
         degraded = None
