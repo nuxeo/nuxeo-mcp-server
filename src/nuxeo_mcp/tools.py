@@ -898,6 +898,13 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         still honouring the scalar predicates in the rest of the NXQL. So the query
         the caller sees in ``interpretedQuery`` is the query that ran, exactly as in
         the other two modes.
+
+        One field does not carry its usual meaning here. ``totalCount`` is the number
+        of candidates the k-NN retrieval considered, which scales with ``page_size``
+        (measured: 7, 17, 28, 46, 78 for page sizes 2, 5, 10, 20, 50 on one corpus),
+        not the number of documents that match. ``hasMore`` is true for the same
+        reason. Ranking modes have no equivalent of an exhaustive match count, so
+        there is nothing truthful to put there.
         """
         nxql = (
             f"SELECT * FROM Document WHERE ecm:fulltext = "
@@ -920,12 +927,15 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
             )
             data = response.json()
         except Exception as e:
-            # A missing vector index is a deployment fact, not a bad query, and the
-            # server reports it as a 400 that reads like a syntax error. Say which
-            # it is and name the modes that do work here.
+            # Report the engine's own error and stop there. The failure modes look
+            # alike from here -- a missing vector index and an embedding model that
+            # failed to deploy both surface as an opaque 4xx/5xx -- so naming a cause
+            # would send the reader after the wrong one. Name the modes that work
+            # instead, since that is the part we do know.
             raise ToolError(
-                f"Semantic search is unavailable on this server ({e}). It needs the "
-                "Nuxeo vector index; without it, use mode='natural' or mode='nxql'."
+                f"Semantic search failed on this server: {e}. The vector backend may "
+                "not be deployed or ready; check the Nuxeo server log for the cause. "
+                "mode='natural' and mode='nxql' do not depend on it."
             )
 
         return to_search_result(

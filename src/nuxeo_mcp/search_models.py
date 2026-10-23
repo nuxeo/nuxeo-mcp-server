@@ -81,7 +81,15 @@ class SearchResult(BaseModel):
     """Envelope returned by every search mode."""
 
     documents: List[SearchHit] = Field(default_factory=list)
-    totalCount: int = Field(default=0, description="Total matches, not the page size.")
+    totalCount: int = Field(
+        default=0,
+        description=(
+            "Total matches, not the page size. Exception: ranking modes such as "
+            "semantic have no exhaustive match count -- there it is the number of "
+            "candidates the retrieval considered, which grows with pageSize. Do not "
+            "read it as a corpus-wide total in that mode."
+        ),
+    )
     pageIndex: int = Field(
         default=0, description="Zero-based index of the returned page."
     )

@@ -269,18 +269,31 @@ def test_semantic_mode_requests_both_enrichers() -> None:
     assert "score" in headers["enrichers-document"]
 
 
-def test_semantic_mode_without_the_vector_index_names_the_alternatives() -> None:
-    """The server reports a missing index as a 400 that reads like a syntax error."""
-    nuxeo = _semantic_nuxeo(
-        raise_exc=Exception("Configured indexes [vector] not found for repository")
-    )
+@pytest.mark.parametrize(
+    "engine_error",
+    [
+        # The failure modes are indistinguishable from the client: a missing index
+        # and an undeployed embedding model both arrive as an opaque error.
+        "Configured indexes [vector] not found for repository",
+        "Model not ready yet. Please deploy the model first.",
+    ],
+)
+def test_semantic_mode_surfaces_the_engine_error_without_diagnosing(
+    engine_error: str,
+) -> None:
+    nuxeo = _semantic_nuxeo(raise_exc=Exception(engine_error))
 
     with pytest.raises(ToolError) as excinfo:
         _search_tool(nuxeo)("cork", mode="semantic")
 
     message = str(excinfo.value)
-    assert "vector index" in message
+    # The engine's own words survive, so the reader can act on them...
+    assert engine_error in message
+    # ...and the working modes are named, which is the part we do know.
     assert "mode='natural'" in message
+    # No cause is asserted: claiming "the index is missing" sends anyone hitting
+    # the model-deploy failure after the wrong thing.
+    assert "It needs the Nuxeo vector index" not in message
 
 
 def test_page_size_is_clamped() -> None:

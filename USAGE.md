@@ -198,8 +198,13 @@ Notes:
   ranked by relevance.
 - `score` requires **Nuxeo 2025.22+**. On older servers the enricher is unknown,
   the field is simply absent, and `score` stays null.
-- Without the vector index the tool raises, naming `mode="natural"` and
-  `mode="nxql"` as the alternatives.
+- **`totalCount` does not mean "total matches" in this mode.** k-NN has no
+  exhaustive match count, so it reports how many candidates the retrieval
+  considered, and it grows with `page_size` (measured: 7/17/28/46/78 for page
+  sizes 2/5/10/20/50). `hasMore` is true for the same reason. Use it for
+  "there is more to page through", never as a corpus total.
+- If the vector backend is unavailable the tool raises with the engine's own
+  error, naming `mode="natural"` and `mode="nxql"` as the alternatives.
 
 Calling the tool with an empty query returns usage help with worked examples
 instead of an error.
