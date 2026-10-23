@@ -6,6 +6,14 @@ not access but cost and response size: the engine happily answers an unqualified
 Painless scripts. Neither is bounded by the passthrough, so they are bounded
 here.
 
+These bounds are client-side and therefore advisory: they constrain what this
+tool sends, not what the passthrough accepts. NXP-34107 tracks the server-side
+counterpart -- an explicit DSL policy, recursive script rejection and
+server-controlled resource limits in ``nuxeo-rest-opensearch1-passthrough``.
+Until it ships this module is the only thing between a model-authored query and
+the engine; once it does, these checks remain as a fast local failure carrying a
+usable error message.
+
 ``_mapping`` is not exposed by the passthrough -- only ``_search`` -- so field
 names cannot be discovered at runtime and are documented instead. This matters
 more than it looks: an unknown field name returns HTTP 200 with zero hits, which
@@ -27,7 +35,10 @@ USAGE = """nuxeo_search_documents_with_query_dsl needs an Elasticsearch/OpenSear
 Full-text search with highlighting:
   {"size": 10, "_source": ["dc:title", "ecm:path"],
    "query": {"match": {"all_field": "quarterly report"}},
-   "highlight": {"fields": {"all_field": {"fragment_size": 150, "number_of_fragments": 3}}}}
+   "highlight": {"require_field_match": false,
+                 "fields": {"dc:title": {}, "dc:description": {},
+                            "ecm:binarytext": {"fragment_size": 150,
+                                               "number_of_fragments": 3}}}}
 
 Count documents per type (no hits, just the aggregation):
   {"size": 0, "aggs": {"types": {"terms": {"field": "ecm:primaryType", "size": 20}}}}
@@ -79,7 +90,9 @@ AUDIT_FIELDS: Dict[str, str] = {
 # Core index fields, stable across Nuxeo instances. Schema-specific fields exist
 # too but depend on the deployed content model.
 CORE_FIELDS: Dict[str, str] = {
-    "all_field": "catch-all full-text field; queryable but never returned in _source",
+    "all_field": "catch-all full-text field; queryable but never returned in "
+    "_source, so highlight source-backed fields (dc:title, dc:description, "
+    "ecm:binarytext) with require_field_match: false instead",
     "ecm:uuid": "keyword - document UUID",
     "ecm:name": "keyword - document name",
     "ecm:title": "text - document title",
@@ -135,7 +148,14 @@ DEFAULT_SOURCE_FIELDS: List[str] = [
 # Painless executes through the passthrough. It is sandboxed but remains a CPU
 # vector reachable from a model-authored query, and nothing in the supported use
 # cases needs it.
+#
+# Matched by suffix as well as by name: Painless reaches the engine through a
+# long tail of carriers -- scripted_metric alone has four
+# (init/map/combine/reduce_script), and bucket_script, bucket_selector and
+# script_heuristic add more. Enumerating them invites the next omission, so any
+# key named "script" or ending in "_script" is refused.
 _SCRIPT_KEYS = ("script", "script_fields", "script_score", "runtime_mappings")
+_SCRIPT_KEY_SUFFIX = "_script"
 
 
 class QueryDslRejected(ValueError):
@@ -146,7 +166,7 @@ def _reject_scripts(node: Any, path: str = "") -> None:
     """Walk the body and refuse any scripted construct, at any depth."""
     if isinstance(node, dict):
         for key, value in node.items():
-            if key in _SCRIPT_KEYS:
+            if key in _SCRIPT_KEYS or key.endswith(_SCRIPT_KEY_SUFFIX):
                 where = f"{path}.{key}" if path else key
                 raise QueryDslRejected(
                     f"Scripted queries are not allowed ({where}). Express the query "
@@ -211,6 +231,10 @@ def apply_guardrails(
 # enough to cover the common document types, small enough to stay cheap.
 SAMPLE_SIZE = 50
 
+# Excluded from the sample: discovery needs key names, and this one carries the
+# entire extracted text of every binary. Already documented in the curated table.
+SAMPLE_SOURCE_EXCLUDES: List[str] = ["ecm:binarytext"]
+
 _SAMPLE_CACHE: Dict[str, List[str]] = {}
 
 
@@ -230,14 +254,20 @@ def sample_field_names(
 
     This bypasses ``apply_guardrails`` deliberately: the body is ours, not the
     caller's, and the guardrails would project ``_source`` down to the very
-    fields we are trying to discover beyond.
+    fields we are trying to discover beyond. ``ecm:binarytext`` is excluded all
+    the same -- it holds the full extracted text of every binary, so sampling it
+    costs tens of megabytes for a name already in the curated table.
     """
     if index in _SAMPLE_CACHE:
         return _SAMPLE_CACHE[index]
 
     response = execute_query(
         index=index,
-        query={"size": SAMPLE_SIZE, "_source": True, "query": {"match_all": {}}},
+        query={
+            "size": SAMPLE_SIZE,
+            "_source": {"excludes": SAMPLE_SOURCE_EXCLUDES},
+            "query": {"match_all": {}},
+        },
     )
 
     names: set = set()
