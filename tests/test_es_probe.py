@@ -28,7 +28,7 @@ def _register_and_capture(nuxeo: Any) -> Dict[str, Callable[..., Any]]:
 
             return decorator
 
-    register_tools(FakeMCP(), nuxeo, skip_server_selection=True)
+    register_tools(FakeMCP(), nuxeo)
     return captured
 
 
