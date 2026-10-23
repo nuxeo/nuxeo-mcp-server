@@ -74,7 +74,7 @@ from typing import Union
 ES_PROBE_TIMEOUT = 10
 
 
-def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool = False) -> None:
+def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
     """
     Register MCP tools with the FastMCP server.
 
@@ -82,7 +82,6 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         mcp: The FastMCP server instance
         nuxeo: The Nuxeo client instance
         auth_middleware: Optional authentication middleware to wrap tools
-        skip_server_selection: If True, skip automatic server selection (useful when server is pre-configured)
     """
 
     def tool(**kwargs):
@@ -1079,56 +1078,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         # with the repository index.
         return _run_query_dsl("audit", query, guide="nuxeo://audit-query-dsl-guide")
 
-    # Server resolution is deliberately not exposed as tools. Streamable HTTP is
-    # stateless and shared between agents, so a tool that mutates the active
-    # server would leak one caller's repository into another caller's next call,
-    # and a tool that registers a server URL would let a model drive outbound
-    # requests. Which Nuxeo this process talks to is deployment configuration.
-    from nuxeo_mcp.server_manager import get_server_manager, ServerConfig
-    from nuxeo.client import Nuxeo
-
-
-    # Get the global server manager
-    server_manager = get_server_manager()
-    
-    # Create a mutable container for the Nuxeo client
-    # This allows us to switch servers dynamically
-    class NuxeoClientContainer:
-        def __init__(self, initial_client):
-            self.client = initial_client
-            self.current_server_name = None
-            
-        def switch_to_server(self, server_config: ServerConfig):
-            """Switch to a different Nuxeo server."""
-            try:
-                new_client = Nuxeo(
-                    host=server_config.url,
-                    auth=(server_config.username, server_config.password)
-                )
-                # Test the connection
-                new_client.client.server_info()
-                self.client = new_client
-                self.current_server_name = server_config.name
-                logger.info(f"Switched to server: {server_config.name}")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to connect to server {server_config.name}: {e}")
-                return False
-    
-    # Create the container with the initial client
-    nuxeo_container = NuxeoClientContainer(nuxeo)
-    
-    # Override the nuxeo variable to use the container's client
-    # This allows all tools to automatically use the current server
-    nuxeo = nuxeo_container.client
-    
-    
-    # Check if we need server selection on first use
-    # Skip if server is pre-configured (e.g., from Docker environment variables)
-    if not skip_server_selection and server_manager.needs_server_selection():
-        # Set up with the default server
-        active_server = server_manager.get_active_server()
-        if active_server:
-            nuxeo_container.switch_to_server(active_server)
-            nuxeo = nuxeo_container.client
-            server_manager.set_active_server(active_server.name)
+    # Server resolution is deliberately not exposed as tools, and is not mutable at
+    # runtime. Streamable HTTP is stateless and shared between agents, so a tool that
+    # switched the active server would leak one caller's repository into another
+    # caller's next call, and a tool that registered a server URL would let a model
+    # drive outbound requests. Which Nuxeo this process talks to is deployment
+    # configuration: NUXEO_URL and the credentials, read once at startup.

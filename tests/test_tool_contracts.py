@@ -58,7 +58,7 @@ def nuxeo() -> MagicMock:
 def mcp(nuxeo: MagicMock) -> FastMCP:
     """A real FastMCP server with the tools registered against a mocked Nuxeo."""
     server = FastMCP("test")
-    register_tools(server, nuxeo, skip_server_selection=True)
+    register_tools(server, nuxeo)
     return server
 
 

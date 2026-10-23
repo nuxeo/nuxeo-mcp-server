@@ -34,7 +34,7 @@ async def _collect() -> List[Dict[str, Any]]:
     from nuxeo_mcp.tools import register_tools
 
     server = FastMCP("nuxeo-mcp")
-    register_tools(server, MagicMock(), skip_server_selection=True)
+    register_tools(server, MagicMock())
 
     async with Client(server) as client:
         return [
