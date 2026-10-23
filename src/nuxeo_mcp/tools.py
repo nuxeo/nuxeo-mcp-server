@@ -899,12 +899,19 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         the caller sees in ``interpretedQuery`` is the query that ran, exactly as in
         the other two modes.
 
-        One field does not carry its usual meaning here. ``totalCount`` is the number
-        of candidates the k-NN retrieval considered, which scales with ``page_size``
-        (measured: 7, 17, 28, 46, 78 for page sizes 2, 5, 10, 20, 50 on one corpus),
-        not the number of documents that match. ``hasMore`` is true for the same
-        reason. Ranking modes have no equivalent of an exhaustive match count, so
-        there is nothing truthful to put there.
+        One field does not carry its usual meaning here. The client fetches
+        ``k = (offset + page_size) * 5`` chunks, collapses them to distinct
+        documents, and reports that count -- flagged ``totalAccurate(false)``
+        server-side. So ``totalCount`` scales with ``page_size`` (measured: 7, 17,
+        28, 46, 78 for page sizes 2, 5, 10, 20, 50 on one corpus) and is not the
+        number of documents that match. ``hasMore`` is true for the same reason.
+        Ranking modes have no exhaustive match count, so there is nothing truthful
+        to put there.
+
+        Dropped filter clauses are recorded by the engine as SearchLimitation and
+        reach ``SearchResponse.getLimitations()``, but the page-provider REST
+        response carries no ``limitations`` field, so they cannot be surfaced in
+        ``degraded`` from here. Exposing them over REST is a Nuxeo-side change.
         """
         nxql = (
             f"SELECT * FROM Document WHERE ecm:fulltext = "
@@ -976,15 +983,31 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
             page_index: Zero-based page to retrieve.
             nxql_filter: **mode="semantic" only.** NXQL WHERE conditions ANDed after
                 the query term, replacing the default
-                "ecm:isProxy=0 AND ecm:isVersion=0". The vector client translates
-                predicates on indexed scalar fields and **silently skips the ones it
-                does not support** -- so an unsupported clause widens the result set
-                instead of raising. Supported: ecm:primaryType, ecm:mixinType,
-                ecm:ancestorId, ecm:path STARTSWITH, ecm:tag, ecm:isProxy,
-                ecm:isVersion, dc:modified, with =, <>, IN, NOT IN, IS [NOT] NULL,
-                <, <=, >, >=, BETWEEN, STARTSWITH. Not supported: OR, NOT, LIKE, and
-                predicates on unindexed fields such as dc:title. ORDER BY is always
-                ignored; results are ranked by relevance.
+                "ecm:isProxy=0 AND ecm:isVersion=0".
+
+                **An unsupported clause is dropped, not refused** -- the filter is
+                simply not applied, so you get *more* documents than you asked for,
+                with no error and nothing in ``degraded``. Check the results rather
+                than assuming the filter held. The engine does record what it
+                dropped, but Nuxeo's REST layer does not expose it (see below).
+
+                Filterable fields come from the vector index mapping, not from NXQL.
+                With the default mapping: ecm:primaryType, ecm:mixinType,
+                ecm:ancestorId, ecm:tag, ecm:uuid, ecm:repository (keyword);
+                ecm:path (path); ecm:isProxy, ecm:isVersion (boolean); dc:modified,
+                chunk_id (range). A deployment can extend this with its own mapping
+                file. Anything else -- dc:title, dc:description, any unmapped
+                property -- is dropped.
+
+                Operators: = <> IN "NOT IN" "IS NULL" "IS NOT NULL" on any filterable
+                field; < <= > >= BETWEEN "NOT BETWEEN" on range fields only;
+                STARTSWITH on ecm:path only. Using a range operator on a keyword
+                field, or STARTSWITH on anything but a path, drops the clause.
+
+                Never supported: OR, NOT (the whole sub-expression is discarded),
+                LIKE, ILIKE. ORDER BY is ignored without even being recorded;
+                results are always ranked by relevance.
+
                 Ignored by the other modes, which express filters in the query itself.
             include_snippets: **mode="semantic" only.** Return the matching passages
                 of each document. The other modes populate no snippets either way.

@@ -191,11 +191,28 @@ Notes:
 - `interpretedQuery` reports the NXQL that ran, exactly as in the other modes —
   the vector client embeds the `ecm:fulltext` term and still applies the
   remaining scalar predicates.
-- `nxql_filter` replaces the default `ecm:isProxy=0 AND ecm:isVersion=0`. The
-  vector client **silently skips predicates it does not support** (`OR`, `NOT`,
-  `LIKE`, unindexed fields such as `dc:title`), so an unsupported clause widens
-  the result set rather than raising. `ORDER BY` is always ignored; results are
-  ranked by relevance.
+- `nxql_filter` replaces the default `ecm:isProxy=0 AND ecm:isVersion=0`.
+  **A clause the vector client cannot translate is dropped, not refused** — the
+  filter is not applied, you get more documents than you asked for, and nothing
+  reports it. Verified: `dc:title LIKE '%nothing-matches-this%'` returned the
+  same 46 documents as no filter at all, with `degraded` null.
+
+  Filterable fields come from the index mapping, not from NXQL. Defaults:
+
+  | Kind | Fields |
+  |---|---|
+  | keyword | `ecm:primaryType`, `ecm:mixinType`, `ecm:ancestorId`, `ecm:tag`, `ecm:uuid`, `ecm:repository` |
+  | path | `ecm:path` |
+  | boolean | `ecm:isProxy`, `ecm:isVersion` |
+  | range | `dc:modified`, `chunk_id` |
+
+  A deployment can extend this with its own mapping file. Anything unmapped —
+  `dc:title`, `dc:description`, custom schema fields — is dropped.
+
+  Operators: `=` `<>` `IN` `NOT IN` `IS [NOT] NULL` on any filterable field;
+  `<` `<=` `>` `>=` `BETWEEN` `NOT BETWEEN` on range fields only; `STARTSWITH`
+  on `ecm:path` only. `OR` and `NOT` discard the whole sub-expression. `LIKE`
+  is never supported. `ORDER BY` is ignored; results are ranked by relevance.
 - `score` requires **Nuxeo 2025.22+**. On older servers the enricher is unknown,
   the field is simply absent, and `score` stays null.
 - **`totalCount` does not mean "total matches" in this mode.** k-NN has no
