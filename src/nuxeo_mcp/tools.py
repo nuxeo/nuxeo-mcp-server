@@ -942,6 +942,15 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
             )
             data = response.json()
         except Exception as e:
+            # A failed page provider does not arrive as a 200 carrying hasError.
+            # SearchServicePageProvider swallows QueryParseException into its error
+            # state, but the REST layer re-raises it before serializing --
+            # QueryObject: `if (res.hasError()) throw new NuxeoException(msg,
+            # SC_BAD_REQUEST)`. Confirmed against a live server: invalid NXQL, a
+            # missing ecm:fulltext predicate and an unknown document type all return
+            # 400, not 200. So the hasError/errorMessage fields present in every
+            # paginable response are always false here, and checking them would be
+            # dead code.
             # Report the engine's own error and stop there. The failure modes look
             # alike from here -- a missing vector index and an embedding model that
             # failed to deploy both surface as an opaque 4xx/5xx -- so naming a cause
