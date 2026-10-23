@@ -100,7 +100,7 @@ python -m nuxeo_mcp
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
 | `nuxeo_move_document` | no | yes | no | Move a document to a different location in the Nuxeo repository |
 | `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo audit log index and return the engine response unchanged. Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
-| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. Use mode='natural' for a plain-English query, mode='nxql' for an exact NXQL statement. Returns a normalized result envelope that is identical for every mode. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. |
+| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. Use mode='natural' for a plain-English query, mode='nxql' for an exact NXQL statement, mode='semantic' to match on meaning rather than keywords. Returns a normalized result envelope that is identical for every mode. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. |
 | `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo repository index and return the engine response unchanged. Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. |
 | `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
 
@@ -164,8 +164,42 @@ if result["degraded"]:
     print("degraded:", result["degraded"])
 ```
 
-`mode="semantic"` is reserved and currently reports that it is not yet
-available.
+#### `mode="semantic"`
+
+Matches on meaning rather than keywords, against the Nuxeo vector index.
+
+```python
+result = use_tool("nuxeo", "nuxeo_search_documents", {
+    "query": "what causes musty cork taint from chlorine and mould",
+    "mode": "semantic",
+    # semantic-only, both optional
+    "nxql_filter": "ecm:primaryType = 'File' AND ecm:isProxy=0 AND ecm:isVersion=0",
+    "include_snippets": True,
+})
+
+for doc in result["documents"]:
+    print(doc["score"], doc["title"])
+    for passage in doc["snippets"]:
+        print("   ", passage)
+```
+
+Notes:
+
+- **Phrase it as a question or a domain-rich sentence.** Hybrid scoring combines
+  neural and BM25 signals, so two or three keywords rank markedly worse than
+  `"what causes musty cork taint from chlorine and mould"`.
+- `interpretedQuery` reports the NXQL that ran, exactly as in the other modes —
+  the vector client embeds the `ecm:fulltext` term and still applies the
+  remaining scalar predicates.
+- `nxql_filter` replaces the default `ecm:isProxy=0 AND ecm:isVersion=0`. The
+  vector client **silently skips predicates it does not support** (`OR`, `NOT`,
+  `LIKE`, unindexed fields such as `dc:title`), so an unsupported clause widens
+  the result set rather than raising. `ORDER BY` is always ignored; results are
+  ranked by relevance.
+- `score` requires **Nuxeo 2025.22+**. On older servers the enricher is unknown,
+  the field is simply absent, and `score` stays null.
+- Without the vector index the tool raises, naming `mode="natural"` and
+  `mode="nxql"` as the alternatives.
 
 Calling the tool with an empty query returns usage help with worked examples
 instead of an error.

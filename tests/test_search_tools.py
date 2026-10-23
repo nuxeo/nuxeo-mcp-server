@@ -147,11 +147,140 @@ def test_unknown_mode_is_rejected() -> None:
     assert "Unknown mode" in str(excinfo.value)
 
 
-def test_semantic_mode_is_announced_as_unavailable() -> None:
-    with pytest.raises(ToolError) as excinfo:
-        _search_tool()("anything", mode="semantic")
+# ---------------------------------------------------------------------------
+# mode="semantic"
+# ---------------------------------------------------------------------------
 
-    assert "not yet available" in str(excinfo.value)
+SEMANTIC_RESPONSE = {
+    "resultsCount": 2,
+    "currentPageIndex": 0,
+    "pageSize": 10,
+    "isNextPageAvailable": False,
+    "entries": [
+        {
+            "entity-type": "document",
+            "uid": "uuid-1",
+            "path": "/default-domain/workspaces/cork.pdf",
+            "type": "File",
+            "title": "Cork taint",
+            "properties": {"dc:title": "Cork taint"},
+            "contextParameters": {
+                "score": 0.82,
+                "highlight": [
+                    {
+                        "field": "ecm:binarytext",
+                        "segments": ["chlorine reacts with\nmould to form TCA"],
+                    }
+                ],
+            },
+        },
+        {
+            "entity-type": "document",
+            "uid": "uuid-2",
+            "path": "/default-domain/workspaces/note",
+            "type": "Note",
+            "properties": {},
+        },
+    ],
+}
+
+
+def _semantic_nuxeo(response_json: Any = None, raise_exc: Any = None) -> MagicMock:
+    nuxeo = _make_nuxeo()
+    if raise_exc is not None:
+        nuxeo.client.request.side_effect = raise_exc
+    else:
+        response = MagicMock()
+        response.json.return_value = (
+            SEMANTIC_RESPONSE if response_json is None else response_json
+        )
+        nuxeo.client.request.return_value = response
+    return nuxeo
+
+
+def test_semantic_mode_returns_the_same_envelope() -> None:
+    """A mode changes how the query is expressed, never the shape of the answer."""
+    nuxeo = _semantic_nuxeo()
+    result = _search_tool(nuxeo)("why does cork smell musty", mode="semantic")
+
+    assert result.mode == "semantic"
+    assert result.totalCount == 2
+    assert [d.id for d in result.documents] == ["uuid-1", "uuid-2"]
+    # Ranked mode: score and snippets are populated where the engine supplied them,
+    # and present-but-empty where it did not -- never absent.
+    assert result.documents[0].score == 0.82
+    assert result.documents[0].snippets == ["chlorine reacts with mould to form TCA"]
+    assert result.documents[1].score is None
+    assert result.documents[1].snippets == []
+
+
+def test_semantic_mode_reports_the_executed_nxql() -> None:
+    nuxeo = _semantic_nuxeo()
+    result = _search_tool(nuxeo)("musty cork", mode="semantic")
+
+    params = nuxeo.client.request.call_args.kwargs["params"]
+    assert params["index"] == "vector"
+    assert params["queryParams"] == result.interpretedQuery
+    assert result.interpretedQuery == (
+        "SELECT * FROM Document WHERE ecm:fulltext = 'musty cork' "
+        "AND ecm:isProxy=0 AND ecm:isVersion=0"
+    )
+
+
+def test_semantic_mode_escapes_the_query_literal() -> None:
+    """Backslash escaping, as NXQL requires -- not a doubled quote."""
+    nuxeo = _semantic_nuxeo()
+    _search_tool(nuxeo)("Alice's report", mode="semantic")
+
+    assert (
+        nuxeo.client.request.call_args.kwargs["params"]["queryParams"]
+        == "SELECT * FROM Document WHERE ecm:fulltext = 'Alice\\'s report' "
+        "AND ecm:isProxy=0 AND ecm:isVersion=0"
+    )
+
+
+def test_semantic_mode_accepts_a_custom_filter() -> None:
+    nuxeo = _semantic_nuxeo()
+    _search_tool(nuxeo)(
+        "cork", mode="semantic", nxql_filter="ecm:primaryType = 'File'"
+    )
+
+    assert nuxeo.client.request.call_args.kwargs["params"]["queryParams"].endswith(
+        "AND ecm:primaryType = 'File'"
+    )
+
+
+def test_semantic_mode_can_omit_snippets() -> None:
+    nuxeo = _semantic_nuxeo()
+    result = _search_tool(nuxeo)("cork", mode="semantic", include_snippets=False)
+
+    assert result.documents[0].snippets == []
+    # The score is evidence of ranking, not a passage, so it survives.
+    assert result.documents[0].score == 0.82
+
+
+def test_semantic_mode_requests_both_enrichers() -> None:
+    """score needs 2025.22+; asking for it on an older server is harmless."""
+    nuxeo = _semantic_nuxeo()
+    _search_tool(nuxeo)("cork", mode="semantic")
+
+    headers = nuxeo.client.request.call_args.kwargs["headers"]
+    assert "highlight" in headers["enrichers-document"]
+    assert "score" in headers["enrichers-document"]
+
+
+def test_semantic_mode_without_the_vector_index_names_the_alternatives() -> None:
+    """The server reports a missing index as a 400 that reads like a syntax error."""
+    nuxeo = _semantic_nuxeo(
+        raise_exc=Exception("Configured indexes [vector] not found for repository")
+    )
+
+    with pytest.raises(ToolError) as excinfo:
+        _search_tool(nuxeo)("cork", mode="semantic")
+
+    message = str(excinfo.value)
+    assert "vector index" in message
+    assert "mode='natural'" in message
 
 
 def test_page_size_is_clamped() -> None:
