@@ -7,7 +7,12 @@ This module defines the resources for the Nuxeo MCP Server.
 
 import logging
 import os
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Callable, Dict, Optional
+from importlib import resources
+
+from fastmcp.exceptions import ToolError
+
+from nuxeo_mcp import query_dsl
 from nuxeo_mcp.utility import format_doc, return_blob
 
 # Configure logging
@@ -134,29 +139,89 @@ def register_resources(mcp, nuxeo) -> None:
         description="Comprehensive documentation for NXQL (Nuxeo Query Language) syntax and usage",
     )
     def get_nxql_guide() -> Dict[str, Any]:
-        """
-        Get the NXQL guide documentation.
+        """Return the NXQL syntax reference.
 
-        Returns:
-            The NXQL guide content or error message
+        Read from the installed package rather than a path relative to this
+        file: the guide used to live in specs/, which ships in neither the
+        wheel nor the container image, so this resource only ever worked from
+        a source checkout.
+
+        Raises:
+            ToolError: if the packaged guide is missing, rather than returning
+                an error payload a model would read as content.
         """
         try:
-            # Get the path to the NXQL guide file
-            guide_path = os.path.join(os.path.dirname(__file__), "../../specs/19_nxql_guide.md")
+            content = (
+                resources.files("nuxeo_mcp.guides").joinpath("nxql.md").read_text(encoding="utf-8")
+            )
+        except (FileNotFoundError, ModuleNotFoundError) as e:
+            logger.error(f"Packaged NXQL guide is missing: {e}")
+            raise ToolError(
+                "The NXQL guide is missing from this installation. "
+                "Reinstall the package or report this as a packaging bug."
+            )
 
-            # Read the guide content
-            if os.path.exists(guide_path):
-                with open(guide_path, "r", encoding="utf-8") as f:
-                    content = f.read()
+        return {
+            "content": content,
+            "format": "markdown",
+            "title": "NXQL Query Language Guide",
+            "description": "Complete reference for NXQL syntax, operators, properties, and MongoDB limitations",
+        }
 
-                return {
-                    "content": content,
-                    "format": "markdown",
-                    "title": "NXQL Query Language Guide",
-                    "description": "Complete reference for NXQL syntax, operators, properties, and MongoDB limitations",
-                }
-            else:
-                return {"error": "NXQL guide file not found", "path": guide_path}
+    # Resource: Query DSL field references
+    #
+    # Nuxeo's /site/es passthrough exposes _search only -- _mapping, _field_caps
+    # and _settings all answer 404 -- so there is no schema endpoint to read.
+    # The curated tables cover the fields every Nuxeo has; the instance-specific
+    # ones are discovered by sampling _source keys from real documents. This
+    # matters because an unknown field name is not an error: it matches nothing
+    # and returns HTTP 200 with zero hits, which reads as "no document matches".
+    def _discover_fields(index: str) -> Optional[list]:
+        """Sample field names from an index, or None if the engine is unreachable.
+
+        A guide that is slightly less complete is far better than a guide that
+        fails, so every error here degrades to the curated tables.
+        """
+        try:
+            from .es_passthrough import ElasticsearchPassthrough
+
+            passthrough = ElasticsearchPassthrough(
+                nuxeo_url=os.environ.get("NUXEO_URL", nuxeo.client.host),
+                auth=nuxeo.client.auth,
+            )
+            return query_dsl.sample_field_names(passthrough.execute_query, index)
         except Exception as e:
-            logger.error(f"Error reading NXQL guide: {e}")
-            return {"error": str(e)}
+            logger.info(f"Could not sample {index} fields, serving curated guide only: {e}")
+            return None
+
+    @mcp.resource(
+        uri="nuxeo://query-dsl-guide",
+        name="Repository Query DSL Field Reference",
+        description=(
+            "Field names, limits and worked examples for "
+            "nuxeo_search_documents_with_query_dsl"
+        ),
+    )
+    def get_query_dsl_guide() -> Dict[str, Any]:
+        """Return the repository index field reference."""
+        return {
+            "content": query_dsl.field_guide(_discover_fields("nuxeo")),
+            "format": "markdown",
+            "title": "Repository Query DSL Field Reference",
+        }
+
+    @mcp.resource(
+        uri="nuxeo://audit-query-dsl-guide",
+        name="Audit Query DSL Field Reference",
+        description=(
+            "Field names, limits and worked examples for "
+            "nuxeo_search_audit_with_query_dsl"
+        ),
+    )
+    def get_audit_query_dsl_guide() -> Dict[str, Any]:
+        """Return the audit index field reference."""
+        return {
+            "content": query_dsl.audit_field_guide(_discover_fields("audit")),
+            "format": "markdown",
+            "title": "Audit Query DSL Field Reference",
+        }

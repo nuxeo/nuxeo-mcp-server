@@ -14,8 +14,8 @@ Before starting this test scenario, ensure that:
 Let's start by checking if we can connect to the Nuxeo server and retrieve basic information.
 
 ```python
-# Use the get_repository_info tool to check the connection
-repository_info = use_tool("nuxeo", "get_repository_info", {})
+# Use the nuxeo_get_repository_info tool to check the connection
+repository_info = use_tool("nuxeo", "nuxeo_get_repository_info", {})
 
 # Print the repository information
 print("Repository Information:")
@@ -52,8 +52,8 @@ Expected output: Information about the Nuxeo server, including the URL, username
 Let's explore the repository by getting the children of the root document.
 
 ```python
-# Use the get_children tool to get the children of the root document
-root_children = use_tool("nuxeo", "get_children", {"path": "/"})
+# Use the nuxeo_list_children tool to get the children of the root document
+root_children = use_tool("nuxeo", "nuxeo_list_children", {"path": "/"})
 
 # Print the children
 print("Root Children:")
@@ -70,8 +70,8 @@ Expected output: A list of documents at the root of the repository, typically in
 Now, let's navigate to the default domain and explore its contents.
 
 ```python
-# Use the get_children tool to get the children of the default domain
-domain_children = use_tool("nuxeo", "get_children", {"path": "/default-domain"})
+# Use the nuxeo_list_children tool to get the children of the default domain
+domain_children = use_tool("nuxeo", "nuxeo_list_children", {"path": "/default-domain"})
 
 # Print the children
 print("Default Domain Children:")
@@ -88,8 +88,8 @@ Expected output: A list of documents in the default domain, typically including 
 Let's navigate to the Workspaces section and explore its contents.
 
 ```python
-# Use the get_children tool to get the children of the Workspaces section
-workspaces_children = use_tool("nuxeo", "get_children", {"path": "/default-domain/workspaces"})
+# Use the nuxeo_list_children tool to get the children of the Workspaces section
+workspaces_children = use_tool("nuxeo", "nuxeo_list_children", {"path": "/default-domain/workspaces"})
 
 # Print the children
 print("Workspaces Children:")
@@ -111,8 +111,8 @@ import uuid
 # Generate a unique name for the workspace
 workspace_name = f"MCP Test Workspace {uuid.uuid4().hex[:8]}"
 
-# Use the create_document tool to create a new workspace
-workspace = use_tool("nuxeo", "create_document", {
+# Use the nuxeo_create_document tool to create a new workspace
+workspace = use_tool("nuxeo", "nuxeo_create_document", {
     "parent_path": "/default-domain/workspaces",
     "name": workspace_name.replace(" ", "_").lower(),
     "type": "Workspace",
@@ -146,8 +146,8 @@ Now, let's create a file document in our test workspace and attach a file to it.
 with open("test_attachment.txt", "w") as f:
     f.write("This is a test file for the Nuxeo MCP Server.")
 
-# Use the create_document tool to create a new file document
-file_doc = use_tool("nuxeo", "create_document", {
+# Use the nuxeo_create_document tool to create a new file document
+file_doc = use_tool("nuxeo", "nuxeo_create_document", {
     "parent_path": workspace_path,
     "name": "test_file",
     "type": "File",
@@ -168,7 +168,7 @@ file_doc_path = file_doc.get('path')
 file_doc_uid = file_doc.get('uid')
 
 # Now attach the file to the document using the Blob.AttachOnDocument operation
-attachment_result = use_tool("nuxeo", "execute_operation", {
+attachment_result = use_tool("nuxeo", "nuxeo_execute_operation", {
     "operation_id": "Blob.AttachOnDocument",
     "params": {
         "document": file_doc_path,
@@ -191,8 +191,8 @@ Expected output: Information about the newly created file document, including it
 Let's also create a note document in our test workspace with rich text content.
 
 ```python
-# Use the create_document tool to create a new note document
-note_doc = use_tool("nuxeo", "create_document", {
+# Use the nuxeo_create_document tool to create a new note document
+note_doc = use_tool("nuxeo", "nuxeo_create_document", {
     "parent_path": workspace_path,
     "name": "test_note",
     "type": "Note",
@@ -224,18 +224,19 @@ Now that we have created some content, let's search for documents in the reposit
 
 ```python
 # Use the search tool to search for documents by type
-search_results = use_tool("nuxeo", "search", {
+search_results = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "SELECT * FROM Document WHERE ecm:primaryType = 'File'",
-    "pageSize": 10,
-    "currentPageIndex": 0
+    "mode": "nxql",
+    "page_size": 10,
+    "page_index": 0
 })
 
 # Print the search results
 print("Search Results by Type:")
-print(f"Total Results: {search_results.get('resultsCount', 0)}")
+print(f"Total Results: {search_results['totalCount']}")
 print("Documents:")
-for doc in search_results.get('entries', []):
-    print(f"- {doc.get('title', 'N/A')} ({doc.get('type', 'N/A')}) at {doc.get('path', 'N/A')}")
+for doc in search_results['documents']:
+    print(f"- {doc['title']} ({doc['documentType']}) at {doc['path']}")
 ```
 
 Expected output: A list of File documents in the repository, including our newly created file document.
@@ -248,18 +249,19 @@ Let's search for documents using full-text search capabilities.
 
 ```python
 # Use the search tool to search for documents using full-text search
-fulltext_search_results = use_tool("nuxeo", "search", {
+fulltext_search_results = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "SELECT * FROM Document WHERE ecm:fulltext = 'rich text formatting'",
-    "pageSize": 10,
-    "currentPageIndex": 0
+    "mode": "nxql",
+    "page_size": 10,
+    "page_index": 0
 })
 
 # Print the search results
 print("Full-Text Search Results:")
-print(f"Total Results: {fulltext_search_results.get('resultsCount', 0)}")
+print(f"Total Results: {fulltext_search_results['totalCount']}")
 print("Documents:")
-for doc in fulltext_search_results.get('entries', []):
-    print(f"- {doc.get('title', 'N/A')} ({doc.get('type', 'N/A')}) at {doc.get('path', 'N/A')}")
+for doc in fulltext_search_results['documents']:
+    print(f"- {doc['title']} ({doc['documentType']}) at {doc['path']}")
 ```
 
 Expected output: A list of documents containing the text "rich text formatting", which should include our note document.
@@ -271,8 +273,8 @@ Expected output: A list of documents containing the text "rich text formatting",
 Let's retrieve detailed information about the file document we created.
 
 ```python
-# Use the get_document tool to get the file document details
-file_doc_details = use_tool("nuxeo", "get_document", {
+# Use the nuxeo_get_document tool to get the file document details
+file_doc_details = use_tool("nuxeo", "nuxeo_get_document", {
     "path": file_doc_path
 })
 
@@ -285,7 +287,7 @@ print(f"Last Modified: {file_doc_details.get('lastModified', 'N/A')}")
 print(f"Creator: {file_doc_details.get('properties', {}).get('dc:creator', 'N/A')}")
 
 # Get the file content
-file_content = use_tool("nuxeo", "get_document", {
+file_content = use_tool("nuxeo", "nuxeo_get_document", {
     "path": file_doc_path,
     "fetch_blob": True
 })
@@ -302,8 +304,8 @@ Expected output: Detailed information about the file document, including its tit
 Let's update the file document by changing its title and description.
 
 ```python
-# Use the update_document tool to update the file document
-updated_file_doc = use_tool("nuxeo", "update_document", {
+# Use the nuxeo_update_metadata tool to update the file document
+updated_file_doc = use_tool("nuxeo", "nuxeo_update_metadata", {
     "path": file_doc_path,
     "properties": {
         "dc:title": "Updated Test File",
@@ -345,8 +347,8 @@ Expected output: Information about the note document, including its title, type,
 Now, let's delete the file document using its UID.
 
 ```python
-# Use the delete_document tool to delete the file document
-delete_result = use_tool("nuxeo", "delete_document", {
+# Use the nuxeo_delete_document tool to delete the file document
+delete_result = use_tool("nuxeo", "nuxeo_delete_document", {
     "uid": file_doc_uid
 })
 
@@ -356,7 +358,7 @@ print(delete_result)
 
 # Try to get the deleted document to verify it's gone
 try:
-    deleted_doc = use_tool("nuxeo", "get_document", {
+    deleted_doc = use_tool("nuxeo", "nuxeo_get_document", {
         "path": file_doc_path
     })
     print("Document still exists!")
@@ -373,8 +375,8 @@ Expected output: Confirmation that the document was deleted, and an error when t
 Let's also delete the note document using its UID.
 
 ```python
-# Use the delete_document tool to delete the note document
-delete_result = use_tool("nuxeo", "delete_document", {
+# Use the nuxeo_delete_document tool to delete the note document
+delete_result = use_tool("nuxeo", "nuxeo_delete_document", {
     "uid": note_doc_uid
 })
 
@@ -392,8 +394,8 @@ Expected output: Confirmation that the document was deleted.
 Finally, let's clean up by deleting the test workspace using its UID.
 
 ```python
-# Use the delete_document tool to delete the test workspace
-delete_result = use_tool("nuxeo", "delete_document", {
+# Use the nuxeo_delete_document tool to delete the test workspace
+delete_result = use_tool("nuxeo", "nuxeo_delete_document", {
     "uid": workspace_uid
 })
 

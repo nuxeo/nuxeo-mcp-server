@@ -16,6 +16,16 @@ from nuxeo_mcp.utility import (
     return_blob,
     is_uuid,
 )
+from nuxeo_mcp import query_dsl
+from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
+from nuxeo_mcp.query_dsl import QueryDslRejected, apply_guardrails
+from nuxeo_mcp.search_models import (
+    MODE_NATURAL,
+    MODE_SEMANTIC,
+    SEARCH_MODES,
+    SearchResult,
+    to_search_result,
+)
 from nuxeo.models import Document
 from fastmcp.exceptions import ToolError
 from mcp.types import ImageContent as Image
@@ -24,8 +34,27 @@ from pydantic import BaseModel, Field, model_validator
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.tools")
 
+# Dropped before building the fulltext fallback query: they carry no search
+# signal and would otherwise narrow the fallback to nothing.
+_NL_STOP_WORDS = frozenset(
+    {
+        "find", "show", "list", "get", "search", "for", "all", "the", "me",
+        "with", "in", "from", "by", "a", "an", "of", "to", "and", "please",
+    }
+)
+
 # Type aliases
 ToolFunction = Callable[[Dict[str, Any]], Dict[str, Any]]
+
+
+def _escape_nxql_literal(value: str) -> str:
+    """Escape ``value`` for use inside single quotes in an NXQL statement.
+
+    NXQL escapes with a backslash, not by doubling the quote, so ``Alice's``
+    becomes ``Alice\\'s``. Backslashes go first, or the ones added here would
+    themselves be escaped.
+    """
+    return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
 class DocRef(BaseModel):
@@ -45,7 +74,7 @@ from typing import Union
 ES_PROBE_TIMEOUT = 10
 
 
-def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool = False) -> None:
+def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
     """
     Register MCP tools with the FastMCP server.
 
@@ -53,15 +82,31 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         mcp: The FastMCP server instance
         nuxeo: The Nuxeo client instance
         auth_middleware: Optional authentication middleware to wrap tools
-        skip_server_selection: If True, skip automatic server selection (useful when server is pre-configured)
     """
 
+    def tool(**kwargs):
+        """Register a tool, attaching its declared safety annotations by name.
+
+        Going through here rather than @mcp.tool directly keeps the annotations
+        in one readable table and makes an unannotated tool a startup failure
+        rather than something a client only notices at call time.
+        """
+        name = kwargs.get("name")
+        annotations = TOOL_ANNOTATIONS.get(name)
+        if annotations is None:
+            raise RuntimeError(
+                f"Tool {name!r} has no entry in TOOL_ANNOTATIONS. Declare its "
+                "safety hints in nuxeo_mcp.annotations before registering it."
+            )
+        kwargs.setdefault("annotations", annotations)
+        return mcp.tool(**kwargs)
+
     # Tool: Get repository info
-    @mcp.tool(
-        name="get_repository_info",
+    @tool(
+        name="nuxeo_get_repository_info",
         description="Get information about the Nuxeo repository",
     )
-    def get_repository_info() -> Dict[str, Any]:
+    def nuxeo_get_repository_info() -> Dict[str, Any]:
         """
         Get information about the Nuxeo repository.
 
@@ -75,8 +120,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
         return server_info
 
-    @mcp.tool(name="get_children", description="list children of a folder document ")
-    def get_children(
+    @tool(name="nuxeo_list_children", description="list children of a folder document ")
+    def nuxeo_list_children(
         ref: Annotated[
             str, Field(description="reference can be either a uuid or a path ")
         ],
@@ -101,70 +146,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
         return format_docs(docs, as_resource=as_resource)
 
-    @mcp.tool(name="search", description="search document using a NXQL query")
-    def search(
-        query: str,
-        pageSize: int = 20,
-        currentPageIndex: int = 0,
-        content_type="application/json",
-    ) -> dict[str, Any]:
-        """
-        Executes a Nuxeo Query Language (NXQL) statement and returns the matching documents.
-
-        NXQL is a SQL-like language designed to query the Nuxeo content repository. This tool accepts
-        a full NXQL query string, executes it, and returns the results.
-
-        ## Query Syntax
-        Basic NXQL syntax:
-            SELECT (* | [DISTINCT] <select-clause>)
-            FROM <doc-type>
-            [WHERE <conditions>]
-            [ORDER BY <sort-clause>]
-
-        Example queries:
-        - SELECT * FROM Document WHERE dc:title LIKE 'Invoice%'
-        - SELECT ecm:uuid, dc:title FROM File WHERE ecm:fulltext = 'contract' ORDER BY dc:modified DESC
-        - SELECT COUNT(ecm:uuid) FROM Document WHERE dc:created >= DATE '2024-01-01'
-
-        ## Notes
-        - You can query metadata, including standard fields like `dc:title`, `ecm:uuid`, `ecm:primaryType`, etc.
-        - Use `NOW()` to compare against the current timestamp (e.g., `dc:modified < NOW('-P7D')`).
-        - Full-text search is supported via `ecm:fulltext`.
-        - List and complex properties can be addressed using `/` or wildcards (e.g., `dc:subjects/* = 'finance'`).
-        - Aggregates like COUNT, MIN, MAX are supported (in VCS mode only).
-
-        ## Limitations
-        - NXQL execution depends on repository type (VCS, MongoDB, Elasticsearch).
-        - Ensure query validity to avoid syntax errors or unsupported patterns.
-
-        Parameters:
-            query (str): A valid NXQL query string.
-            pageSize (int) : Number of documents to list per page
-            currentPageIndex (int) : index of the page to retrieve
-
-
-        Returns:
-            json object with 2 keys:
-                "content" : the formatted list of documents,
-                "content_type" : format used - for example "text/markdown"
-        """
-
-        return format(
-            nuxeo.documents.query(
-                {
-                    "query": query,
-                    "pageSize": pageSize,
-                    "currentPageIndex": currentPageIndex,
-                }
-            ),
-            content_type,
-        )
-
-    @mcp.tool(
-        name="get_document_types",
+    @tool(
+        name="nuxeo_list_document_types",
         description="Get information about document types and schemas defined in the Nuxeo server",
     )
-    def get_document_types() -> Dict[str, Any]:
+    def nuxeo_list_document_types() -> Dict[str, Any]:
         """
         Get information about document types and schemas defined in the Nuxeo server.
 
@@ -183,11 +169,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         types_info = nuxeo.client.request("GET", "api/v1/config/types/")
         return types_info.json()
 
-    @mcp.tool(
-        name="get_schemas",
+    @tool(
+        name="nuxeo_get_metadata_schema",
         description="Get detailed information about schemas defined in the Nuxeo server",
     )
-    def get_schemas() -> List[Dict[str, Any]]:
+    def nuxeo_get_metadata_schema() -> List[Dict[str, Any]]:
         """
         Get detailed information about schemas defined in the Nuxeo server.
 
@@ -204,11 +190,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         schemas = nuxeo.client.request("GET", "api/v1/config/schemas/")
         return schemas.json()
 
-    @mcp.tool(
-        name="get_operations",
+    @tool(
+        name="nuxeo_list_operations",
         description="Get information about available Automation Operations in the Nuxeo server",
     )
-    def get_operations() -> Dict[str, Any]:
+    def nuxeo_list_operations() -> Dict[str, Any]:
         """
         Get information about available Automation Operations in the Nuxeo server.
 
@@ -231,11 +217,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         """
         return nuxeo.operations.operations
 
-    @mcp.tool(
-        name="execute_operation",
+    @tool(
+        name="nuxeo_execute_operation",
         description="Execute a Nuxeo Operation with the specified parameters and input",
     )
-    def execute_operation(
+    def nuxeo_execute_operation(
         operation_id: str,
         params: Dict[str, Any] = None,
         input_type: str = None,
@@ -360,11 +346,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         # Return the raw result for other types
         return result
 
-    @mcp.tool(
-        name="create_document",
+    @tool(
+        name="nuxeo_create_document",
         description="Create a new document in the Nuxeo repository with optional file attachment",
     )
-    def create_document(
+    def nuxeo_create_document(
         name: str,
         type: str,
         properties: Dict[str, Any],
@@ -477,10 +463,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
             "details": format_doc(doc)  # Include full formatted details as a string
         }
 
-    @mcp.tool(
-        name="get_document", description="Get a document from the Nuxeo repository"
+    @tool(
+        name="nuxeo_get_document", description="Get a document from the Nuxeo repository"
     )
-    def get_document(
+    def nuxeo_get_document(
         ref: Annotated[
             str, Field(description="reference can be either a uuid or a path ")
         ],
@@ -651,11 +637,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
 
         return result
 
-    @mcp.tool(
-        name="update_document",
+    @tool(
+        name="nuxeo_update_metadata",
         description="Update an existing document in the Nuxeo repository",
     )
-    def update_document(
+    def nuxeo_update_metadata(
         path: str = None, uid: str = None, properties: Union[Dict[str, Any], str] = None
     ) -> Dict[str, str] | str:
         """
@@ -736,11 +722,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         doc.save()
         return format_doc(doc)
 
-    @mcp.tool(
-        name="delete_document",
+    @tool(
+        name="nuxeo_delete_document",
         description="Delete a document from the Nuxeo repository",
     )
-    def delete_document(uid: str = None) -> Dict[str, Any]:
+    def nuxeo_delete_document(uid: str = None) -> Dict[str, Any]:
         """
         Delete a document from the Nuxeo repository.
 
@@ -771,11 +757,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         result = nuxeo.documents.delete(uid)
         return {"status": "success", "message": f"Document deleted successfully"}
 
-    @mcp.tool(
-        name="move_document",
+    @tool(
+        name="nuxeo_move_document",
         description="Move a document to a different location in the Nuxeo repository",
     )
-    def move_document(
+    def nuxeo_move_document(
         document_uid: str,
         target_path: str,
         new_name: str = None
@@ -853,704 +839,248 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 "details": str(result)
             }
 
-    @mcp.tool(
-        name="natural_search",
-        description="Search for documents using natural language queries that get automatically converted to NXQL",
+    # --- Search -------------------------------------------------------------
+    #
+    # One tool for repository search, one escape hatch for the search engine.
+    #
+    # nuxeo_search_documents keeps a single envelope across every mode: a mode
+    # changes how the caller expresses the query, never the shape that comes
+    # back, so a model never has to branch on the result before reading it.
+    #
+    # nuxeo_search_documents_with_query_dsl is deliberately separate rather than
+    # a fourth mode: its input is an arbitrary engine query, which makes it
+    # open-world where the other modes are closed, and its value is fidelity to
+    # the engine response -- the opposite of the normalized envelope.
+
+    _SEARCH_USAGE = (
+        "nuxeo_search_documents needs a non-empty query.\n"
+        "\n"
+        'mode="natural" (default) -- plain English:\n'
+        '  "invoices created by Alice in the last 30 days"\n'
+        '  "PDFs modified this week in /default-domain/workspaces"\n'
+        '\n'
+        'mode="nxql" -- a NXQL statement, when you need exact control:\n'
+        "  SELECT * FROM File WHERE dc:title LIKE 'Invoice%' ORDER BY dc:modified DESC\n"
+        "  SELECT * FROM Document WHERE ecm:fulltext = 'contract' AND ecm:isTrashed = 0\n"
+        "\n"
+        "See the nuxeo://nxql-guide resource for the full NXQL syntax, and "
+        "nuxeo_search_documents_with_query_dsl for aggregations and highlighting."
     )
-    def natural_search(
-        query: str,
-        explain: bool = False,
-        pageSize: int = 20,
-        currentPageIndex: int = 0,
-        content_type: str = "application/json",
-    ) -> dict[str, Any]:
-        """
-        Search for documents using natural language that gets intelligently converted to NXQL.
 
-        This tool allows users to search using natural language queries instead of writing NXQL directly.
-        The natural language is parsed and converted to proper NXQL syntax automatically.
+    @tool(
+        name="nuxeo_search_documents",
+        description=(
+            "Search documents in the Nuxeo repository. Use mode='natural' for a "
+            "plain-English query, mode='nxql' for an exact NXQL statement. Returns "
+            "a normalized result envelope that is identical for every mode. For "
+            "counts, groupings or aggregations, use "
+            "nuxeo_search_documents_with_query_dsl instead."
+        ),
+    )
+    def nuxeo_search_documents(
+        query: str = "",
+        mode: str = MODE_NATURAL,
+        page_size: int = 20,
+        page_index: int = 0,
+    ) -> SearchResult:
+        """Search the repository and return the normalized envelope.
 
-        Note: Since Nuxeo uses MongoDB (DBS), aggregates like COUNT, AVG, SUM, MIN, MAX are not supported.
-
-        ## Supported Natural Language Patterns
-
-        ### Document Types
-        - "invoices", "files", "folders", "notes", "documents", "PDFs", "images", "videos"
-
-        ### Time-based Queries
-        - "documents from today/yesterday/this week/last month/last year"
-        - "files created in the last 7 days"
-        - "documents modified since 2024-01-01"
-        - "files between 2024-01-01 and 2024-12-31"
-
-        ### User-based Queries
-        - "documents created by John"
-        - "files from Alice"
-        - "Bob's documents"
-
-        ### Content Queries
-        - "documents containing 'quarterly report'"
-        - "files with content 'budget'"
-        - "search for 'project proposal'"
-
-        ### Title/Name Queries
-        - "documents named 'Invoice 2024'"
-        - "files with title containing 'report'"
-        - "documents titled 'Meeting Notes'"
-
-        ### Path/Location Queries
-        - "documents in folder '/workspaces/project'"
-        - "files under '/default-domain/workspaces'"
-
-        ### State Queries
-        - "draft documents"
-        - "published files"
-        - "deleted documents"
-        - "locked files"
-
-        ### Special Filters
-        - "latest documents" (ordered by modification date)
-        - "largest files" (ordered by size)
-        - "first 10 documents"
-        - "documents not in trash"
-        - "latest versions only"
-
-        ## Examples
-
-        Simple queries:
-        - "Find all invoices from last month"
-        - "Show me documents created by John"
-        - "List PDFs modified this week"
-        - "Search for documents containing budget"
-
-        Complex queries:
-        - "Find invoices created by Alice in the last 30 days not in trash"
-        - "Show me the 10 latest documents in folder '/workspaces/accounting'"
-        - "List all PDF files created this year"
-
-        Parameters:
-            query (str): Natural language search query
-            explain (bool): If True, returns the generated NXQL query and explanation
-            pageSize (int): Number of documents per page
-            currentPageIndex (int): Page number to retrieve
-            content_type (str): Output format ("application/json" or "text/markdown")
+        Args:
+            query: Plain English (mode="natural") or a NXQL statement (mode="nxql").
+            mode: One of "natural", "nxql", "semantic".
+            page_size: Documents per page.
+            page_index: Zero-based page to retrieve.
 
         Returns:
-            If explain=True: Returns explanation with generated NXQL
-            If explain=False: Returns search results
+            SearchResult. ``interpretedQuery`` always reports the NXQL actually
+            executed, so a generated query can be inspected and corrected.
+
+        Raises:
+            ToolError: on an empty query, an unknown mode, or a mode that is not
+                yet available.
         """
-        try:
+        if not query or not query.strip():
+            raise ToolError(_SEARCH_USAGE)
+
+        if mode not in SEARCH_MODES:
+            raise ToolError(
+                f"Unknown mode {mode!r}. Supported modes: {', '.join(SEARCH_MODES)}."
+            )
+
+        if mode == MODE_SEMANTIC:
+            raise ToolError(
+                "mode='semantic' is not yet available on this server. Use "
+                "mode='natural' or mode='nxql'."
+            )
+
+        page_size = max(1, min(page_size, 100))
+        page_index = max(0, page_index)
+
+        nxql = query
+        degraded = None
+
+        if mode == MODE_NATURAL:
             from nuxeo_mcp.nl_parser import NaturalLanguageParser, NXQLBuilder
 
-            # Parse the natural language query
-            parser = NaturalLanguageParser()
-            parsed = parser.parse(query)
+            try:
+                parsed = NaturalLanguageParser().parse(query)
+                nxql = NXQLBuilder(parsed).build()
+                if parsed.limit and parsed.limit < page_size:
+                    page_size = parsed.limit
+            except Exception as e:
+                # A parse failure must not look like "no documents match", so fall
+                # back to fulltext and say so rather than returning an empty page.
+                logger.warning(f"Natural language parsing failed: {e}; using fulltext")
+                terms = _escape_nxql_literal(
+                    " ".join(
+                        w for w in query.split() if w.lower() not in _NL_STOP_WORDS
+                    )
+                )
+                nxql = (
+                    f"SELECT * FROM Document WHERE ecm:fulltext = '{terms}'"
+                    if terms
+                    else "SELECT * FROM Document"
+                )
+                degraded = (
+                    "Natural-language parsing failed; fell back to a fulltext search."
+                )
 
-            # Build the NXQL query
-            builder = NXQLBuilder(parsed)
-            nxql = builder.build()
-
-            # If explain mode, return the generated query and explanation
-            if explain:
-                return {
-                    "natural_query": query,
-                    "generated_nxql": nxql,
-                    "explanation": parsed.explanation,
-                    "parsed_components": {
-                        "intent": parsed.intent,
-                        "document_type": parsed.doc_type,
-                        "conditions": parsed.conditions,
-                        "order_by": parsed.order_by,
-                        "order_direction": parsed.order_direction,
-                        "limit": parsed.limit,
-                    },
-                }
-
-            # Execute the generated NXQL query directly using Nuxeo client
-            # Note: We need to handle LIMIT separately as it's not part of NXQL
-            effective_page_size = (
-                parsed.limit
-                if parsed.limit and parsed.limit < pageSize
-                else pageSize
-            )
-            
-            # Execute the NXQL query directly
+        try:
             query_result = nuxeo.client.query(
-                nxql,
-                params={
-                    "pageSize": effective_page_size,
-                    "currentPageIndex": currentPageIndex
-                }
+                nxql, params={"pageSize": page_size, "currentPageIndex": page_index}
             )
-            
-            # Format the result based on content_type
-            if content_type == "text/markdown":
-                result = format_query_results(query_result)
-            else:
-                # Return JSON format
-                result = {
-                    "resultsCount": query_result.get("resultsCount", 0),
-                    "currentPageIndex": query_result.get("currentPageIndex", 0),
-                    "pageSize": query_result.get("pageSize", effective_page_size),
-                    "entries": query_result.get("entries", [])
-                }
-
-            # Add metadata about the natural language processing
-            if isinstance(result, dict):
-                result["_natural_query"] = query
-                result["_generated_nxql"] = nxql
-
-            return result
-
         except Exception as e:
-            # Fall back to regular search if natural language parsing fails
-            logger.warning(
-                f"Natural language parsing failed: {e}. Falling back to fulltext search."
-            )
+            raise ToolError(f"Search failed for query {nxql!r}: {e}")
 
-            # Extract keywords for fulltext search
-            # Remove common words that aren't useful for search
-            stop_words = {
-                "find",
-                "show",
-                "list",
-                "get",
-                "search",
-                "for",
-                "all",
-                "the",
-                "me",
-                "with",
-                "in",
-                "from",
-                "by",
-            }
-            keywords = [
-                word for word in query.lower().split() if word not in stop_words
-            ]
-
-            if keywords:
-                fallback_query = f"SELECT * FROM Document WHERE ecm:fulltext = '{' '.join(keywords)}'"
-            else:
-                fallback_query = "SELECT * FROM Document"
-
-            result = search(
-                query=fallback_query,
-                pageSize=pageSize,
-                currentPageIndex=currentPageIndex,
-                content_type=content_type,
-            )
-
-            if isinstance(result, dict):
-                result["_natural_query"] = query
-                result["_fallback_mode"] = True
-                result["_generated_nxql"] = fallback_query
-
-            return result
-
-    @mcp.tool()
-    async def search_repository(query: str, limit: int = 20, offset: int = 0, source_fields: Optional[List[str]] = None, highlight_fragment_size: int = 150, highlight_number_of_fragments: int = 3) -> str:
-        """
-        [REQUIRES ELASTICSEARCH] Search the Nuxeo repository using Elasticsearch passthrough.
-
-        This tool provides direct Elasticsearch access for advanced search capabilities.
-        It requires Elasticsearch to be configured and accessible on your Nuxeo server.
-        
-        ⚠️ For most use cases, use 'natural_search' or 'search' tools instead, which work
-        without Elasticsearch and use Nuxeo's built-in query capabilities.
-
-        Args:
-            query: Natural language search query (e.g., "PDFs created last week by John")
-            limit: Maximum number of results to return (default: 20, max: 100)
-            offset: Pagination offset for results (default: 0)
-            source_fields: Extra fields to include in results (e.g. ["ecm:binarytext"])
-            highlight_fragment_size: Size in chars of each highlight fragment (default 150, max ~9000000)
-            highlight_number_of_fragments: Number of highlight fragments to return per doc (default 3, 0=entire field)
-
-        Returns:
-            JSON string containing search results with document metadata and highlights
-
-        Examples:
-            - "documents created today"
-            - "files modified by alice in /workspaces"
-            - "PDFs containing annual report"
-            - "images from last month"
-        """
-        try:
-            # Import here to avoid circular dependency
-            from .es_passthrough import ElasticsearchPassthrough
-            import requests
-
-            # Limit max results
-            if limit > 100:
-                limit = 100
-            # Clamp to non-negative so result slicing / ES paging stay valid
-            limit = max(0, limit)
-            offset = max(0, offset)
-
-            # Clamp highlight params to safe values
-            highlight_fragment_size = max(1, highlight_fragment_size)
-            highlight_number_of_fragments = max(0, highlight_number_of_fragments)
-
-            # Initialize passthrough with Nuxeo URL and auth from the active client
-            nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
-            auth = nuxeo.client.auth
-            
-            passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
-            
-            # Check if Elasticsearch is accessible through Nuxeo passthrough
-            try:
-                # Test with a simple match_all query
-                test_url = f"{passthrough.base_url}/nuxeo/_search"
-                test_query = {"query": {"match_all": {}}, "size": 0}
-                probe = requests.post(
-                    test_url, json=test_query, auth=auth, timeout=ES_PROBE_TIMEOUT
-                )
-                if probe.status_code == 401:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": "Authentication failed",
-                            "message": "Authentication failed (HTTP 401): check the configured Nuxeo credentials.",
-                        }
-                    )
-                if probe.status_code == 403:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": "Permission denied",
-                            "message": "Access to the Elasticsearch passthrough is not allowed for this user.",
-                        }
-                    )
-                probe.raise_for_status()
-            except requests.exceptions.RequestException as e:
-                logger.warning(
-                    f"Elasticsearch not accessible at {passthrough.base_url}: {e}"
-                )
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": "Elasticsearch not available",
-                        "message": "Elasticsearch passthrough is not accessible. Please use 'natural_search' or 'search' tools instead.",
-                        "alternative_tools": ["natural_search", "search"],
-                    }
-                )
-
-            # Execute search — ACL enforcement is handled server-side by the Nuxeo passthrough
-            results = passthrough.search_repository(
-                query=query,
-                limit=limit,
-                offset=offset,
-                source_fields=source_fields,
-                highlight_fragment_size=highlight_fragment_size,
-                highlight_number_of_fragments=highlight_number_of_fragments,
-            )
-
-            # Format response
-            response = {
-                "success": True,
-                "total": results["total"],
-                "query_time_ms": results["query_time_ms"],
-                "results": results["results"],
-                "query": query,
-                "translated_query": results.get("translated_query", ""),
-            }
-
-            return json.dumps(response, indent=2)
-
-        except Exception as e:
-            logger.error(f"Repository search error: {e}")
-            return json.dumps(
-                {"success": False, "error": "Search failed", "message": str(e)}
-            )
-
-    @mcp.tool()
-    async def search_audit(query: str, limit: int = 20, offset: int = 0) -> str:
-        """
-        [REQUIRES ELASTICSEARCH] Search the Nuxeo audit logs (Admin only).
-
-        This tool provides search capabilities across audit logs for tracking
-        system activity, document modifications, and user actions. Requires both
-        administrator privileges and Elasticsearch to be configured and accessible.
-
-        Access control is enforced server-side by the Nuxeo Elasticsearch passthrough:
-        non-administrator users receive HTTP 403, which this tool reports as a clear
-        permission error rather than an availability failure.
-
-        Args:
-            query: Natural language audit query (e.g., "deletions by admin yesterday")
-            limit: Maximum number of results to return (default: 20, max: 100)
-            offset: Pagination offset for results (default: 0)
-
-        Returns:
-            JSON string containing audit entries with event details, or an error object
-            with "error": "Permission denied" when called by a non-administrator.
-
-        Examples:
-            - "show all deletions from yesterday"
-            - "what did alice modify this week"
-            - "document creations in the last month"
-            - "failed login attempts today"
-        """
-        try:
-            # Import here to avoid circular dependency
-            from .es_passthrough import ElasticsearchPassthrough
-            import requests
-
-            # Limit max results
-            if limit > 100:
-                limit = 100
-            # Clamp to non-negative so result slicing / ES paging stay valid
-            limit = max(0, limit)
-            offset = max(0, offset)
-
-            # Initialize passthrough with Nuxeo URL and auth from the active client
-            nuxeo_url = os.environ.get("NUXEO_URL", nuxeo.client.host)
-            auth = nuxeo.client.auth
-            
-            passthrough = ElasticsearchPassthrough(nuxeo_url=nuxeo_url, auth=auth)
-
-            # Check if Elasticsearch audit index is accessible and user has permission.
-            # The Nuxeo passthrough returns 403 for non-admins, 401 for bad/missing
-            # credentials, and a network/5xx error when the index is unavailable.
-            try:
-                test_url = f"{passthrough.base_url}/audit/_search"
-                test_query = {"query": {"match_all": {}}, "size": 0}
-                probe = requests.post(
-                    test_url, json=test_query, auth=auth, timeout=ES_PROBE_TIMEOUT
-                )
-                if probe.status_code == 401:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": "Authentication failed",
-                            "message": "Authentication failed (HTTP 401): check the configured Nuxeo credentials.",
-                        }
-                    )
-                if probe.status_code == 403:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": "Permission denied",
-                            "message": "Only administrators can access audit logs",
-                        }
-                    )
-                probe.raise_for_status()
-            except requests.exceptions.RequestException as e:
-                logger.warning(
-                    f"Elasticsearch audit index not reachable at {passthrough.base_url}: {e}"
-                )
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": "Elasticsearch audit not available",
-                        "message": "Elasticsearch audit index is not accessible. Audit logs require Elasticsearch.",
-                        "alternative": "Check your Nuxeo server's Elasticsearch configuration",
-                    }
-                )
-
-            # Execute search — admin-only check is enforced server-side by the Nuxeo passthrough
-            results = passthrough.search_audit(
-                query=query,
-                limit=limit,
-                offset=offset,
-            )
-
-            # Format response
-            response = {
-                "success": True,
-                "total": results["total"],
-                "query_time_ms": results["query_time_ms"],
-                "results": results["results"],
-                "query": query,
-                "translated_query": results.get("translated_query", ""),
-            }
-
-            return json.dumps(response, indent=2)
-
-        except Exception as e:
-            logger.error(f"Audit search error: {e}")
-            return json.dumps(
-                {"success": False, "error": "Audit search failed", "message": str(e)}
-            )
-
-    """
-    Register MCP tools with the FastMCP server.
-
-    Args:
-        mcp: The FastMCP server instance
-        nuxeo: The Nuxeo client instance
-        auth_middleware: Optional authentication middleware to wrap tools
-    """
-    
-    # Import server manager
-    from nuxeo_mcp.server_manager import get_server_manager, ServerConfig
-    from nuxeo.client import Nuxeo
-    
-    # Get the global server manager
-    server_manager = get_server_manager()
-    
-    # Create a mutable container for the Nuxeo client
-    # This allows us to switch servers dynamically
-    class NuxeoClientContainer:
-        def __init__(self, initial_client):
-            self.client = initial_client
-            self.current_server_name = None
-            
-        def switch_to_server(self, server_config: ServerConfig):
-            """Switch to a different Nuxeo server."""
-            try:
-                new_client = Nuxeo(
-                    host=server_config.url,
-                    auth=(server_config.username, server_config.password)
-                )
-                # Test the connection
-                new_client.client.server_info()
-                self.client = new_client
-                self.current_server_name = server_config.name
-                logger.info(f"Switched to server: {server_config.name}")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to connect to server {server_config.name}: {e}")
-                return False
-    
-    # Create the container with the initial client
-    nuxeo_container = NuxeoClientContainer(nuxeo)
-    
-    # Override the nuxeo variable to use the container's client
-    # This allows all tools to automatically use the current server
-    nuxeo = nuxeo_container.client
-    
-    # Tool: List available servers
-    @mcp.tool(
-        name="list_servers",
-        description="List all configured Nuxeo servers"
-    )
-    def list_servers() -> Dict[str, Any]:
-        """
-        List all configured Nuxeo servers.
-        
-        Returns:
-            Dictionary containing all server configurations and their status
-        """
-        servers = server_manager.list_servers()
-        active_server = server_manager.get_active_server()
-        
-        return {
-            "servers": servers,
-            "active_server": active_server.name if active_server else None,
-            "message": f"Currently connected to: {active_server.name if active_server else 'None'}"
-        }
-    
-    # Tool: Switch server
-    @mcp.tool(
-        name="switch_server",
-        description="Switch to a different Nuxeo server"
-    )
-    def switch_server(server_name: str) -> Dict[str, Any]:
-        """
-        Switch to a different Nuxeo server.
-        
-        Args:
-            server_name: Name of the server to switch to (e.g., 'demo', 'local')
-            
-        Returns:
-            Status of the switch operation
-        """
-        server_config = server_manager.get_server(server_name)
-        if not server_config:
-            available = list(server_manager.servers.keys())
-            return {
-                "status": "error",
-                "message": f"Server '{server_name}' not found",
-                "available_servers": available
-            }
-        
-        # Try to switch the client
-        if nuxeo_container.switch_to_server(server_config):
-            # Update the global nuxeo reference for all tools
-            nonlocal nuxeo
-            nuxeo = nuxeo_container.client
-            
-            # Save the active server
-            server_manager.set_active_server(server_name)
-            
-            return {
-                "status": "success",
-                "message": f"Successfully switched to server: {server_name}",
-                "server": {
-                    "name": server_config.name,
-                    "url": server_config.url,
-                    "description": server_config.description
-                }
-            }
-        else:
-            return {
-                "status": "error",
-                "message": f"Failed to connect to server: {server_name}",
-                "error": "Connection failed - check server URL and credentials"
-            }
-    
-    # Tool: Get current server
-    @mcp.tool(
-        name="get_current_server",
-        description="Get information about the currently active Nuxeo server"
-    )
-    def get_current_server() -> Dict[str, Any]:
-        """
-        Get information about the currently active Nuxeo server.
-        
-        Returns:
-            Information about the current server
-        """
-        active_server = server_manager.get_active_server()
-        if active_server:
-            # Try to get server info from Nuxeo
-            try:
-                server_info = nuxeo.client.server_info()
-                return {
-                    "status": "connected",
-                    "server": {
-                        "name": active_server.name,
-                        "url": active_server.url,
-                        "description": active_server.description
-                    },
-                    "nuxeo_info": server_info
-                }
-            except Exception as e:
-                return {
-                    "status": "configured",
-                    "server": {
-                        "name": active_server.name,
-                        "url": active_server.url,
-                        "description": active_server.description
-                    },
-                    "error": f"Cannot connect to server: {str(e)}"
-                }
-        else:
-            return {
-                "status": "not_configured",
-                "message": "No server is currently active. Use 'switch_server' to select one.",
-                "available_servers": list(server_manager.servers.keys())
-            }
-    
-    # Tool: Add server configuration
-    @mcp.tool(
-        name="add_server",
-        description="Add a new Nuxeo server configuration"
-    )
-    def add_server(
-        name: str,
-        url: str,
-        username: str,
-        password: str,
-        description: str = "",
-        set_as_active: bool = False
-    ) -> Dict[str, Any]:
-        """
-        Add a new Nuxeo server configuration.
-        
-        Args:
-            name: Unique name for the server (e.g., 'production', 'staging')
-            url: URL of the Nuxeo server (e.g., 'https://nuxeo.example.com/nuxeo')
-            username: Username for authentication
-            password: Password for authentication
-            description: Optional description of the server
-            set_as_active: Whether to immediately switch to this server
-            
-        Returns:
-            Status of the operation
-        """
-        # Check if server already exists
-        if server_manager.get_server(name):
-            return {
-                "status": "error",
-                "message": f"Server '{name}' already exists. Use a different name or remove the existing one first."
-            }
-        
-        # Create new server config
-        server_config = ServerConfig(
-            name=name,
-            url=url,
-            username=username,
-            password=password,
-            description=description or f"Nuxeo server at {url}",
-            is_default=False
+        return to_search_result(
+            query_result,
+            mode=mode,
+            interpreted_query=nxql,
+            page_size=page_size,
+            page_index=page_index,
+            degraded=degraded,
         )
-        
-        # Test the connection
+
+    def _run_query_dsl(
+        index: str,
+        query: Optional[Dict[str, Any]],
+        default_source: Optional[List[str]] = None,
+        guide: str = "nuxeo://query-dsl-guide",
+    ) -> Dict[str, Any]:
+        """Execute a guarded Query DSL request against one Nuxeo search index.
+
+        Nuxeo's passthrough applies the caller's ACLs and, for the audit index,
+        rejects non-administrators with HTTP 403. What it does not bound is cost:
+        an unqualified match_all with size 10000 returns megabytes, and Painless
+        executes. Those bounds are applied here.
+        """
+        if not query:
+            raise ToolError(query_dsl.USAGE)
+
         try:
-            test_client = Nuxeo(
-                host=url,
-                auth=(username, password)
-            )
-            test_client.client.server_info()
+            guarded = apply_guardrails(query, default_source=default_source)
+        except QueryDslRejected as e:
+            raise ToolError(str(e))
+
+        from .es_passthrough import ElasticsearchPassthrough
+
+        passthrough = ElasticsearchPassthrough(
+            nuxeo_url=os.environ.get("NUXEO_URL", nuxeo.client.host),
+            auth=nuxeo.client.auth,
+        )
+
+        try:
+            response = passthrough.execute_query(index=index, query=guarded)
         except Exception as e:
-            return {
-                "status": "warning",
-                "message": f"Server added but connection test failed: {str(e)}",
-                "server": server_config.to_dict()
-            }
-        
-        # Add the server
-        server_manager.add_server(server_config)
-        
-        # Switch to it if requested
-        if set_as_active:
-            switch_result = switch_server(name)
-            return {
-                "status": "success",
-                "message": f"Server '{name}' added and activated",
-                "server": server_config.to_dict(),
-                "switch_result": switch_result
-            }
-        
-        return {
-            "status": "success",
-            "message": f"Server '{name}' added successfully",
-            "server": server_config.to_dict()
-        }
-    
-    # Tool: Remove server configuration
-    @mcp.tool(
-        name="remove_server",
-        description="Remove a Nuxeo server configuration"
+            raise ToolError(f"Query DSL search failed on index {index!r}: {e}")
+
+        hits = response.get("hits", {}).get("hits", [])
+        if not hits and "aggregations" not in response:
+            # Silently empty results are the main failure mode here: a hallucinated
+            # field name returns 200 with no hits, which reads as "nothing matches".
+            response["_nuxeo_hint"] = (
+                f"No hits. Verify field names against the {guide} resource -- "
+                "unknown fields match nothing rather than erroring."
+            )
+        response["_nuxeo_executed_query"] = guarded
+
+        # Measured on the assembled payload, not on the engine response: the echoed
+        # query is part of what reaches the context window, and a large terms or ids
+        # clause can dwarf a response that carries no hits at all.
+        size = len(json.dumps(response))
+        if size > query_dsl.MAX_RESPONSE_BYTES:
+            raise ToolError(
+                f"Response is {size} bytes, over the {query_dsl.MAX_RESPONSE_BYTES} "
+                "byte limit. Narrow it with a smaller 'size', a '_source' include "
+                "list, or an aggregation with 'size': 0."
+            )
+
+        return response
+
+    @tool(
+        name="nuxeo_search_documents_with_query_dsl",
+        description=(
+            "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "
+            "repository index and return the engine response unchanged. Use this for "
+            "aggregations, highlighting, sorting and any query the normalized search "
+            "cannot express. Read nuxeo://query-dsl-guide first for the field names."
+        ),
     )
-    def remove_server(name: str) -> Dict[str, Any]:
-        """
-        Remove a Nuxeo server configuration.
-        
+    def nuxeo_search_documents_with_query_dsl(
+        query: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Search the repository index with a Query DSL body.
+
         Args:
-            name: Name of the server to remove
-            
+            query: An Elasticsearch/OpenSearch request body.
+
         Returns:
-            Status of the operation
+            The engine response, unchanged apart from the applied guardrails.
+
+        Raises:
+            ToolError: on a missing body, a scripted query, an engine error, or a
+                response over the size limit.
         """
-        if not server_manager.get_server(name):
-            return {
-                "status": "error",
-                "message": f"Server '{name}' not found"
-            }
-        
-        # Check if it's the active server
-        active_server = server_manager.get_active_server()
-        is_active = active_server and active_server.name == name
-        
-        server_manager.remove_server(name)
-        
-        return {
-            "status": "success",
-            "message": f"Server '{name}' removed successfully",
-            "was_active": is_active,
-            "note": "You may need to switch to another server" if is_active else None
-        }
-    
-    # Check if we need server selection on first use
-    # Skip if server is pre-configured (e.g., from Docker environment variables)
-    if not skip_server_selection and server_manager.needs_server_selection():
-        # Set up with the default server
-        active_server = server_manager.get_active_server()
-        if active_server:
-            nuxeo_container.switch_to_server(active_server)
-            nuxeo = nuxeo_container.client
-            server_manager.set_active_server(active_server.name)
+        return _run_query_dsl(
+            "nuxeo", query, default_source=query_dsl.DEFAULT_SOURCE_FIELDS
+        )
+
+    @tool(
+        name="nuxeo_search_audit_with_query_dsl",
+        description=(
+            "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "
+            "audit log index and return the engine response unchanged. Administrators "
+            "only. Read nuxeo://audit-query-dsl-guide first for the field names."
+        ),
+    )
+    def nuxeo_search_audit_with_query_dsl(
+        query: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Search the audit index with a Query DSL body.
+
+        Audit entries are events, not documents, so they are returned in the engine
+        shape rather than the normalized document envelope.
+
+        Args:
+            query: An Elasticsearch/OpenSearch request body.
+
+        Returns:
+            The engine response, unchanged apart from the applied guardrails.
+
+        Raises:
+            ToolError: on a missing body, a scripted query, an engine error
+                (including HTTP 403 for non-administrators), or a response over
+                the size limit.
+        """
+        if not query:
+            raise ToolError(query_dsl.AUDIT_USAGE)
+        # No _source default: audit entries are small and share no field names
+        # with the repository index.
+        return _run_query_dsl("audit", query, guide="nuxeo://audit-query-dsl-guide")
+
+    # Server resolution is deliberately not exposed as tools, and is not mutable at
+    # runtime. Streamable HTTP is stateless and shared between agents, so a tool that
+    # switched the active server would leak one caller's repository into another
+    # caller's next call, and a tool that registered a server URL would let a model
+    # drive outbound requests. Which Nuxeo this process talks to is deployment
+    # configuration: NUXEO_URL and the credentials, read once at startup.

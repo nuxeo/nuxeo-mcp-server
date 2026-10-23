@@ -25,7 +25,8 @@ class MockFastMCP:
         self.prompts: List[Dict[str, Any]] = []
         self.custom_routes: List[Dict[str, Any]] = []
     
-    def tool(self, name: Optional[str] = None, description: Optional[str] = None, input_schema: Optional[Dict[str, Any]] = None):
+    def tool(self, name: Optional[str] = None, description: Optional[str] = None,
+             input_schema: Optional[Dict[str, Any]] = None, annotations: Any = None):
         def decorator(func):
             # Support both @mcp.tool() and @mcp.tool(name="...", description="...")
             tool_name = name if name else func.__name__
@@ -34,6 +35,7 @@ class MockFastMCP:
                 "name": tool_name, 
                 "description": tool_desc, 
                 "input_schema": input_schema,
+                "annotations": annotations,
                 "func": func
             })
             return func
@@ -145,9 +147,9 @@ def test_nuxeo_mcp_server_with_real_nuxeo(nuxeo_container: Any, nuxeo_url: str, 
     tools = server.mcp.list_tools()
     tool_names = [tool.name for tool in tools]
     print(f"Registered tools: {tool_names}")
-    assert "get_repository_info" in tool_names
-    assert "get_children" in tool_names
-    assert "search" in tool_names
+    assert "nuxeo_get_repository_info" in tool_names
+    assert "nuxeo_list_children" in tool_names
+    assert "nuxeo_search_documents" in tool_names
     
     # Check that the resources are registered
     print("Checking MCP server resources...")
@@ -179,7 +181,7 @@ def test_get_repository_info_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_cr
     # Find the get_repository_info tool
     get_repository_info_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "get_repository_info":
+        if tool["name"] == "nuxeo_get_repository_info":
             get_repository_info_tool = tool["func"]
             break
     
@@ -199,8 +201,8 @@ def test_get_repository_info_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_cr
 
 @pytest.mark.integration
 def test_get_children_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str], seeded_folder_info: Dict[str, str]) -> None:
-    """Test the get_children tool."""
-    print("\nTesting get_children tool...")
+    """Test the nuxeo_list_children tool."""
+    print("\nTesting nuxeo_list_children tool...")
     
     username, password = nuxeo_credentials
     
@@ -212,14 +214,14 @@ def test_get_children_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentia
         fastmcp_class=MockFastMCP,
     )
     
-    # Find the get_children tool
+    # Find the nuxeo_list_children tool
     get_children_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "get_children":
+        if tool["name"] == "nuxeo_list_children":
             get_children_tool = tool["func"]
             break
     
-    assert get_children_tool is not None, "get_children tool not found"
+    assert get_children_tool is not None, "nuxeo_list_children tool not found"
     
     # Call the tool with the path to the workspaces folder
     result = get_children_tool(ref="/default-domain/workspaces")
@@ -237,11 +239,11 @@ def test_get_children_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentia
 
 @pytest.mark.integration
 def test_search_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str]) -> None:
-    """Test the search tool."""
-    print("\nTesting search tool...")
-    
+    """Test the nuxeo_search_documents tool against a real repository."""
+    print("\nTesting nuxeo_search_documents tool...")
+
     username, password = nuxeo_credentials
-    
+
     # Create a real NuxeoMCPServer instance with MockFastMCP
     server = NuxeoMCPServer(
         nuxeo_url=nuxeo_url,
@@ -249,55 +251,40 @@ def test_search_tool(nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tu
         password=password,
         fastmcp_class=MockFastMCP,
     )
-    
-    # Find the search tool
+
     search_tool = None
     for tool in server.mcp.tools:
-        if tool["name"] == "search":
+        if tool["name"] == "nuxeo_search_documents":
             search_tool = tool["func"]
             break
-    
-    assert search_tool is not None, "search tool not found"
-    
-    # Call the tool with a query to find all folders
-    result = search_tool(content_type="application/json", query="SELECT * FROM Folder")
 
-    # Check the result
-    assert isinstance(result, dict), "Expected a structured result"
+    assert search_tool is not None, "nuxeo_search_documents tool not found"
 
-    assert result["content_type"] == "application/json"
-    structured_content = result["content"]
-    assert isinstance(structured_content, dict), "Expected a structured result"
+    result = search_tool(query="SELECT * FROM Folder", mode="nxql")
 
-    assert "resultsCount" in structured_content
-    assert isinstance(structured_content["resultsCount"], int)
-    assert "pageIndex" in structured_content
-    assert isinstance(structured_content["pageIndex"], int)
-    assert "pageCount" in structured_content
-    assert isinstance(structured_content["pageCount"], int)
-    assert "documents" in structured_content
-    assert isinstance(structured_content["documents"], list)
+    assert result.mode == "nxql"
+    assert result.interpretedQuery == "SELECT * FROM Folder"
+    assert isinstance(result.totalCount, int)
+    assert result.documents, "Expected at least the seeded folder"
 
-    # The result should contain the seeded folder
-    docs = structured_content["documents"]
+    titles = [doc.title for doc in result.documents]
     assert any(
-        isinstance(x, str) and x.startswith("MCP Test Folder") for t in docs for x in t
-    ), "Expected seeded folder in result"
-    print(f"Search results for 'SELECT * FROM Folder':\n{docs}")
+        isinstance(t, str) and t.startswith("MCP Test Folder") for t in titles
+    ), f"Expected seeded folder in {titles}"
 
-    result = search_tool(content_type="text/markdown", query="SELECT * FROM Folder")
-    # Check the result - a dict whose content is the markdown string
-    assert isinstance(result, dict), "Expected a dict result"
-    content = result["content"]
-    assert isinstance(content, str), "Expected a string content"
-    assert "| uuid | name | title | type |" in content, (
-        "Expected table header in result"
-    )
+    # The envelope is the same for every mode, including the fields a mode
+    # cannot populate.
+    first = result.documents[0]
+    assert first.id
+    assert first.documentType
+    assert first.score is None
+    assert first.snippets == []
 
-    # The result should contain the seeded folder
-    assert "MCP Test Folder" in content, "Expected seeded folder in result"
+    natural = search_tool(query="all folders", mode="natural")
+    assert natural.mode == "natural"
+    assert natural.interpretedQuery.upper().startswith("SELECT")
 
-    print(f"Search results for 'SELECT * FROM Folder':\n{content}")
+    print(f"Search results for 'SELECT * FROM Folder': {titles}")
 
 
 @pytest.mark.integration

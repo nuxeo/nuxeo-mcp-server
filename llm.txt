@@ -66,41 +66,43 @@ The server will output a message indicating it's running and listening for conne
 
 ### Tools
 
-1. `get_repository_info`
+1. `nuxeo_get_repository_info`
    - Description: Get information about the Nuxeo repository
    - Input: `{}`
-   - Example: `use_tool("nuxeo", "get_repository_info", {})`
+   - Example: `use_tool("nuxeo", "nuxeo_get_repository_info", {})`
 
-2. `get_children`
+2. `nuxeo_list_children`
    - Description: Get the children of a document
    - Input: `{"path": "/default-domain/workspaces"}`
-   - Example: `use_tool("nuxeo", "get_children", {"path": "/default-domain/workspaces"})`
+   - Example: `use_tool("nuxeo", "nuxeo_list_children", {"path": "/default-domain/workspaces"})`
 
-3. `search`
-   - Description: Search for documents
-   - Input: `{"query": "SELECT * FROM Document", "pageSize": 10, "currentPageIndex": 0}`
-   - Example: `use_tool("nuxeo", "search", {"query": "SELECT * FROM Document", "pageSize": 10, "currentPageIndex": 0})`
+3. `nuxeo_search_documents`
+   - Description: Search documents. One envelope for every mode.
+   - Input: `{"query": "...", "mode": "nxql"|"natural"|"semantic", "page_size": 10, "page_index": 0}`
+   - Example: `use_tool("nuxeo", "nuxeo_search_documents", {"query": "SELECT * FROM Document", "mode": "nxql", "page_size": 10})`
+   - Returns: `documents[]` (id, documentType, title, path, createdAt, modifiedAt, createdBy, modifiedBy, metadata, score, snippets, extensions) plus totalCount, pageIndex, pageSize, hasMore, mode, interpretedQuery, degraded
+   - `interpretedQuery` is the NXQL that actually ran. For counts or groupings use `nuxeo_search_documents_with_query_dsl`.
 
-4. `get_document`
+4. `nuxeo_get_document`
    - Description: Get a document by path or ID
    - Input: `{"path": "/default-domain/workspaces/My Document"}` or `{"uid": "document-uuid"}`
    - Options: `blob: true` to get the document's blob, `rendition: "thumbnail"` to get a rendition
-   - Example: `use_tool("nuxeo", "get_document", {"path": "/default-domain/workspaces/My Document"})`
+   - Example: `use_tool("nuxeo", "nuxeo_get_document", {"path": "/default-domain/workspaces/My Document"})`
 
-5. `create_document`
+5. `nuxeo_create_document`
    - Description: Create a new document
    - Input: `{"parent_path": "/default-domain/workspaces", "name": "My Document", "type": "File", "properties": {"dc:title": "My Document"}}`
-   - Example: `use_tool("nuxeo", "create_document", {"parent_path": "/default-domain/workspaces", "name": "My Document", "type": "File", "properties": {"dc:title": "My Document"}})`
+   - Example: `use_tool("nuxeo", "nuxeo_create_document", {"parent_path": "/default-domain/workspaces", "name": "My Document", "type": "File", "properties": {"dc:title": "My Document"}})`
 
-6. `update_document`
+6. `nuxeo_update_metadata`
    - Description: Update an existing document
    - Input: `{"path": "/default-domain/workspaces/My Document", "properties": {"dc:title": "Updated Title"}}`
-   - Example: `use_tool("nuxeo", "update_document", {"path": "/default-domain/workspaces/My Document", "properties": {"dc:title": "Updated Title"}})`
+   - Example: `use_tool("nuxeo", "nuxeo_update_metadata", {"path": "/default-domain/workspaces/My Document", "properties": {"dc:title": "Updated Title"}})`
 
-7. `delete_document`
+7. `nuxeo_delete_document`
    - Description: Delete a document
    - Input: `{"path": "/default-domain/workspaces/My Document"}`
-   - Example: `use_tool("nuxeo", "delete_document", {"path": "/default-domain/workspaces/My Document"})`
+   - Example: `use_tool("nuxeo", "nuxeo_delete_document", {"path": "/default-domain/workspaces/My Document"})`
 
 ### Resources
 
@@ -187,18 +189,19 @@ npx @modelcontextprotocol/inspector python -m nuxeo_mcp
 from fastmcp import use_tool, access_resource
 
 # Get repository info
-repo_info = use_tool("nuxeo", "get_repository_info", {})
+repo_info = use_tool("nuxeo", "nuxeo_get_repository_info", {})
 print(f"Connected to repository: {repo_info['name']}")
 
 # Search for documents
-search_results = use_tool("nuxeo", "search", {
+search_results = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "SELECT * FROM Document WHERE ecm:primaryType = 'File'",
-    "pageSize": 5
+    "mode": "nxql",
+    "page_size": 5
 })
-print(f"Found {search_results['resultsCount']} documents")
+print(f"Found {search_results['totalCount']} documents")
 
 # Create a new document
-new_doc = use_tool("nuxeo", "create_document", {
+new_doc = use_tool("nuxeo", "nuxeo_create_document", {
     "parent_path": "/default-domain/workspaces",
     "name": "My New Document",
     "type": "File",
@@ -210,13 +213,13 @@ new_doc = use_tool("nuxeo", "create_document", {
 print(f"Created document with ID: {new_doc['uid']}")
 
 # Get document details
-doc_details = use_tool("nuxeo", "get_document", {
+doc_details = use_tool("nuxeo", "nuxeo_get_document", {
     "path": "/default-domain/workspaces/My New Document"
 })
 print(f"Document title: {doc_details['title']}")
 
 # Update document
-updated_doc = use_tool("nuxeo", "update_document", {
+updated_doc = use_tool("nuxeo", "nuxeo_update_metadata", {
     "path": "/default-domain/workspaces/My New Document",
     "properties": {
         "dc:description": "Updated by MCP"
@@ -225,7 +228,7 @@ updated_doc = use_tool("nuxeo", "update_document", {
 print("Document updated successfully")
 
 # Delete document
-delete_result = use_tool("nuxeo", "delete_document", {
+delete_result = use_tool("nuxeo", "nuxeo_delete_document", {
     "path": "/default-domain/workspaces/My New Document"
 })
 print("Document deleted successfully")

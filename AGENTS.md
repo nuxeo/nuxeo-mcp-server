@@ -6,7 +6,7 @@
 
 Nuxeo MCP Server is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that exposes Nuxeo Content Repository operations to AI assistants. It lets AI tools create, read, update, delete, search, and manage documents on a Nuxeo server through a standardised MCP interface.
 
-**Tech stack:** [FastMCP](https://github.com/jlowin/fastmcp), Nuxeo Python client, FastAPI/Uvicorn, Docker.
+**Tech stack:** [FastMCP 4](https://github.com/jlowin/fastmcp), Nuxeo Python client, FastAPI/Uvicorn, Docker.
 
 ## Repository Layout
 
@@ -14,17 +14,18 @@ Nuxeo MCP Server is a [Model Context Protocol (MCP)](https://modelcontextprotoco
 nuxeo-mcp-server/
 ├── src/nuxeo_mcp/          # Package source
 │   ├── server.py           # MCP server entry-point & FastMCP setup
-│   ├── tools.py            # All 18 MCP tools
+│   ├── tools.py            # All MCP tools
 │   ├── resources.py        # MCP resources (nuxeo:// URIs)
 │   ├── prompts.py          # MCP prompt templates
 │   ├── nl_parser.py        # Natural-language → NXQL parser
-│   ├── es_passthrough.py   # Elasticsearch passthrough
-│   ├── es_query_builder.py # ES query builder
+│   ├── es_passthrough.py   # Search-engine passthrough
+│   ├── query_dsl.py        # Query DSL guardrails & field guides
+│   ├── search_models.py    # Normalized search envelope
+│   ├── annotations.py      # Tool safety annotations
 │   ├── search_filters.py   # Search filter helpers
 │   ├── auth.py             # OAuth2 / Basic auth handlers
 │   ├── middleware.py       # Authentication middleware
 │   ├── config.py           # Configuration dataclasses & enums
-│   ├── server_manager.py   # Multi-server management
 │   ├── token_store.py      # OAuth2 token storage
 │   ├── utility.py          # Document formatting helpers
 │   └── __main__.py         # CLI entry-point
@@ -49,7 +50,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-> **Note:** `fastmcp` (3.4.x) and its `fastmcp-slim` dependency install into the
+> **Note:** `fastmcp` (4.1.x) and its `fastmcp-slim` dependency install into the
 > same `fastmcp/` import namespace. Repeated in-place `uv sync` / reinstall churn
 > can leave that namespace in a broken state (`ImportError: cannot import name
 > 'FastMCP' from 'fastmcp'`, missing `__init__.py`). If that happens, rebuild the
@@ -99,40 +100,47 @@ All three must pass before merging.
 
 ### Tools (`src/nuxeo_mcp/tools.py`)
 
-20 tools registered via `register_tools(mcp, nuxeo, skip_server_selection=False)`:
+Tools are registered via `register_tools(mcp, nuxeo, skip_server_selection=False)`.
 
-| Tool | Description |
-|------|-------------|
-| `get_repository_info` | Repository metadata |
-| `get_children` | List folder contents |
-| `search` | Execute a raw NXQL query |
-| `get_document_types` | Available document types |
-| `get_schemas` | Available schemas |
-| `get_operations` | Available Nuxeo operations |
-| `execute_operation` | Execute a Nuxeo operation |
-| `create_document` | Create a new document |
-| `get_document` | Retrieve a document |
-| `update_document` | Update document properties |
-| `delete_document` | Delete a document |
-| `move_document` | Move or rename a document |
-| `natural_search` | Natural-language → NXQL search |
-| `search_repository` | Elasticsearch passthrough search *(requires ES)* |
-| `search_audit` | Audit log search — admin only *(requires ES)* |
-| `list_servers` | List configured Nuxeo instances |
-| `switch_server` | Switch the active instance |
-| `get_current_server` | Current server info |
-| `add_server` | Add a new Nuxeo server configuration |
-| `remove_server` | Remove a Nuxeo server configuration |
+<!-- BEGIN GENERATED TOOLS -->
+
+14 tools, generated from the registered MCP schema by `scripts/generate_tool_reference.py` -- do not edit by hand.
+
+| Tool | Read-only | Destructive | Open-world | Description |
+|------|-----------|-------------|------------|-------------|
+| `nuxeo_create_document` | no | no | no | Create a new document in the Nuxeo repository with optional file attachment |
+| `nuxeo_delete_document` | no | yes | no | Delete a document from the Nuxeo repository |
+| `nuxeo_execute_operation` | no | yes | yes | Execute a Nuxeo Operation with the specified parameters and input |
+| `nuxeo_get_document` | yes | no | no | Get a document from the Nuxeo repository |
+| `nuxeo_get_metadata_schema` | yes | no | no | Get detailed information about schemas defined in the Nuxeo server |
+| `nuxeo_get_repository_info` | yes | no | no | Get information about the Nuxeo repository |
+| `nuxeo_list_children` | yes | no | no | list children of a folder document |
+| `nuxeo_list_document_types` | yes | no | no | Get information about document types and schemas defined in the Nuxeo server |
+| `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
+| `nuxeo_move_document` | no | yes | no | Move a document to a different location in the Nuxeo repository |
+| `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo audit log index and return the engine response unchanged. Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
+| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. Use mode='natural' for a plain-English query, mode='nxql' for an exact NXQL statement. Returns a normalized result envelope that is identical for every mode. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. |
+| `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo repository index and return the engine response unchanged. Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. |
+| `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
+
+<!-- END GENERATED TOOLS -->
 
 **Adding a new tool:**
 
+Tool names must be `nuxeo_{verb}_{object}`, and every tool must declare its
+safety hints in `annotations.py` — registration raises at startup otherwise.
+Both rules are asserted by `tests/test_tool_contracts.py`.
+
 ```python
-# In tools.py, inside register_tools()
-@mcp.tool(
-    name="my_tool",
+# 1. declare the hints in annotations.py
+TOOL_ANNOTATIONS["nuxeo_my_tool"] = _read("Do the thing")
+
+# 2. register in tools.py, inside register_tools()
+@tool(
+    name="nuxeo_my_tool",
     description="What this tool does",
 )
-def my_tool(param: str) -> dict:
+def nuxeo_my_tool(param: str) -> dict:
     """Docstring describing the tool."""
     result = nuxeo_client.some_operation(param)
     return {"result": result}
@@ -149,6 +157,8 @@ Resources are registered via `register_resources(mcp, nuxeo)` and use the `nuxeo
 | `nuxeo://{path*}` | Document by repository path |
 | `nuxeo://{uid}@{adapter}/{adapter_param}` | Document with adapter |
 | `nuxeo://nxql-guide` | Embedded NXQL reference |
+| `nuxeo://query-dsl-guide` | Repository index field reference for the Query DSL tool |
+| `nuxeo://audit-query-dsl-guide` | Audit index field reference for the Query DSL tool |
 
 **Adding a new resource:**
 
@@ -192,10 +202,11 @@ def my_prompt(arg: str) -> str:
 | `auth.py` | `OAuth2AuthHandler` (PKCE flow), `BasicAuthHandler`; browser-based callback server |
 | `middleware.py` | `AuthenticationManager` wraps tool/resource callables to inject auth headers |
 | `token_store.py` | `TokenManager` — persists and refreshes OAuth2 tokens |
-| `server_manager.py` | `ServerManager` — tracks multiple Nuxeo instances, handles switching |
 | `nl_parser.py` | `NaturalLanguageParser` converts English queries to NXQL via `NXQLBuilder` |
 | `es_passthrough.py` | `ElasticsearchPassthrough` — forwards ES queries while enforcing Nuxeo ACLs |
-| `es_query_builder.py` | `ElasticsearchQueryBuilder` — translates filter conditions to ES DSL |
+| `query_dsl.py` | Guardrails (size/from/response caps, script rejection) and field guides for the Query DSL tools |
+| `search_models.py` | `SearchResult`/`SearchHit` — the normalized envelope shared by every search mode |
+| `annotations.py` | `TOOL_ANNOTATIONS` — declared safety hints, one entry per tool |
 | `search_filters.py` | Parses and applies search filter objects |
 | `utility.py` | `format_document()`, UUID detection, blob helpers |
 
@@ -207,7 +218,7 @@ __main__.py  →  main()
        ├─ config.py: read NUXEO_URL / NUXEO_AUTH_METHOD / credentials from env
        ├─ auth.py / middleware.py: build Nuxeo client (basic or OAuth2)
        ├─ server.py: create FastMCP instance + /health endpoint
-       ├─ tools.py: register_tools()        ← ServerManager initialised here
+       ├─ tools.py: register_tools()
        ├─ resources.py: register_resources()
        └─ prompts.py: register_prompts()
 ```
@@ -228,7 +239,7 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 
 ### Natural Language Search
 
-`NaturalLanguageParser` in `nl_parser.py` parses a free-text English query into a `ParsedQuery` dataclass (document type, properties, date ranges, full-text terms). `NXQLBuilder` then constructs a valid NXQL `SELECT` statement from the parsed result. The `natural_search` tool orchestrates these two steps.
+`NaturalLanguageParser` in `nl_parser.py` parses a free-text English query into a `ParsedQuery` dataclass (document type, properties, date ranges, full-text terms). `NXQLBuilder` then constructs a valid NXQL `SELECT` statement from the parsed result. The `nuxeo_search_documents` tool orchestrates these two steps.
 
 ### Elasticsearch Passthrough
 
@@ -249,7 +260,6 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 | `NUXEO_OAUTH_OPENID_URL` | OpenID Connect configuration URL |
 | `NUXEO_OAUTH_REDIRECT_PORT` | Local port for OAuth2 callback (default: auto) |
 | `NUXEO_OAUTH_SCOPE` | OAuth2 scopes (default: `openid profile email`) |
-| `SKIP_SERVER_SELECTION` | Set to `true` to skip the interactive server-selection prompt at startup |
 
 ### Server Transport Modes
 
@@ -360,7 +370,7 @@ All workflows use the composite action `.github/actions/setup-and-install-dep` f
 | Integration test runs in unit CI | Ensure the test is decorated with `@pytest.mark.integration` |
 | OAuth2 token not refreshed | Check `TokenManager.get_valid_token()` — it handles refresh automatically |
 | Tool not appearing in MCP client | Verify it is registered inside `register_tools()`, not at module level |
-| NXQL syntax error from natural_search | Test the query via `NaturalLanguageParser` directly before wiring to the tool |
+| NXQL syntax error from nuxeo_search_documents | Test the query via `NaturalLanguageParser` directly before wiring to the tool |
 | `ImportError: cannot import name 'FastMCP' from 'fastmcp'` | `fastmcp`/`fastmcp-slim` share one namespace; in-place reinstalls can break it. Rebuild clean: `rm -rf .venv && uv sync --frozen --extra dev` |
 
 ### Dependency Management

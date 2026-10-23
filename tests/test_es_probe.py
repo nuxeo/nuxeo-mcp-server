@@ -1,4 +1,4 @@
-"""Unit tests for search_repository and search_audit ES probe error handling.
+"""Unit tests for Query DSL and audit search error handling.
 
 Covers the 401/403 permission-denied branches and the connectivity-failure branch
 without requiring a live Nuxeo or Elasticsearch server.
@@ -9,7 +9,9 @@ import json
 from typing import Any, Callable, Dict
 from unittest.mock import MagicMock, patch
 
+import pytest
 import requests as requests_lib
+from fastmcp.exceptions import ToolError
 
 from nuxeo_mcp.tools import register_tools
 
@@ -26,7 +28,7 @@ def _register_and_capture(nuxeo: Any) -> Dict[str, Callable[..., Any]]:
 
             return decorator
 
-    register_tools(FakeMCP(), nuxeo, skip_server_selection=True)
+    register_tools(FakeMCP(), nuxeo)
     return captured
 
 
@@ -55,78 +57,79 @@ def _mock_probe(status_code: int) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# search_repository probe tests
+# nuxeo_search_documents_with_query_dsl failure handling
 # ---------------------------------------------------------------------------
 
 
 @patch("requests.post")
-def test_search_repository_probe_403_returns_permission_denied(mock_post: MagicMock) -> None:
-    mock_post.return_value = _mock_probe(403)
-    fn = _register_and_capture(_make_nuxeo())["search_repository"]
+def test_query_dsl_engine_error_raises_tool_error(mock_post: MagicMock) -> None:
+    """A non-200 from the passthrough surfaces as an error, not an empty result."""
+    response = MagicMock()
+    response.status_code = 403
+    response.text = "forbidden"
+    mock_post.return_value = response
+    fn = _register_and_capture(_make_nuxeo())["nuxeo_search_documents_with_query_dsl"]
 
-    result = _call(fn, "some query")
+    with pytest.raises(ToolError) as excinfo:
+        fn({"query": {"match_all": {}}})
 
-    assert result["success"] is False
-    assert result["error"] == "Permission denied"
-
-
-@patch("requests.post")
-def test_search_repository_probe_401_returns_authentication_failed(mock_post: MagicMock) -> None:
-    mock_post.return_value = _mock_probe(401)
-    fn = _register_and_capture(_make_nuxeo())["search_repository"]
-
-    result = _call(fn, "some query")
-
-    assert result["success"] is False
-    assert result["error"] == "Authentication failed"
+    assert "Query DSL search failed" in str(excinfo.value)
 
 
 @patch("requests.post")
-def test_search_repository_probe_connection_error_returns_not_available(mock_post: MagicMock) -> None:
+def test_query_dsl_connection_error_raises_tool_error(mock_post: MagicMock) -> None:
     mock_post.side_effect = requests_lib.exceptions.ConnectionError("refused")
-    fn = _register_and_capture(_make_nuxeo())["search_repository"]
+    fn = _register_and_capture(_make_nuxeo())["nuxeo_search_documents_with_query_dsl"]
 
-    result = _call(fn, "some query")
+    with pytest.raises(ToolError) as excinfo:
+        fn({"query": {"match_all": {}}})
 
-    assert result["success"] is False
-    assert result["error"] == "Elasticsearch not available"
-    assert "alternative_tools" in result
+    assert "Query DSL search failed" in str(excinfo.value)
+
+
+@patch("requests.post")
+def test_query_dsl_oversized_response_raises_tool_error(mock_post: MagicMock) -> None:
+    """An oversized response is refused rather than pushed into the context."""
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {
+        "hits": {"hits": [{"_source": {"dc:title": "x" * 1000}} for _ in range(500)]}
+    }
+    mock_post.return_value = response
+    fn = _register_and_capture(_make_nuxeo())["nuxeo_search_documents_with_query_dsl"]
+
+    with pytest.raises(ToolError) as excinfo:
+        fn({"query": {"match_all": {}}})
+
+    assert "over the" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
-# search_audit probe tests
+# nuxeo_search_audit_with_query_dsl
 # ---------------------------------------------------------------------------
 
 
 @patch("requests.post")
-def test_search_audit_probe_403_returns_permission_denied(mock_post: MagicMock) -> None:
-    mock_post.return_value = _mock_probe(403)
-    fn = _register_and_capture(_make_nuxeo())["search_audit"]
+def test_audit_non_admin_403_raises_tool_error(mock_post: MagicMock) -> None:
+    """Nuxeo restricts the audit index server-side; the 403 must surface."""
+    response = MagicMock()
+    response.status_code = 403
+    response.text = "forbidden"
+    mock_post.return_value = response
+    fn = _register_and_capture(_make_nuxeo())["nuxeo_search_audit_with_query_dsl"]
 
-    result = _call(fn, "deletions yesterday")
+    with pytest.raises(ToolError) as excinfo:
+        fn({"query": {"match_all": {}}})
 
-    assert result["success"] is False
-    assert result["error"] == "Permission denied"
-    assert "administrator" in result["message"].lower()
-
-
-@patch("requests.post")
-def test_search_audit_probe_401_returns_authentication_failed(mock_post: MagicMock) -> None:
-    mock_post.return_value = _mock_probe(401)
-    fn = _register_and_capture(_make_nuxeo())["search_audit"]
-
-    result = _call(fn, "deletions yesterday")
-
-    assert result["success"] is False
-    assert result["error"] == "Authentication failed"
+    assert "audit" in str(excinfo.value)
 
 
-@patch("requests.post")
-def test_search_audit_probe_connection_error_returns_not_available(mock_post: MagicMock) -> None:
-    mock_post.side_effect = requests_lib.exceptions.ConnectionError("refused")
-    fn = _register_and_capture(_make_nuxeo())["search_audit"]
+def test_audit_missing_body_returns_audit_usage_help() -> None:
+    fn = _register_and_capture(_make_nuxeo())["nuxeo_search_audit_with_query_dsl"]
 
-    result = _call(fn, "deletions yesterday")
+    with pytest.raises(ToolError) as excinfo:
+        fn(None)
 
-    assert result["success"] is False
-    assert result["error"] == "Elasticsearch audit not available"
+    message = str(excinfo.value)
+    assert "eventDate" in message
+    assert "nuxeo://audit-query-dsl-guide" in message

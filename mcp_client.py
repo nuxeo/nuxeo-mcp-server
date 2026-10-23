@@ -19,16 +19,17 @@ from fastmcp import Client
 async def search(
     url: str,
     query: str,
+    mode: str = "nxql",
     page_size: int = 20,
     page_index: int = 0,
-    content_type: str = "text/markdown",
-) -> dict[str, Any]:
+) -> str:
     """
     Search for documents using the search tool.
     
     Args:
         url: The URL of the MCP server
-        query: The NXQL query to execute
+        query: Natural language (mode="natural") or NXQL (mode="nxql")
+        mode: Query mode -- natural, nxql or semantic
         page_size: Number of results per page
         page_index: Page index
         
@@ -47,21 +48,17 @@ async def search(
         async with client:
             print("Connected successfully, calling search tool...")
             result = await client.call_tool(
-                "search",
+                "nuxeo_search_documents",
                 {
-                    "content_type": content_type,
                     "query": query,
-                    "pageSize": page_size,
-                    "currentPageIndex": page_index,
+                    "mode": mode,
+                    "page_size": page_size,
+                    "page_index": page_index,
                 },
             )
-            match content_type:
-                case "application/json":
-                    return json.dumps(result.structured_content, indent=2)
-                case "text/markdown":
-                    return result.structured_content["content"][0]
-                case _:
-                    return result
+            # The tool returns one envelope for every mode, so there is nothing
+            # to branch on here.
+            return json.dumps(result.structured_content, indent=2)
 
     except Exception as e:
         print(f"Error in search: {e}")
@@ -69,7 +66,7 @@ async def search(
         raise
 
 
-async def get_document(url: str, path: Optional[str] = None, uid: Optional[str] = None, 
+async def nuxeo_get_document(url: str, path: Optional[str] = None, uid: Optional[str] = None, 
                       fetch_blob: bool = False, conversion_format: Optional[str] = None, 
                       rendition: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -113,8 +110,8 @@ async def get_document(url: str, path: Optional[str] = None, uid: Optional[str] 
         client = Client(mcp_url)
         
         async with client:
-            print("Connected successfully, calling get_document tool...")
-            result = await client.call_tool("get_document", arguments)
+            print("Connected successfully, calling nuxeo_get_document tool...")
+            result = await client.call_tool("nuxeo_get_document", arguments)
 
             if isinstance(result, Iterable):
                 for content in result:
@@ -127,7 +124,7 @@ async def get_document(url: str, path: Optional[str] = None, uid: Optional[str] 
         
 
     except Exception as e:
-        print(f"Error in get_document: {e}")
+        print(f"Error in nuxeo_get_document: {e}")
         print(f"Error type: {type(e)}")
         raise
 
@@ -144,9 +141,10 @@ def main():
     search_parser.add_argument("--page-size", type=int, default=20, help="Number of results per page")
     search_parser.add_argument("--page-index", type=int, default=0, help="Page index")
     search_parser.add_argument(
-        "--content-type",
-        help="The format of the output: application/json, text/markdown",
-        default="text/markdown"
+        "--mode",
+        choices=["natural", "nxql", "semantic"],
+        default="nxql",
+        help="How the query is expressed (default: nxql)",
     )
 
     # Get document command
@@ -165,14 +163,14 @@ def main():
                 search(
                     args.url,
                     args.query,
+                    args.mode,
                     args.page_size,
                     args.page_index,
-                    args.content_type,
                 )
             )
         )
     elif args.command == "get-document":
-        result = asyncio.run(get_document(args.url, args.path, args.uid, args.fetch_blob, 
+        result = asyncio.run(nuxeo_get_document(args.url, args.path, args.uid, args.fetch_blob, 
                                         args.conversion_format, args.rendition))
         print(result)
         

@@ -83,18 +83,28 @@ python -m nuxeo_mcp
 
 ## Available Tools
 
-The Nuxeo MCP Server provides the following tools:
+<!-- BEGIN GENERATED TOOLS -->
 
-- `get_repository_info`: Get information about the Nuxeo repository
-- `get_children`: Get the children of a document
-- `search`: Search for documents using NXQL queries
-- `natural_search`: Search for documents using natural language queries (automatically converted to NXQL)
-- `search_repository`: **NEW** - Search the Nuxeo repository using Elasticsearch with natural language and ACL filtering
-- `search_audit`: **NEW** - Search audit logs using natural language (administrators only)
-- `get_document`: Get a document by path or ID, with options for blob and renditions
-- `create_document`: Create a new document
-- `update_document`: Update an existing document
-- `delete_document`: Delete a document
+14 tools, generated from the registered MCP schema by `scripts/generate_tool_reference.py` -- do not edit by hand.
+
+| Tool | Read-only | Destructive | Open-world | Description |
+|------|-----------|-------------|------------|-------------|
+| `nuxeo_create_document` | no | no | no | Create a new document in the Nuxeo repository with optional file attachment |
+| `nuxeo_delete_document` | no | yes | no | Delete a document from the Nuxeo repository |
+| `nuxeo_execute_operation` | no | yes | yes | Execute a Nuxeo Operation with the specified parameters and input |
+| `nuxeo_get_document` | yes | no | no | Get a document from the Nuxeo repository |
+| `nuxeo_get_metadata_schema` | yes | no | no | Get detailed information about schemas defined in the Nuxeo server |
+| `nuxeo_get_repository_info` | yes | no | no | Get information about the Nuxeo repository |
+| `nuxeo_list_children` | yes | no | no | list children of a folder document |
+| `nuxeo_list_document_types` | yes | no | no | Get information about document types and schemas defined in the Nuxeo server |
+| `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
+| `nuxeo_move_document` | no | yes | no | Move a document to a different location in the Nuxeo repository |
+| `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo audit log index and return the engine response unchanged. Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
+| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. Use mode='natural' for a plain-English query, mode='nxql' for an exact NXQL statement. Returns a normalized result envelope that is identical for every mode. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. |
+| `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo repository index and return the engine response unchanged. Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. |
+| `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
+
+<!-- END GENERATED TOOLS -->
 
 ## Available Resources
 
@@ -112,135 +122,177 @@ The Nuxeo MCP Server provides the following resources:
 ```python
 from fastmcp import use_tool
 
-result = use_tool("nuxeo", "get_repository_info", {})
+result = use_tool("nuxeo", "nuxeo_get_repository_info", {})
 print(result)
 ```
 
 ### Search for Documents
 
+`nuxeo_search_documents` returns the same envelope whatever the mode, so you
+never have to branch on the shape of the result.
+
 ```python
 from fastmcp import use_tool
 
-# Using NXQL directly
-result = use_tool("nuxeo", "search", {
+# mode="nxql" -- an exact NXQL statement
+result = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": "SELECT * FROM Document WHERE ecm:primaryType = 'File'",
-    "pageSize": 10,
-    "currentPageIndex": 0
+    "mode": "nxql",
+    "page_size": 10,
+    "page_index": 0,
 })
-print(result)
 
-# Using Natural Language Search
-result = use_tool("nuxeo", "natural_search", {
-    "query": "find all PDFs created by john in the last month",
-    "pageSize": 10,
-    "currentPageIndex": 0
+# mode="natural" (the default) -- plain English, converted to NXQL
+result = use_tool("nuxeo", "nuxeo_search_documents", {
+    "query": "PDFs created by john in the last month",
+    "mode": "natural",
 })
-print(result)
 
-# Get explanation of the generated NXQL
-result = use_tool("nuxeo", "natural_search", {
-    "query": "show me draft invoices from this week sorted by date",
-    "explain": True,
-    "pageSize": 5
-})
-print(f"Generated NXQL: {result['nxql']}")
-print(f"Explanation: {result['explanation']}")
+# interpretedQuery always reports the NXQL that actually ran, so a generated
+# query can be inspected and corrected.
+print(result["interpretedQuery"])
+print(result["totalCount"], "matches,", "more pages" if result["hasMore"] else "last page")
+
+for doc in result["documents"]:
+    print(doc["id"], doc["documentType"], doc["title"], doc["path"])
+    # score and snippets are populated by ranking modes and empty otherwise
+    print(doc["score"], doc["snippets"])
+
+# If natural-language parsing fails, the call still succeeds with a fulltext
+# fallback and says so rather than returning an empty page.
+if result["degraded"]:
+    print("degraded:", result["degraded"])
 ```
 
-### Elasticsearch Repository Search (NEW)
+`mode="semantic"` is reserved and currently reports that it is not yet
+available.
+
+Calling the tool with an empty query returns usage help with worked examples
+instead of an error.
+
+### Query DSL Search
+
+`nuxeo_search_documents_with_query_dsl` takes a raw Elasticsearch/OpenSearch
+request body and returns the engine response unchanged. Use it for
+aggregations, highlighting, sorting and anything the normalized search cannot
+express. It is **not** a natural-language tool.
+
+Read the `nuxeo://query-dsl-guide` resource first: the search passthrough
+exposes `_search` only, so field names cannot be discovered at runtime, and an
+unknown field matches nothing rather than raising an error.
 
 ```python
 from fastmcp import use_tool
 
-# Search repository with natural language via Elasticsearch
-result = use_tool("nuxeo", "search_repository", {
-    "query": "PDFs created last week by John",
-    "limit": 10
+# Full-text search with highlighting. Query `all_field`, but highlight
+# source-backed fields: `all_field` is a copy_to catch-all, never stored, so
+# the highlighter has no text to fragment for it.
+result = use_tool("nuxeo", "nuxeo_search_documents_with_query_dsl", {
+    "query": {
+        "size": 10,
+        "_source": ["dc:title", "ecm:path"],
+        "query": {"match": {"all_field": "quarterly report"}},
+        "highlight": {
+            "require_field_match": False,
+            "fields": {
+                "dc:title": {},
+                "dc:description": {},
+                "ecm:binarytext": {"fragment_size": 150, "number_of_fragments": 3},
+            },
+        },
+    }
 })
 
-# Results include document metadata and highlights
-for doc in result['results']:
-    print(f"Title: {doc['title']}")
-    print(f"Path: {doc['path']}")
-    if 'highlights' in doc:
-        print(f"Highlights: {doc['highlights']}")
+for hit in result["hits"]["hits"]:
+    print(hit["_score"], hit["_source"]["dc:title"], hit.get("highlight"))
 
-# Use larger highlight fragments to get meaningful content context
-# without downloading the full ecm:binarytext source field (up to 1 MiB)
-result = use_tool("nuxeo", "search_repository", {
-    "query": "priming sugar carbonation temperature",
-    "limit": 5,
-    "highlight_fragment_size": 2000,       # chars per fragment (default 150, max ~9000000)
-    "highlight_number_of_fragments": 3,    # fragments per doc (default 3, 0=entire field)
+# Count documents per type -- aggregation only, no hits
+result = use_tool("nuxeo", "nuxeo_search_documents_with_query_dsl", {
+    "query": {
+        "size": 0,
+        "aggs": {"types": {"terms": {"field": "ecm:primaryType", "size": 20}}},
+    }
 })
+for bucket in result["aggregations"]["types"]["buckets"]:
+    print(bucket["key"], bucket["doc_count"])
 
-# Request extra _source fields when raw content is needed
-result = use_tool("nuxeo", "search_repository", {
-    "query": "water chemistry pH",
-    "limit": 3,
-    "source_fields": ["ecm:binarytext"],   # include full extracted text in results
+# Pull the extracted binary text of a few documents
+result = use_tool("nuxeo", "nuxeo_search_documents_with_query_dsl", {
+    "query": {
+        "size": 3,
+        "_source": ["dc:title", "ecm:binarytext"],
+        "query": {"match": {"all_field": "water chemistry pH"}},
+    }
 })
 ```
 
-### Elasticsearch Audit Search (NEW - Admin Only)
+Results are already filtered to what the authenticated user may read; Nuxeo
+applies the ACLs server-side. Do not filter on `ecm:acl` yourself.
+
+**Limits.** `size` defaults to 10 and is capped at 100, `from` is capped at
+1000, responses are capped at 256 KiB, `_source` defaults to a small
+projection, and scripted queries (`script`, `script_fields`, `script_score`)
+are rejected. Without them an unqualified `match_all` with `size: 10000`
+returns several megabytes.
+
+### Audit Search (Admin Only)
+
+`nuxeo_search_audit_with_query_dsl` is the same mechanism against the audit
+index. Audit entries are events, not documents, so they are returned in the
+engine shape rather than the document envelope. See
+`nuxeo://audit-query-dsl-guide` for the field names.
 
 ```python
 from fastmcp import use_tool
 
-# Search audit logs (requires administrator privileges)
-result = use_tool("nuxeo", "search_audit", {
-    "query": "show deletions from yesterday",
-    "limit": 20
+# Deletions over the last day
+result = use_tool("nuxeo", "nuxeo_search_audit_with_query_dsl", {
+    "query": {
+        "size": 50,
+        "query": {"bool": {"filter": [
+            {"term": {"eventId": "documentRemoved"}},
+            {"range": {"eventDate": {"gte": "now-1d"}}},
+        ]}},
+        "sort": [{"eventDate": "desc"}],
+    }
 })
 
-# Results include audit event details
-for event in result['results']:
-    print(f"Event: {event['eventId']}")
-    print(f"User: {event['principalName']}")
-    print(f"Date: {event['eventDate']}")
-    print(f"Document: {event['docPath']}")
+for hit in result["hits"]["hits"]:
+    event = hit["_source"]
+    print(event["eventDate"], event["eventId"], event["principalName"], event["docPath"])
+
+# Who is most active
+result = use_tool("nuxeo", "nuxeo_search_audit_with_query_dsl", {
+    "query": {
+        "size": 0,
+        "aggs": {"users": {"terms": {"field": "principalName", "size": 20}}},
+    }
+})
 ```
 
-#### Natural Language Search Examples
+Non-administrators receive an error: Nuxeo restricts the audit index
+server-side.
 
-The natural language search tool understands various query patterns:
+#### Natural Language Patterns
 
-**Document Types:**
-- "find all invoices"
-- "show me PDFs"
-- "list folders"
-- "get images"
+`mode="natural"` understands these patterns:
 
-**Time-based Queries:**
-- "documents created today"
-- "files from last week"
-- "documents from the last 30 days"
-- "files since 2024-01-01"
+**Document Types:** "find all invoices", "show me PDFs", "list folders"
 
-**User-based Queries:**
-- "documents created by john"
-- "alice's files"
-- "documents modified by admin"
+**Time:** "documents created today", "files from last week", "files since 2024-01-01"
 
-**Content Queries:**
-- "documents containing 'budget'"
-- "files with title 'Project Report'"
-- "documents where title starts with 'Draft'"
+**Users:** "documents created by john", "alice's files"
 
-**Path Queries:**
-- "documents in folder '/workspaces/project'"
-- "files under /default-domain"
+**Content:** "documents containing 'budget'", "files with title 'Project Report'"
 
-**State Queries:**
-- "draft documents"
-- "published files"
-- "archived documents"
-- "active documents not in trash"
+**Paths:** "documents in folder '/workspaces/project'", "files under /default-domain"
 
-**Complex Queries:**
-- "find invoices created by john from last week sorted by title limit 10"
-- "show me active PDFs containing 'report' created this month"
-- "latest version of files under /workspaces"
+**State:** "draft documents", "published files", "active documents not in trash"
+
+**Combined:** "invoices created by john from last week sorted by title limit 10"
+
+Parsing is best-effort. Always check `interpretedQuery` to see what actually
+ran, and use `mode="nxql"` when you need exact control.
 
 ### Get a Document
 
@@ -248,19 +300,19 @@ The natural language search tool understands various query patterns:
 from fastmcp import use_tool
 
 # Get document metadata
-result = use_tool("nuxeo", "get_document", {
+result = use_tool("nuxeo", "nuxeo_get_document", {
     "path": "/default-domain/workspaces/My Workspace/My Document"
 })
 print(result)
 
 # Get document blob
-blob = use_tool("nuxeo", "get_document", {
+blob = use_tool("nuxeo", "nuxeo_get_document", {
     "path": "/default-domain/workspaces/My Workspace/My Document",
     "blob": True
 })
 
 # Get document thumbnail
-thumbnail = use_tool("nuxeo", "get_document", {
+thumbnail = use_tool("nuxeo", "nuxeo_get_document", {
     "path": "/default-domain/workspaces/My Workspace/My Document",
     "rendition": "thumbnail"
 })
@@ -271,7 +323,7 @@ thumbnail = use_tool("nuxeo", "get_document", {
 ```python
 from fastmcp import use_tool
 
-result = use_tool("nuxeo", "create_document", {
+result = use_tool("nuxeo", "nuxeo_create_document", {
     "parent_path": "/default-domain/workspaces/My Workspace",
     "name": "My New Document",
     "type": "File",
@@ -288,7 +340,7 @@ print(result)
 ```python
 from fastmcp import use_tool
 
-result = use_tool("nuxeo", "update_document", {
+result = use_tool("nuxeo", "nuxeo_update_metadata", {
     "path": "/default-domain/workspaces/My Workspace/My Document",
     "properties": {
         "dc:title": "Updated Title",
@@ -303,7 +355,7 @@ print(result)
 ```python
 from fastmcp import use_tool
 
-result = use_tool("nuxeo", "delete_document", {
+result = use_tool("nuxeo", "nuxeo_delete_document", {
     "path": "/default-domain/workspaces/My Workspace/My Document"
 })
 print(result)
@@ -404,7 +456,7 @@ Always handle errors when using the Nuxeo MCP Server. Tools and resources may re
 from fastmcp import use_tool
 
 try:
-    result = use_tool("nuxeo", "get_document", {
+    result = use_tool("nuxeo", "nuxeo_get_document", {
         "path": "/default-domain/workspaces/My Workspace/My Document"
     })
     print(result)
@@ -414,6 +466,6 @@ except Exception as e:
 
 ### Performance Considerations
 
-- Use the `pageSize` and `currentPageIndex` parameters when searching for documents to limit the number of results returned
+- Use `page_size` and `page_index` when searching; `page_size` is capped at 100 and `hasMore` tells you whether to page again
 - Use the `schemas` parameter when getting documents to limit the properties returned
 - Use the `enrichers` parameter when getting documents to include additional information
