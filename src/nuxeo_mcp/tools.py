@@ -47,6 +47,16 @@ _NL_STOP_WORDS = frozenset(
 ToolFunction = Callable[[Dict[str, Any]], Dict[str, Any]]
 
 
+def _escape_nxql_literal(value: str) -> str:
+    """Escape ``value`` for use inside single quotes in an NXQL statement.
+
+    NXQL escapes with a backslash, not by doubling the quote, so ``Alice's``
+    becomes ``Alice\\'s``. Backslashes go first, or the ones added here would
+    themselves be escaped.
+    """
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
 class DocRef(BaseModel):
     path: Annotated[str | None, Field(description="Repository path")] = None
     uid: Annotated[str | None, Field(description="Nuxeo UID")] = None
@@ -922,9 +932,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 # A parse failure must not look like "no documents match", so fall
                 # back to fulltext and say so rather than returning an empty page.
                 logger.warning(f"Natural language parsing failed: {e}; using fulltext")
-                terms = " ".join(
-                    w for w in query.split() if w.lower() not in _NL_STOP_WORDS
-                ).replace("'", "''")
+                terms = _escape_nxql_literal(
+                    " ".join(
+                        w for w in query.split() if w.lower() not in _NL_STOP_WORDS
+                    )
+                )
                 nxql = (
                     f"SELECT * FROM Document WHERE ecm:fulltext = '{terms}'"
                     if terms
@@ -983,14 +995,6 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
         except Exception as e:
             raise ToolError(f"Query DSL search failed on index {index!r}: {e}")
 
-        size = len(json.dumps(response))
-        if size > query_dsl.MAX_RESPONSE_BYTES:
-            raise ToolError(
-                f"Response is {size} bytes, over the {query_dsl.MAX_RESPONSE_BYTES} "
-                "byte limit. Narrow it with a smaller 'size', a '_source' include "
-                "list, or an aggregation with 'size': 0."
-            )
-
         hits = response.get("hits", {}).get("hits", [])
         if not hits and "aggregations" not in response:
             # Silently empty results are the main failure mode here: a hallucinated
@@ -1000,6 +1004,18 @@ def register_tools(mcp, nuxeo, auth_middleware=None, skip_server_selection: bool
                 "unknown fields match nothing rather than erroring."
             )
         response["_nuxeo_executed_query"] = guarded
+
+        # Measured on the assembled payload, not on the engine response: the echoed
+        # query is part of what reaches the context window, and a large terms or ids
+        # clause can dwarf a response that carries no hits at all.
+        size = len(json.dumps(response))
+        if size > query_dsl.MAX_RESPONSE_BYTES:
+            raise ToolError(
+                f"Response is {size} bytes, over the {query_dsl.MAX_RESPONSE_BYTES} "
+                "byte limit. Narrow it with a smaller 'size', a '_source' include "
+                "list, or an aggregation with 'size': 0."
+            )
+
         return response
 
     @tool(
