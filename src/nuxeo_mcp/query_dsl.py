@@ -20,6 +20,7 @@ more than it looks: an unknown field name returns HTTP 200 with zero hits, which
 a model reads as "nothing matches" rather than "my query was wrong".
 """
 
+import copy
 from typing import Any, Callable, Dict, List, Optional
 
 # A single response must stay small enough to be worth putting in a context
@@ -27,6 +28,19 @@ from typing import Any, Callable, Dict, List, Optional
 MAX_RESPONSE_BYTES = 262_144
 MAX_SIZE = 100
 MAX_FROM = 1_000
+
+# top_hits retrieves whole documents from inside every bucket, so its cost is
+# the product of the enclosing bucket counts, not its own size: 100 terms
+# buckets each holding a top_hits of size 100 is 10,000 documents from a
+# request that declares size: 0. The response-size check cannot help -- it runs
+# after the engine has already done the work -- so the product is bounded here,
+# before the request is forwarded.
+MAX_TOP_HITS_SIZE = 10
+MAX_COLLECTED_HITS = 500
+
+# Assumed bucket count for a bucket aggregation that declares no size. Matches
+# the engine's own default for terms.
+DEFAULT_BUCKET_COUNT = 10
 
 # Returned when no body is supplied, so the model can correct itself without a
 # round trip.
@@ -178,6 +192,67 @@ def _reject_scripts(node: Any, path: str = "") -> None:
             _reject_scripts(value, f"{path}[{index}]")
 
 
+def _aggs_of(node: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the sub-aggregation map of an aggregation or request body."""
+    sub = node.get("aggs") or node.get("aggregations") or {}
+    return sub if isinstance(sub, dict) else {}
+
+
+def _bucket_count(body: Dict[str, Any]) -> int:
+    """Estimate how many buckets an aggregation produces.
+
+    Deliberately an estimate: only the bucket aggregations that declare a size
+    can be read exactly, and the budget below is a bound, not accounting.
+    """
+    count = DEFAULT_BUCKET_COUNT
+    for agg_type, agg_body in body.items():
+        if agg_type in ("aggs", "aggregations") or not isinstance(agg_body, dict):
+            continue
+        if agg_type == "filters":
+            filters = agg_body.get("filters")
+            if isinstance(filters, (dict, list)):
+                count = max(len(filters), 1)
+        elif isinstance(agg_body.get("size"), int):
+            count = max(int(agg_body["size"]), 1)
+    return count
+
+
+def _bound_hit_collectors(
+    aggs: Dict[str, Any],
+    multiplier: int,
+    default_source: Optional[List[str]],
+    path: str,
+) -> int:
+    """Cap every ``top_hits`` in place and return the documents they retrieve."""
+    collected = 0
+    for name, body in aggs.items():
+        if not isinstance(body, dict):
+            continue
+        where = f"{path}.{name}" if path else name
+
+        top_hits = body.get("top_hits")
+        if isinstance(top_hits, dict):
+            size = top_hits.get("size", 3)
+            try:
+                size = int(size)
+            except (TypeError, ValueError):
+                raise QueryDslRejected(
+                    f"'size' in {where}.top_hits must be an integer, got {size!r}."
+                )
+            size = max(0, min(size, MAX_TOP_HITS_SIZE))
+            top_hits["size"] = size
+            if default_source and "_source" not in top_hits and size > 0:
+                top_hits["_source"] = list(default_source)
+            collected += multiplier * size
+
+        sub = _aggs_of(body)
+        if sub:
+            collected += _bound_hit_collectors(
+                sub, multiplier * _bucket_count(body), default_source, where
+            )
+    return collected
+
+
 def apply_guardrails(
     query: Dict[str, Any], default_source: Optional[List[str]] = None
 ) -> Dict[str, Any]:
@@ -196,7 +271,7 @@ def apply_guardrails(
     """
     _reject_scripts(query)
 
-    guarded = dict(query)
+    guarded = copy.deepcopy(query)
 
     # size: 0 is meaningful -- it means "aggregations only" -- so it is preserved.
     size = guarded.get("size")
@@ -223,6 +298,18 @@ def apply_guardrails(
 
     if default_source and "_source" not in guarded and guarded.get("size", 0) > 0:
         guarded["_source"] = list(default_source)
+
+    aggs = _aggs_of(guarded)
+    if aggs:
+        nested = _bound_hit_collectors(aggs, 1, default_source, "aggs")
+        budget = MAX_COLLECTED_HITS - int(guarded["size"])
+        if nested > budget:
+            raise QueryDslRejected(
+                f"The aggregations retrieve up to {nested} documents through "
+                f"top_hits, over the {budget} remaining in the "
+                f"{MAX_COLLECTED_HITS} document budget. Reduce the bucket count "
+                "or the top_hits size."
+            )
 
     return guarded
 
@@ -284,7 +371,9 @@ def reset_sample_cache() -> None:
     _SAMPLE_CACHE.clear()
 
 
-def _discovered_section(discovered: Optional[List[str]], known: Dict[str, str]) -> List[str]:
+def _discovered_section(
+    discovered: Optional[List[str]], known: Dict[str, str]
+) -> List[str]:
     """Render the fields found on this instance that the curated table misses."""
     if discovered is None:
         return [
@@ -378,6 +467,9 @@ def _render_guide(
         "",
         f"- `size` defaults to 10 and is capped at {MAX_SIZE}",
         f"- `from` is capped at {MAX_FROM}",
+        f"- `top_hits` is capped at {MAX_TOP_HITS_SIZE} per bucket, and a request "
+        f"whose buckets would retrieve more than {MAX_COLLECTED_HITS} documents "
+        "in total is rejected",
         f"- responses are capped at {MAX_RESPONSE_BYTES} bytes",
         "- `_source` defaults to a small projection; pass your own list to override",
         "- scripted queries (`script`, `script_fields`, `script_score`) are rejected",
@@ -391,4 +483,3 @@ def _render_guide(
         .strip(),
     ]
     return "\n".join(lines)
-

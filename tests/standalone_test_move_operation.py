@@ -3,13 +3,15 @@
 Test the move_document operation with proper input formatting
 """
 
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+
+import json
 
 from nuxeo.client import Nuxeo
 from nuxeo.documents import Document
-import json
 
 # Configuration
 url = "https://nightly-2023.nuxeocloud.com/nuxeo"
@@ -30,17 +32,17 @@ try:
         type="File",
         properties={
             "dc:title": "Document to Move",
-            "dc:description": "This document will be moved"
-        }
+            "dc:description": "This document will be moved",
+        },
     )
-    
+
     created = nuxeo.documents.create(doc, parent_path="/default-domain/workspaces")
     print(f"✅ Document created successfully!")
     print(f"   UID: {created.uid}")
     print(f"   Path: {created.path}")
-    
+
     document_uid = created.uid
-    
+
 except Exception as e:
     print(f"❌ Error creating document: {e}")
     sys.exit(1)
@@ -53,16 +55,16 @@ try:
         type="Folder",
         properties={
             "dc:title": "Archive Folder",
-            "dc:description": "Destination for moved documents"
-        }
+            "dc:description": "Destination for moved documents",
+        },
     )
-    
+
     dest = nuxeo.documents.create(folder, parent_path="/default-domain/workspaces")
     print(f"✅ Destination folder created!")
     print(f"   Path: {dest.path}")
-    
+
     target_path = dest.path
-    
+
 except Exception as e:
     # Folder might already exist
     target_path = "/default-domain/workspaces/archive-folder"
@@ -74,26 +76,27 @@ try:
     # Create the operation with proper input formatting
     operation = nuxeo.operations.new("Document.Move")
     operation.params = {"target": target_path}
-    
+
     # THIS IS THE KEY FIX: Add "doc:" prefix to the document UID
     operation.input_obj = f"doc:{document_uid}"
-    
+
     print(f"   Input: doc:{document_uid}")
     print(f"   Target: {target_path}")
-    
+
     # Execute the operation
     result = operation.execute()
-    
+
     print(f"✅ Document moved successfully!")
-    if hasattr(result, 'uid'):
+    if hasattr(result, "uid"):
         print(f"   New path: {result.path}")
         print(f"   UID: {result.uid}")
     else:
         print(f"   Result: {result}")
-        
+
 except Exception as e:
     print(f"❌ Error moving document: {e}")
     import traceback
+
     traceback.print_exc()
 
 # Step 4: Verify the move by checking the document's new location
@@ -101,12 +104,12 @@ print("\n4. Verifying document at new location...")
 try:
     moved_doc = nuxeo.documents.get(uid=document_uid)
     print(f"✅ Document found at: {moved_doc.path}")
-    
+
     if target_path in moved_doc.path:
         print(f"✅ Move confirmed - document is in the target folder!")
     else:
         print(f"⚠️  Document path doesn't match expected location")
-        
+
 except Exception as e:
     print(f"❌ Error verifying move: {e}")
 
@@ -119,29 +122,26 @@ try:
         type="File",
         properties={
             "dc:title": "Document to Rename",
-            "dc:description": "This document will be moved and renamed"
-        }
+            "dc:description": "This document will be moved and renamed",
+        },
     )
-    
+
     created2 = nuxeo.documents.create(doc2, parent_path="/default-domain/workspaces")
     print(f"   Created document: {created2.name}")
-    
+
     # Move and rename
     operation = nuxeo.operations.new("Document.Move")
-    operation.params = {
-        "target": target_path,
-        "name": "renamed-document"
-    }
+    operation.params = {"target": target_path, "name": "renamed-document"}
     operation.input_obj = f"doc:{created2.uid}"
-    
+
     result = operation.execute()
     print(f"✅ Document moved and renamed!")
-    
+
     # Verify
     renamed_doc = nuxeo.documents.get(uid=created2.uid)
     print(f"   New path: {renamed_doc.path}")
     print(f"   New name: {renamed_doc.name}")
-    
+
 except Exception as e:
     print(f"❌ Error in move with rename: {e}")
 

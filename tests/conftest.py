@@ -6,17 +6,19 @@ using Docker for testing purposes.
 """
 
 import os
-import time
-import pytest
-import docker
-import requests
-import sys
 import subprocess
-from typing import Generator, List, Dict, Any, Optional, Union, Callable, Tuple, cast
+import sys
+import time
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, Union, cast
+
+import docker
+import pytest
+import requests
 from _pytest.config import Config
 from _pytest.config.argparsing import Parser
 from _pytest.nodes import Item
 from test_credentials import get_test_credentials
+
 
 # Add command line options for integration tests and Docker configuration
 def pytest_addoption(parser: Parser) -> None:
@@ -39,9 +41,11 @@ def pytest_addoption(parser: Parser) -> None:
         help="Use Rancher Desktop Docker socket",
     )
 
+
 # Skip integration tests unless --integration is specified
 def pytest_configure(config: Config) -> None:
     config.addinivalue_line("markers", "integration: mark test as integration test")
+
 
 def pytest_collection_modifyitems(config: Config, items: List[Item]) -> None:
     # Skip integration tests if --integration is not specified or --no-integration is specified
@@ -56,19 +60,23 @@ def pytest_collection_modifyitems(config: Config, items: List[Item]) -> None:
 def docker_client(request: pytest.FixtureRequest) -> docker.DockerClient:
     """
     Create a Docker client.
-    
+
     This fixture creates a Docker client based on the environment:
     - If --rancher is specified or USE_RANCHER environment variable is set,
       it uses the Rancher Desktop Docker socket.
     - Otherwise, it uses the default Docker socket.
     """
     # Check if we should use Rancher Desktop Docker socket
-    use_rancher = request.config.getoption("--rancher") or os.environ.get("USE_RANCHER", "").lower() in ("true", "1", "yes")
-    
+    use_rancher = request.config.getoption("--rancher") or os.environ.get(
+        "USE_RANCHER", ""
+    ).lower() in ("true", "1", "yes")
+
     if use_rancher:
         # Use the Docker socket location for Rancher Desktop
         print("Using Rancher Desktop Docker socket", flush=True)
-        return docker.DockerClient(base_url="unix:///Users/thierry.delprat/.rd/docker.sock")
+        return docker.DockerClient(
+            base_url="unix:///Users/thierry.delprat/.rd/docker.sock"
+        )
     else:
         # Use the default Docker socket location
         print("Using default Docker socket", flush=True)
@@ -82,10 +90,12 @@ NUXEO_DOCKER = os.environ.get(
 
 
 @pytest.fixture(scope="session")
-def nuxeo_container(docker_client: docker.DockerClient, request: pytest.FixtureRequest) -> Generator[Optional[docker.models.containers.Container], None, None]:
+def nuxeo_container(
+    docker_client: docker.DockerClient, request: pytest.FixtureRequest
+) -> Generator[Optional[docker.models.containers.Container], None, None]:
     """
     Start a Nuxeo container for testing.
-    
+
     This fixture starts a Nuxeo container using Docker, waits for it to be ready,
     and then yields the container. After the tests are done, it stops and removes
     the container.
@@ -107,13 +117,11 @@ def nuxeo_container(docker_client: docker.DockerClient, request: pytest.FixtureR
         NUXEO_DOCKER,
         detach=True,
         ports={"8080/tcp": 8080},
-        environment={
-            "NUXEO_DEV_MODE": "false"
-        },
+        environment={"NUXEO_DEV_MODE": "false"},
         name="nuxeo-mcp-test",
         remove=True,
     )
-    
+
     # Wait for 60 seconds to give Nuxeo time to initialize before checking endpoints
     print("Waiting 2 seconds for initial Nuxeo startup...", flush=True)
     time.sleep(2)
@@ -127,23 +135,24 @@ def nuxeo_container(docker_client: docker.DockerClient, request: pytest.FixtureR
     for i in range(max_retries):
         try:
             # Try different endpoints to check if Nuxeo is responding
-            endpoints = [
-                "http://localhost:8080/nuxeo/runningstatus"
-            ]
-            
+            endpoints = ["http://localhost:8080/nuxeo/runningstatus"]
+
             for endpoint in endpoints:
                 try:
                     print(f"Trying endpoint: {endpoint}", flush=True)
                     response = requests.get(endpoint, timeout=5)
                     print(f"Response status: {response.status_code}", flush=True)
-                    
+
                     if response.status_code == 200:
                         nuxeo_ready = True
-                        print(f"Nuxeo is ready after {i * retry_interval} seconds (endpoint: {endpoint})", flush=True)
+                        print(
+                            f"Nuxeo is ready after {i * retry_interval} seconds (endpoint: {endpoint})",
+                            flush=True,
+                        )
                         break
                 except requests.exceptions.RequestException as e:
                     print(f"Error connecting to {endpoint}: {e}", flush=True)
-            
+
             if nuxeo_ready:
                 break
         except requests.exceptions.RequestException:
@@ -156,7 +165,7 @@ def nuxeo_container(docker_client: docker.DockerClient, request: pytest.FixtureR
     if not nuxeo_ready:
         container.stop()
         pytest.fail("Nuxeo failed to start within the expected time")
-    
+
     # Run the seed_nuxeo.py script to initialize the repository
     print("Initializing Nuxeo repository with sample documents...", flush=True)
     try:
@@ -166,23 +175,34 @@ def nuxeo_container(docker_client: docker.DockerClient, request: pytest.FixtureR
         # since this is a local test container
         username = os.environ.get("NUXEO_USERNAME", "Administrator")
         password = os.environ.get("NUXEO_PASSWORD", "Administrator")
-        
+
         # Run the seed_nuxeo.py script
         result = subprocess.run(
-            [sys.executable, "seed_nuxeo.py", 
-             "--url", nuxeo_url_value, 
-             "--username", username, 
-             "--password", password],
+            [
+                sys.executable,
+                "seed_nuxeo.py",
+                "--url",
+                nuxeo_url_value,
+                "--username",
+                username,
+                "--password",
+                password,
+            ],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         print("Seed script output:", flush=True)
         print(result.stdout, flush=True)
-        
+
         # Check if the seed script was successful
-        if "Successfully seeded Nuxeo repository with sample documents" not in result.stdout:
-            print("Warning: Seed script may not have completed successfully", flush=True)
+        if (
+            "Successfully seeded Nuxeo repository with sample documents"
+            not in result.stdout
+        ):
+            print(
+                "Warning: Seed script may not have completed successfully", flush=True
+            )
             print("Error output:", flush=True)
             print(result.stderr, flush=True)
     except subprocess.CalledProcessError as e:
@@ -237,7 +257,7 @@ def live_nuxeo_credentials() -> Tuple[str, str]:
 def seeded_folder_info() -> Dict[str, str]:
     """
     Get information about the folder created by the seed script.
-    
+
     This is a placeholder that would normally extract information from the seed script output.
     In a real implementation, you might want to have the seed script write this information
     to a file that this fixture could then read.

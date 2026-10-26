@@ -13,6 +13,7 @@ from fastmcp.exceptions import ToolError
 from nuxeo_mcp.query_dsl import (
     MAX_FROM,
     MAX_SIZE,
+    MAX_TOP_HITS_SIZE,
     QueryDslRejected,
     apply_guardrails,
     field_guide,
@@ -215,6 +216,51 @@ def test_guardrails_respect_an_explicit_source() -> None:
 def test_guardrails_reject_deep_pagination() -> None:
     with pytest.raises(QueryDslRejected):
         apply_guardrails({"from": MAX_FROM + 1})
+
+
+def test_guardrails_cap_nested_top_hits() -> None:
+    guarded = apply_guardrails(
+        {
+            "size": 0,
+            "aggs": {
+                "types": {
+                    "terms": {"field": "ecm:primaryType", "size": 5},
+                    "aggs": {"docs": {"top_hits": {"size": 100}}},
+                }
+            },
+        },
+        default_source=["dc:title"],
+    )
+
+    top_hits = guarded["aggs"]["types"]["aggs"]["docs"]["top_hits"]
+    assert top_hits["size"] == MAX_TOP_HITS_SIZE
+    assert top_hits["_source"] == ["dc:title"]
+
+
+def test_guardrails_reject_unbounded_nested_retrieval() -> None:
+    """size: 0 hides the cost: 100 buckets x 100 hits is 10,000 documents."""
+    with pytest.raises(QueryDslRejected) as excinfo:
+        apply_guardrails(
+            {
+                "size": 0,
+                "aggs": {
+                    "types": {
+                        "terms": {"field": "ecm:primaryType", "size": 100},
+                        "aggs": {"docs": {"top_hits": {"size": 100}}},
+                    }
+                },
+            }
+        )
+
+    assert "top_hits" in str(excinfo.value)
+
+
+def test_guardrails_do_not_mutate_the_caller_body() -> None:
+    body = {"size": 0, "aggs": {"d": {"top_hits": {"size": 50}}}}
+
+    apply_guardrails(body)
+
+    assert body["aggs"]["d"]["top_hits"]["size"] == 50
 
 
 @pytest.mark.parametrize(

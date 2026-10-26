@@ -40,23 +40,25 @@ else:
     print("1. Create or download an image file")
     print("2. Note its full path")
     print("3. Use that path in the create_document command")
-    
+
 print("\n" + "=" * 50)
 print("Creating a test image for you...")
 
 # Create a simple test image using PIL if available
 try:
     from PIL import Image
-    
+
     # Create a simple test image
-    img = Image.new('RGB', (100, 100), color='red')
+    img = Image.new("RGB", (100, 100), color="red")
     test_path = "/tmp/test_image.png"
     img.save(test_path)
     print(f"✅ Created test image at: {test_path}")
     print(f"   Size: {os.path.getsize(test_path)} bytes")
     print(f"\nYou can now use this command in Claude:")
-    print(f'Create a Picture document with the file {test_path} titled "Test Image" in /default-domain/workspaces')
-    
+    print(
+        f'Create a Picture document with the file {test_path} titled "Test Image" in /default-domain/workspaces'
+    )
+
 except ImportError:
     print("❌ PIL not installed. Creating a simple text file instead...")
     test_path = "/tmp/test_file.txt"
@@ -64,4 +66,6 @@ except ImportError:
         f.write("This is a test file for upload testing")
     print(f"✅ Created test file at: {test_path}")
     print(f"\nYou can use this command in Claude:")
-    print(f'Create a File document with the file {test_path} titled "Test File" in /default-domain/workspaces')
+    print(
+        f'Create a File document with the file {test_path} titled "Test File" in /default-domain/workspaces'
+    )

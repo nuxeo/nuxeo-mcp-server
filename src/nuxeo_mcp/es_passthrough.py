@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -35,9 +34,7 @@ class ElasticsearchPassthrough:
 
         self.auth = auth
 
-    def execute_query(
-        self, index: str, query: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def execute_query(self, index: str, query: Dict[str, Any]) -> Dict[str, Any]:
         """Execute an Elasticsearch query via the Nuxeo passthrough endpoint.
 
         The query is forwarded as-is; ACL enforcement is handled server-side.
@@ -77,4 +74,3 @@ class ElasticsearchPassthrough:
         except Exception as e:
             logger.error(f"Query execution error: {e}")
             raise
-

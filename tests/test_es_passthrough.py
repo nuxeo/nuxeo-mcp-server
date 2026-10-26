@@ -35,6 +35,7 @@ class TestElasticsearchPassthrough:
         passthrough = ElasticsearchPassthrough()
         assert passthrough.base_url == default_url
         assert passthrough.auth is None
+
     @patch("requests.post")
     def test_execute_query_forwards_body_verbatim(self, mock_post):
         """The body is forwarded as-is; ACLs are applied by Nuxeo server-side."""

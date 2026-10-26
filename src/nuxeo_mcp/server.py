@@ -6,26 +6,27 @@ This server provides tools, resources, and prompt templates for interacting with
 a Nuxeo Content Repository Server.
 """
 
-import os
-import logging
 import argparse
+import logging
+import os
 import sys
-from typing import Any, Dict, List, Optional, Type, Callable, TypeVar, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union, cast
 
 from fastmcp import FastMCP
 from nuxeo.client import Nuxeo
-
-# Import the tools, resources, and templates modules
-from .tools import register_tools
-from .resources import register_resources
-from .prompts import register_prompts
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 
-# Import authentication modules
-from .config import MCPAuthConfig, NuxeoServerConfig, AuthMethod, OAuth2Config
 from .auth import create_auth_handler
+
+# Import authentication modules
+from .config import AuthMethod, MCPAuthConfig, NuxeoServerConfig, OAuth2Config
 from .middleware import AuthenticationManager
+from .prompts import register_prompts
+from .resources import register_resources
+
+# Import the tools, resources, and templates modules
+from .tools import register_tools
 
 # Configure logging
 logging.basicConfig(
@@ -64,7 +65,7 @@ class NuxeoMCPServer:
         self.use_oauth2 = use_oauth2
         self.auth_manager = AuthenticationManager()
         self.nuxeo = None
-        
+
         # For basic auth, use simple direct connection (temporary fix)
         if not use_oauth2:
             logger.info(f"Using basic auth with URL: {nuxeo_url}, username: {username}")
@@ -77,12 +78,19 @@ class NuxeoMCPServer:
             try:
                 # Use requests directly for the auth test
                 import requests
-                test_response = requests.get(f'{nuxeo_url}/api/v1/me', auth=(username, password))
+
+                test_response = requests.get(
+                    f"{nuxeo_url}/api/v1/me", auth=(username, password)
+                )
                 if test_response.status_code == 200:
                     user_data = test_response.json()
-                    logger.info(f"Successfully authenticated as: {user_data.get('id', 'unknown')}")
+                    logger.info(
+                        f"Successfully authenticated as: {user_data.get('id', 'unknown')}"
+                    )
                 else:
-                    logger.error(f"Authentication failed with status: {test_response.status_code}")
+                    logger.error(
+                        f"Authentication failed with status: {test_response.status_code}"
+                    )
             except Exception as e:
                 logger.error(f"Failed to verify authentication: {e}")
         else:
@@ -92,21 +100,23 @@ class NuxeoMCPServer:
             else:
                 # Create config from environment or parameters
                 self.auth_config = MCPAuthConfig.load()
-                
+
             # Get server configuration
             server_config = self.auth_config.get_server_config()
             if not server_config:
                 # Create OAuth2 server config
                 oauth2_config = OAuth2Config.from_env()
                 if not oauth2_config:
-                    raise ValueError("OAuth2 configuration required when use_oauth2=True")
+                    raise ValueError(
+                        "OAuth2 configuration required when use_oauth2=True"
+                    )
                 server_config = NuxeoServerConfig(
                     url=nuxeo_url,
                     auth_method=AuthMethod.OAUTH2,
                     oauth2_config=oauth2_config,
                 )
                 self.auth_config.add_server("default", server_config)
-            
+
             # Setup authentication manager for OAuth2
             if not self.auth_manager.setup(server_config):
                 logger.error("Failed to setup OAuth2 authentication")
@@ -129,14 +139,14 @@ class NuxeoMCPServer:
         server_info = {
             "nuxeo_url": self.nuxeo_url,
             "username": self.username,
-            "auth_method": "oauth2" if use_oauth2 else "basic"
+            "auth_method": "oauth2" if use_oauth2 else "basic",
         }
         add_healthcheck(self.mcp, server_info)
-        
+
         # Register tools and resources without authentication wrapper for basic auth
         # (The Nuxeo client already has the auth configured)
         register_tools(self.mcp, self.nuxeo)
-            
+
         # Register MCP resources.
         register_resources(self.mcp, self.nuxeo)
         # Register MCP prompts.
@@ -149,21 +159,20 @@ class NuxeoMCPServer:
 
 def add_healthcheck(mcp, server_info: Dict[str, str] = None):
     """Add health check endpoint with server configuration info."""
-    
+
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> PlainTextResponse:
         import json
-        health_data = {
-            "status": "OK",
-            "server": "Nuxeo MCP Server"
-        }
-        
+
+        health_data = {"status": "OK", "server": "Nuxeo MCP Server"}
+
         # Add server configuration info if available
         if server_info:
             health_data.update(server_info)
-        
+
         # Return as JSON for easier parsing
         from starlette.responses import JSONResponse
+
         return JSONResponse(health_data)
 
 
@@ -191,7 +200,9 @@ def main() -> None:
         "--oauth2", action="store_true", help="Use OAuth2 authentication"
     )
     parser.add_argument(
-        "--no-browser", action="store_true", help="Don't open browser for OAuth2 authentication"
+        "--no-browser",
+        action="store_true",
+        help="Don't open browser for OAuth2 authentication",
     )
     args = parser.parse_args()
 
@@ -201,13 +212,13 @@ def main() -> None:
     username = os.environ.get("NUXEO_USERNAME", "Administrator")
     password = os.environ.get("NUXEO_PASSWORD", "Administrator")
     auth_method = os.environ.get("NUXEO_AUTH_METHOD", "basic").lower()
-    
+
     logger.info(f"Starting Nuxeo MCP Server")
     logger.info(f"  NUXEO_URL from env: {os.environ.get('NUXEO_URL', 'NOT SET')}")
     logger.info(f"  Using URL: {nuxeo_url}")
     logger.info(f"  Using username: {username}")
     logger.info(f"  Auth method: {auth_method}")
-    
+
     # Check if OAuth2 should be used
     use_oauth2 = args.oauth2 or auth_method == "oauth2"
 
@@ -219,7 +230,7 @@ def main() -> None:
             password=password,
             use_oauth2=use_oauth2,
         )
-        
+
         # If OAuth2 and browser auth is enabled, perform initial authentication
         if use_oauth2 and not args.no_browser:
             logger.info("Starting OAuth2 authentication flow...")

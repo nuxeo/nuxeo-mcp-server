@@ -3,8 +3,9 @@
 Test authentication with various Nuxeo API endpoints.
 """
 
-import requests
 import json
+
+import requests
 
 # Configuration
 url = "https://nightly-2023.nuxeocloud.com/nuxeo"
@@ -33,20 +34,20 @@ for endpoint, description in endpoints:
     full_url = url + endpoint
     print(f"\nTesting: {description}")
     print(f"URL: {full_url}")
-    
+
     try:
         response = requests.get(full_url, auth=(username, password), timeout=10)
         print(f"Status: {response.status_code}")
-        
+
         if response.status_code == 200:
             print("✅ SUCCESS!")
             try:
                 data = response.json()
-                if 'entity-type' in data:
+                if "entity-type" in data:
                     print(f"Entity type: {data['entity-type']}")
-                if 'id' in data:
+                if "id" in data:
                     print(f"ID: {data['id']}")
-                if 'username' in data:
+                if "username" in data:
                     print(f"Username: {data['username']}")
             except:
                 print(f"Response: {response.text[:200]}")
@@ -56,7 +57,7 @@ for endpoint, description in endpoints:
             print("❌ NOT FOUND - Endpoint doesn't exist or user not found")
             try:
                 error_data = response.json()
-                if 'message' in error_data:
+                if "message" in error_data:
                     print(f"Message: {error_data['message']}")
             except:
                 pass
@@ -79,12 +80,12 @@ try:
     response = requests.get(
         query_url,
         auth=(username, password),
-        params={'query': query, 'pageSize': 1},
-        timeout=10
+        params={"query": query, "pageSize": 1},
+        timeout=10,
     )
-    
+
     print(f"Status: {response.status_code}")
-    
+
     if response.status_code == 200:
         print("✅ Query successful!")
         data = response.json()
@@ -94,7 +95,7 @@ try:
     else:
         print(f"❌ Query failed: {response.status_code}")
         print(f"Response: {response.text[:500]}")
-        
+
 except requests.exceptions.RequestException as e:
     print(f"❌ Request failed: {e}")
 

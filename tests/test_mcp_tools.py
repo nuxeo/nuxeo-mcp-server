@@ -4,14 +4,15 @@ Test MCP tools with authentication.
 This is a standalone script for manual testing.
 """
 
-import sys
 import os
+import sys
 
 # Add the source directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 # Import credential helper
 from test_credentials import get_test_credentials
+
 from nuxeo_mcp.server import NuxeoMCPServer
 
 # Get credentials from environment or prompt
@@ -26,7 +27,7 @@ server = NuxeoMCPServer(
     nuxeo_url="https://nightly-2023.nuxeocloud.com/nuxeo",
     username=username,
     password=password,
-    use_oauth2=False
+    use_oauth2=False,
 )
 
 print("\nTesting tools...")
@@ -34,8 +35,10 @@ print("\nTesting tools...")
 # Try to get tool count (FastMCP stores tools internally)
 import asyncio
 
+
 async def get_tools_async():
     return await server.mcp.get_tools()
+
 
 try:
     tools = asyncio.run(get_tools_async())
@@ -59,8 +62,8 @@ print("\nTesting search with Nuxeo client...")
 try:
     # Use the Nuxeo client's query method
     query = "SELECT * FROM Document WHERE ecm:primaryType = 'Workspace' AND ecm:isVersion = 0 AND ecm:isTrashed = 0"
-    result = server.nuxeo.client.query(query, params={'pageSize': 1})
-    if hasattr(result, 'json'):
+    result = server.nuxeo.client.query(query, params={"pageSize": 1})
+    if hasattr(result, "json"):
         data = result.json() if callable(result.json) else result
     else:
         data = result

@@ -8,10 +8,12 @@ common tasks.
 
 import base64
 import re
-from typing import Dict, Any, List, Tuple, Set, Union
-from nuxeo.models import Document
-from mcp.types import ImageContent as Image, TextContent as File
+from typing import Any, Dict, List, Set, Tuple, Union
 from uuid import UUID
+
+from mcp.types import ImageContent as Image
+from mcp.types import TextContent as File
+from nuxeo.models import Document
 
 
 def is_uuid(v: str) -> bool:

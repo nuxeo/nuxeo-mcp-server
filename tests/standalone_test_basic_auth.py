@@ -5,6 +5,7 @@ Test basic authentication with Nuxeo server.
 
 import os
 import sys
+
 from nuxeo.client import Nuxeo
 
 # Test with hardcoded values
@@ -24,29 +25,31 @@ print("-" * 50)
 try:
     # Create Nuxeo client
     print("Creating Nuxeo client...")
-    client = Nuxeo(
-        host=url,
-        auth=(username, password)
-    )
-    
+    client = Nuxeo(host=url, auth=(username, password))
+
     # Test authentication
     print("Testing authentication...")
     # The Nuxeo client uses requests internally
     import requests
-    response = requests.get(f'{url}/api/v1/user/current', auth=(username, password))
-    
+
+    response = requests.get(f"{url}/api/v1/user/current", auth=(username, password))
+
     if response.status_code == 200:
         user_info = response.json()
         print(f"✅ SUCCESS! Authenticated as: {user_info.get('id', 'unknown')}")
         print(f"User properties: {user_info.get('properties', {})}")
-        
+
         # Try a simple search
         print("\nTesting search capability...")
-        search_response = requests.get(f'{url}/api/v1/search/lang/NXQL/execute', 
-                                      auth=(username, password),
-                                      params={'query': 'SELECT * FROM Document WHERE ecm:primaryType = "Domain"'})
+        search_response = requests.get(
+            f"{url}/api/v1/search/lang/NXQL/execute",
+            auth=(username, password),
+            params={"query": 'SELECT * FROM Document WHERE ecm:primaryType = "Domain"'},
+        )
         if search_response.status_code == 200:
-            print(f"✅ Search successful! Found {len(search_response.json().get('entries', []))} domains")
+            print(
+                f"✅ Search successful! Found {len(search_response.json().get('entries', []))} domains"
+            )
         else:
             print(f"❌ Search failed with status: {search_response.status_code}")
             print(f"Response: {search_response.text[:500]}")
@@ -54,10 +57,11 @@ try:
         print(f"❌ Authentication failed with status: {response.status_code}")
         print(f"Response headers: {response.headers}")
         print(f"Response body: {response.text[:500]}")
-        
+
 except Exception as e:
     print(f"❌ Error: {e}")
     import traceback
+
     traceback.print_exc()
 
 print("\n" + "=" * 50)
@@ -76,7 +80,10 @@ print(f"NUXEO_PASSWORD: {'*' * len(env_password) if env_password else 'NOT SET'}
 if env_url and env_username and env_password:
     try:
         import requests
-        response2 = requests.get(f'{env_url}/api/v1/user/current', auth=(env_username, env_password))
+
+        response2 = requests.get(
+            f"{env_url}/api/v1/user/current", auth=(env_username, env_password)
+        )
         if response2.status_code == 200:
             print(f"✅ Environment variable auth successful!")
         else:

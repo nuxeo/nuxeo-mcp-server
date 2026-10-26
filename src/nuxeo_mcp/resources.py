@@ -7,8 +7,8 @@ This module defines the resources for the Nuxeo MCP Server.
 
 import logging
 import os
-from typing import Any, Callable, Dict, Optional
 from importlib import resources
+from typing import Any, Callable, Dict, Optional
 
 from fastmcp.exceptions import ToolError
 
@@ -152,7 +152,9 @@ def register_resources(mcp, nuxeo) -> None:
         """
         try:
             content = (
-                resources.files("nuxeo_mcp.guides").joinpath("nxql.md").read_text(encoding="utf-8")
+                resources.files("nuxeo_mcp.guides")
+                .joinpath("nxql.md")
+                .read_text(encoding="utf-8")
             )
         except (FileNotFoundError, ModuleNotFoundError) as e:
             logger.error(f"Packaged NXQL guide is missing: {e}")
@@ -191,7 +193,9 @@ def register_resources(mcp, nuxeo) -> None:
             )
             return query_dsl.sample_field_names(passthrough.execute_query, index)
         except Exception as e:
-            logger.info(f"Could not sample {index} fields, serving curated guide only: {e}")
+            logger.info(
+                f"Could not sample {index} fields, serving curated guide only: {e}"
+            )
             return None
 
     @mcp.resource(

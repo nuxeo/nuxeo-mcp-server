@@ -10,9 +10,9 @@ Note: Since Nuxeo uses MongoDB (DBS), aggregates are not supported in NXQL.
 
 import os
 import re
-from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime, timedelta
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -194,35 +194,47 @@ class NaturalLanguageParser:
         # Extract special conditions (trash, versions, etc.)
         special_conditions = self._extract_special_conditions(query_lower)
         conditions.extend(special_conditions)
-        
+
         # Fallback: If no conditions were found and the query doesn't just specify a document type,
         # treat it as a fulltext search
         if not conditions and original_query:
             # Check if the query is just a document type keyword
             doc_type_keywords = [
-                "documents", "files", "folders", "pictures", "images", "videos", 
-                "notes", "workspaces", "pdfs", "all"
+                "documents",
+                "files",
+                "folders",
+                "pictures",
+                "images",
+                "videos",
+                "notes",
+                "workspaces",
+                "pdfs",
+                "all",
             ]
-            
+
             # Clean the query for comparison
             clean_query = original_query.strip().lower()
-            
+
             # If it's not just a document type keyword, treat it as a search term
-            if clean_query not in doc_type_keywords and not clean_query.startswith("all "):
+            if clean_query not in doc_type_keywords and not clean_query.startswith(
+                "all "
+            ):
                 # Remove common prefixes that might be in the query
                 search_term = original_query
                 for prefix in ["find", "search", "get", "show", "list"]:
                     if search_term.lower().startswith(prefix + " "):
-                        search_term = search_term[len(prefix)+1:].strip()
+                        search_term = search_term[len(prefix) + 1 :].strip()
                         break
-                
+
                 # Add fulltext search condition for the remaining text
                 if search_term and search_term not in doc_type_keywords:
-                    conditions.append({
-                        "field": "ecm:fulltext",
-                        "operator": "=",
-                        "value": f"'{search_term}'"
-                    })
+                    conditions.append(
+                        {
+                            "field": "ecm:fulltext",
+                            "operator": "=",
+                            "value": f"'{search_term}'",
+                        }
+                    )
 
         return conditions
 
@@ -280,7 +292,10 @@ class NaturalLanguageParser:
         """Extract title/name conditions"""
         patterns = [
             (r'(?:named|called|titled|with title)\s+["\']([^"\']+)["\']', "="),
-            (r'(?:with title containing|title contains?|name contains?)\s+["\']([^"\']+)["\']', "LIKE"),
+            (
+                r'(?:with title containing|title contains?|name contains?)\s+["\']([^"\']+)["\']',
+                "LIKE",
+            ),
             (r'(?:title starts? with|name starts? with)\s+["\']([^"\']+)["\']', "LIKE"),
         ]
 
@@ -304,9 +319,11 @@ class NaturalLanguageParser:
     ) -> Optional[Dict[str, Any]]:
         """Extract fulltext search conditions"""
         # Skip if this is a title/name query
-        if re.search(r'\b(?:title|name)\s+(?:containing|contains?|starts?)\b', query_lower):
+        if re.search(
+            r"\b(?:title|name)\s+(?:containing|contains?|starts?)\b", query_lower
+        ):
             return None
-            
+
         patterns = [
             r'(?:containing|with content|with text|search for)\s+["\']([^"\']+)["\']',
             r"(?:containing|with content|with text|search for)\s+(\w+(?:\s+\w+)*?)(?:\s+(?:and|or|from|by|created|modified|in|under|not)|$)",
@@ -365,7 +382,7 @@ class NaturalLanguageParser:
         if "not deleted" in query or "not trashed" in query:
             # This will be handled by _extract_special_conditions
             return None
-            
+
         for state_keyword, state_value in self.state_mappings.items():
             if state_keyword in query:
                 if state_keyword in ["deleted", "trashed"]:
@@ -663,6 +680,7 @@ class NaturalLanguageParser:
 
         # Default to repository search
         return "repository"
+
 
 class NXQLBuilder:
     """Builds NXQL queries from parsed components"""

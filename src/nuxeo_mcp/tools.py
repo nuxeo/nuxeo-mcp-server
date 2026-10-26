@@ -5,17 +5,16 @@ Nuxeo MCP Server tools.
 This module defines the tools for the Nuxeo MCP Server.
 """
 
-import logging
 import json
+import logging
 import os
-from typing import Any, Dict, Optional, Callable, List, Annotated
-from nuxeo_mcp.utility import (
-    format,
-    format_docs,
-    format_doc,
-    return_blob,
-    is_uuid,
-)
+from typing import Annotated, Any, Callable, Dict, List, Optional
+
+from fastmcp.exceptions import ToolError
+from mcp.types import ImageContent as Image
+from nuxeo.models import Document
+from pydantic import BaseModel, Field, model_validator
+
 from nuxeo_mcp import query_dsl
 from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
 from nuxeo_mcp.query_dsl import QueryDslRejected, apply_guardrails
@@ -26,10 +25,13 @@ from nuxeo_mcp.search_models import (
     SearchResult,
     to_search_result,
 )
-from nuxeo.models import Document
-from fastmcp.exceptions import ToolError
-from mcp.types import ImageContent as Image
-from pydantic import BaseModel, Field, model_validator
+from nuxeo_mcp.utility import (
+    format,
+    format_doc,
+    format_docs,
+    is_uuid,
+    return_blob,
+)
 
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.tools")
@@ -38,8 +40,25 @@ logger = logging.getLogger("nuxeo_mcp.tools")
 # signal and would otherwise narrow the fallback to nothing.
 _NL_STOP_WORDS = frozenset(
     {
-        "find", "show", "list", "get", "search", "for", "all", "the", "me",
-        "with", "in", "from", "by", "a", "an", "of", "to", "and", "please",
+        "find",
+        "show",
+        "list",
+        "get",
+        "search",
+        "for",
+        "all",
+        "the",
+        "me",
+        "with",
+        "in",
+        "from",
+        "by",
+        "a",
+        "an",
+        "of",
+        "to",
+        "and",
+        "please",
     }
 )
 
@@ -325,6 +344,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
             # Upload the file and use it as input
             from nuxeo.models import FileBlob
+
             blob = FileBlob(file_path)
             uploaded = nuxeo.uploads.batch().upload(blob, chunked=True)
             operation.input_obj = uploaded
@@ -432,6 +452,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
             # Upload file to batch
             from nuxeo.models import FileBlob
+
             blob = FileBlob(file_path)
             batch = nuxeo.uploads.batch().upload(blob, chunked=True)
 
@@ -450,8 +471,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
         # Return a structured response with document information
         # Get title from properties or use the name as fallback
-        doc_title = doc.properties.get("dc:title", name) if hasattr(doc, 'properties') else name
-        
+        doc_title = (
+            doc.properties.get("dc:title", name) if hasattr(doc, "properties") else name
+        )
+
         return {
             "status": "success",
             "message": f"Document '{name}' created successfully",
@@ -460,11 +483,12 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
             "title": doc_title,
             "type": type,
             "url": f"{nuxeo.client.host}/ui/#!/browse{doc.path}",
-            "details": format_doc(doc)  # Include full formatted details as a string
+            "details": format_doc(doc),  # Include full formatted details as a string
         }
 
     @tool(
-        name="nuxeo_get_document", description="Get a document from the Nuxeo repository"
+        name="nuxeo_get_document",
+        description="Get a document from the Nuxeo repository",
     )
     def nuxeo_get_document(
         ref: Annotated[
@@ -762,9 +786,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         description="Move a document to a different location in the Nuxeo repository",
     )
     def nuxeo_move_document(
-        document_uid: str,
-        target_path: str,
-        new_name: str = None
+        document_uid: str, target_path: str, new_name: str = None
     ) -> Dict[str, Any]:
         """
         Move a document to a different location in the Nuxeo repository.
@@ -818,10 +840,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         operation = nuxeo.operations.new("Document.Move")
         operation.params = params
         operation.input_obj = f"doc:{document_uid}"
-        
+
         # Execute the operation
         result = operation.execute()
-        
+
         # Format and return the result
         if hasattr(result, "uid"):
             return {
@@ -829,14 +851,18 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
                 "message": f"Document moved successfully to {target_path}",
                 "uid": result.uid,
                 "path": result.path,
-                "title": result.properties.get("dc:title", "") if hasattr(result, 'properties') else "",
-                "url": f"{nuxeo.client.host}/ui/#!/browse{result.path}"
+                "title": (
+                    result.properties.get("dc:title", "")
+                    if hasattr(result, "properties")
+                    else ""
+                ),
+                "url": f"{nuxeo.client.host}/ui/#!/browse{result.path}",
             }
         else:
             return {
                 "status": "success",
                 "message": f"Document moved to {target_path}",
-                "details": str(result)
+                "details": str(result),
             }
 
     # --- Search -------------------------------------------------------------
@@ -858,7 +884,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         'mode="natural" (default) -- plain English:\n'
         '  "invoices created by Alice in the last 30 days"\n'
         '  "PDFs modified this week in /default-domain/workspaces"\n'
-        '\n'
+        "\n"
         'mode="nxql" -- a NXQL statement, when you need exact control:\n'
         "  SELECT * FROM File WHERE dc:title LIKE 'Invoice%' ORDER BY dc:modified DESC\n"
         "  SELECT * FROM Document WHERE ecm:fulltext = 'contract' AND ecm:isTrashed = 0\n"

@@ -86,7 +86,9 @@ def test_get_children_returns_markdown_table(mcp: FastMCP) -> None:
 def test_get_children_as_resource_returns_uris(mcp: FastMCP) -> None:
     """as_resource must also satisfy the declared string return type."""
     result = _call(
-        mcp, "nuxeo_list_children", {"ref": "/default-domain/workspaces", "as_resource": True}
+        mcp,
+        "nuxeo_list_children",
+        {"ref": "/default-domain/workspaces", "as_resource": True},
     )
 
     assert result.content[0].text == "nuxeo://uid-1\nnuxeo://uid-2"
@@ -127,9 +129,7 @@ def test_image_blob_returns_base64_image_content(
 
 
 @pytest.mark.unit
-def test_failed_conversion_raises_tool_error(
-    mcp: FastMCP, nuxeo: MagicMock
-) -> None:
+def test_failed_conversion_raises_tool_error(mcp: FastMCP, nuxeo: MagicMock) -> None:
     """A failed conversion must surface as an error, not a successful result."""
     nuxeo.client.request.side_effect = RuntimeError("boom")
 

@@ -6,7 +6,8 @@ This module defines the prompts for the Nuxeo MCP Server.
 """
 
 import logging
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Callable, Dict, Optional
+
 from nuxeo_mcp.utility import format_doc
 
 # Configure logging
