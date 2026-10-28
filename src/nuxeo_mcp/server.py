@@ -142,6 +142,8 @@ class NuxeoMCPServer:
                 # Authenticate and get Nuxeo client
                 if self.auth_manager.authenticate():
                     self.nuxeo = self.auth_manager.get_nuxeo_client()
+                    # Report the signed-in user, as basic auth reports its own
+                    self.username = self.auth_manager.get_username()
                 else:
                     logger.warning("Initial OAuth2 authentication failed")
                     raise ValueError("OAuth2 authentication failed")

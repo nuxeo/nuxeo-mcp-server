@@ -5,6 +5,7 @@ Unit tests for authentication components.
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
@@ -382,6 +383,58 @@ class TestBasicAuthHandler:
         result = handler.authenticate()
 
         assert result is False
+
+
+class TestOAuth2AuthHandler:
+    """Test the OAuth2 handler's use of a stored token."""
+
+    @staticmethod
+    def _handler_with_stored_token() -> OAuth2AuthHandler:
+        server_config = NuxeoServerConfig(
+            url="http://test.com",
+            auth_method=AuthMethod.OAUTH2,
+            oauth2_config=OAuth2Config(client_id="client", client_secret="secret"),
+        )
+        token_manager = MagicMock()
+        token_manager.get_token.return_value = {
+            "access_token": "access",
+            "expires_at": time.time() + 3600,
+        }
+        return OAuth2AuthHandler(server_config, token_manager=token_manager)
+
+    @patch("nuxeo_mcp.auth.OAuth2")
+    @patch("nuxeo_mcp.auth.Nuxeo")
+    def test_stored_token_reports_its_user(self, mock_nuxeo_class, mock_oauth2):
+        """A stored token is checked with Nuxeo, which names its user."""
+        response = mock_nuxeo_class.return_value.client.request.return_value
+        response.status_code = 200
+        response.json.return_value = {"id": "jdoe"}
+        handler = self._handler_with_stored_token()
+
+        with patch.object(handler, "_start_callback_server") as start:
+            assert handler.authenticate() is True
+
+        assert handler.username == "jdoe"
+        start.assert_not_called()
+
+    @patch("nuxeo_mcp.auth.OAuth2")
+    @patch("nuxeo_mcp.auth.Nuxeo")
+    def test_rejected_stored_token_signs_in_again(self, mock_nuxeo_class, mock_oauth2):
+        """A stored token Nuxeo rejects leads to a new sign-in."""
+        response = mock_nuxeo_class.return_value.client.request.return_value
+        response.status_code = 401
+        handler = self._handler_with_stored_token()
+
+        with (
+            patch.object(handler, "_find_available_port", return_value=8765),
+            patch.object(
+                handler, "_start_callback_server", side_effect=RuntimeError("sign-in")
+            ) as start,
+        ):
+            assert handler.authenticate() is False
+
+        start.assert_called_once_with(8765)
+        assert handler.username is None
 
 
 class TestAuthMiddleware:

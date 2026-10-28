@@ -135,6 +135,10 @@ class AuthenticationManager:
 
         return self.middleware.ensure_authenticated()
 
+    def get_username(self) -> Optional[str]:
+        """Return the Nuxeo user the handler authenticated as, if known."""
+        return getattr(self.auth_handler, "username", None)
+
     def get_nuxeo_client(self):
         """
         Get authenticated Nuxeo client.
