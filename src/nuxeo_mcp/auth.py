@@ -198,6 +198,8 @@ class OAuth2AuthHandler:
         self.token_manager = token_manager or TokenManager()
         self.oauth2_config = server_config.oauth2_config
         self.nuxeo_client: Optional[Nuxeo] = None
+        # The Nuxeo user the token belongs to, as /api/v1/me reports it
+        self.username: Optional[str] = None
 
         if not self.oauth2_config:
             raise ValueError("OAuth2 configuration required")
@@ -259,9 +261,13 @@ class OAuth2AuthHandler:
             # Check for existing valid token
             existing_token = self.token_manager.get_token(self.server_config.url)
             if existing_token and not self._is_token_expired(existing_token):
-                logger.info("Using existing valid token")
+                # Check it with Nuxeo as a fresh token is checked: that also
+                # learns the user, and a revoked token leads to a new sign-in
                 self._setup_nuxeo_client(existing_token)
-                return True
+                if self._validate_token(existing_token):
+                    logger.info("Using existing valid token")
+                    return True
+                logger.info("Stored token was rejected; signing in again")
 
             # Find available port for callback
             redirect_port = (
@@ -386,7 +392,8 @@ class OAuth2AuthHandler:
             response = self.nuxeo_client.client.request("GET", "/api/v1/me")
             if response.status_code == 200:
                 user_info = response.json()
-                logger.info(f"Authenticated as user: {user_info.get('id', 'unknown')}")
+                self.username = user_info.get("id")
+                logger.info(f"Authenticated as user: {self.username or 'unknown'}")
                 return True
             return False
         except Exception as e:

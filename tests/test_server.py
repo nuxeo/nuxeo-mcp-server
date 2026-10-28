@@ -266,6 +266,31 @@ def test_health_reports_auth_mode() -> None:
     assert body["auth_method"] == "basic"
 
 
+@pytest.mark.unit
+def test_health_reports_the_oauth2_user() -> None:
+    """Under OAuth2, /health names the user Nuxeo authenticated."""
+    import asyncio
+    import json
+
+    from nuxeo_mcp.config import AuthMethod
+
+    auth_config = MagicMock()
+    auth_config.get_server_config.return_value.auth_method = AuthMethod.OAUTH2
+    with patch("nuxeo_mcp.server.AuthenticationManager") as manager_class:
+        manager = manager_class.return_value
+        manager.setup.return_value = True
+        manager.authenticate.return_value = True
+        manager.get_username.return_value = "jdoe"
+        server = NuxeoMCPServer(
+            use_oauth2=True, auth_config=auth_config, fastmcp_class=MockFastMCP
+        )
+
+    health = server.mcp.custom_routes[0]
+    body = json.loads(asyncio.run(health["func"](MagicMock())).body)
+    assert body["username"] == "jdoe"
+    assert body["auth_method"] == "oauth2"
+
+
 def _prepare_main(monkeypatch, env: Dict[str, str]) -> None:
     """Give main() a clean environment and command line."""
     for name in (
