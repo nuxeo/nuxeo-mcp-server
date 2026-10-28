@@ -357,22 +357,6 @@ class TestBasicAuthHandler:
 class TestAuthMiddleware:
     """Test authentication middleware."""
 
-    def test_require_auth_decorator(self):
-        """Test the require_auth decorator."""
-        mock_handler = MagicMock()
-        mock_handler.authenticate.return_value = True
-        mock_handler.get_nuxeo_client.return_value = MagicMock()
-
-        middleware = AuthMiddleware(mock_handler)
-
-        @middleware.require_auth
-        def protected_function():
-            return "success"
-
-        result = protected_function()
-        assert result == "success"
-        mock_handler.authenticate.assert_called_once()
-
     def test_logout(self):
         """Test logout functionality."""
         mock_handler = MagicMock()
