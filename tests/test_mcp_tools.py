@@ -10,6 +10,14 @@ import sys
 # Add the source directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
+# A manual script: it signs in to a live server at import. Collected by pytest
+# it would run even in a unit-only session, and rejected credentials now stop
+# the server, failing collection. Run it directly instead.
+if "pytest" in sys.modules:
+    import pytest
+
+    pytest.skip("manual script: run it with python", allow_module_level=True)
+
 # Import credential helper
 from test_credentials import get_test_credentials
 

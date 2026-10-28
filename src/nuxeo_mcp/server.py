@@ -41,6 +41,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("nuxeo_mcp")
 
+# Seconds to wait for Nuxeo when checking the credentials at startup
+STARTUP_CHECK_TIMEOUT = 10
+
 
 class NuxeoMCPServer:
     """MCP Server for Nuxeo Content Repository."""
@@ -90,25 +93,34 @@ class NuxeoMCPServer:
                 host=nuxeo_url,
                 auth=(username, password),
             )
-            # Test the connection
+            # Test the connection. Nuxeo refusing the credentials stops the
+            # server, as no restart can fix them; a Nuxeo that cannot be
+            # reached does not, as it may still be starting.
+            status = None
             try:
                 # Use requests directly for the auth test
                 import requests
 
                 test_response = requests.get(
-                    f"{nuxeo_url}/api/v1/me", auth=(username, password)
+                    f"{nuxeo_url}/api/v1/me",
+                    auth=(username, password),
+                    timeout=STARTUP_CHECK_TIMEOUT,
                 )
-                if test_response.status_code == 200:
+                status = test_response.status_code
+                if status == 200:
                     user_data = test_response.json()
                     logger.info(
                         f"Successfully authenticated as: {user_data.get('id', 'unknown')}"
                     )
-                else:
-                    logger.error(
-                        f"Authentication failed with status: {test_response.status_code}"
-                    )
+                elif status not in (401, 403):
+                    logger.error(f"Authentication failed with status: {status}")
             except Exception as e:
                 logger.error(f"Failed to verify authentication: {e}")
+            if status in (401, 403):
+                raise ValueError(
+                    f"Nuxeo rejected the credentials for user {username} "
+                    f"(HTTP {status})"
+                )
         else:
             # Setup OAuth2 authentication
             if auth_config:

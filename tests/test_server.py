@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 # Create mocks for the unit tests
 mock_nuxeo_client = MagicMock()
@@ -113,7 +114,22 @@ class MockFastMCP:
 # NuxeoMCPServer takes the FastMCP class as a parameter, so these tests inject
 # MockFastMCP directly. Do not patch sys.modules['fastmcp']: that leaks a mock
 # into every other test module for the whole session.
-from nuxeo_mcp.server import NuxeoMCPServer
+from nuxeo_mcp.server import STARTUP_CHECK_TIMEOUT, NuxeoMCPServer
+
+
+@pytest.fixture(autouse=True)
+def _no_live_credential_check() -> Any:
+    """Keep the startup credential check off the network.
+
+    It calls the real /api/v1/me. Under --integration a Nuxeo listens on
+    localhost:8080 and rejects these tests' placeholder credentials, which now
+    stops the server. Tests that exercise the check patch requests.get
+    themselves, which overrides this.
+    """
+    with mock.patch(
+        "requests.get", side_effect=requests.ConnectionError("not under test")
+    ):
+        yield
 
 
 @pytest.mark.unit
@@ -133,6 +149,43 @@ def test_mcp_server_initialization() -> None:
         assert server.username == "Administrator"
         assert server.password == "Administrator"
         assert server.mcp is not None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", [401, 403])
+def test_rejected_credentials_stop_the_server(status) -> None:
+    """Nuxeo refusing the credentials at startup stops the server."""
+    with mock.patch("nuxeo_mcp.server.Nuxeo"), mock.patch("requests.get") as get:
+        get.return_value.status_code = status
+        with pytest.raises(
+            ValueError, match="rejected the credentials for user jdoe"
+        ) as e:
+            NuxeoMCPServer(
+                username="jdoe", password="s3cret-pw", fastmcp_class=MockFastMCP
+            )
+
+    assert f"HTTP {status}" in str(e.value)
+    assert "s3cret-pw" not in str(e.value)
+    assert get.call_args.kwargs["timeout"] == STARTUP_CHECK_TIMEOUT
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "outcome",
+    [requests.ConnectionError("refused"), requests.Timeout("too slow"), 503, 404],
+)
+def test_nuxeo_not_ready_does_not_stop_the_server(outcome) -> None:
+    """A Nuxeo that cannot be reached, or is not ready yet, does not stop startup."""
+    with mock.patch("nuxeo_mcp.server.Nuxeo"), mock.patch("requests.get") as get:
+        if isinstance(outcome, int):
+            get.return_value.status_code = outcome
+        else:
+            get.side_effect = outcome
+        server = NuxeoMCPServer(
+            username="jdoe", password="pass", fastmcp_class=MockFastMCP
+        )
+
+    assert server.mcp is not None
 
 
 @pytest.mark.unit
