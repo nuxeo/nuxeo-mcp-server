@@ -147,3 +147,36 @@ def test_guide_degrades_to_curated_fields_when_sampling_fails() -> None:
 
     assert "ecm:primaryType" in result["content"]
     assert "Schema fields on this instance" not in result["content"]
+
+
+@pytest.mark.parametrize(
+    "uri,index",
+    [("nuxeo://query-dsl-guide", "nuxeo"), ("nuxeo://audit-query-dsl-guide", "audit")],
+)
+def test_guide_states_when_its_tool_cannot_work(uri: str, index: str) -> None:
+    """A normal-looking guide for a tool that can only fail invites retries."""
+    from nuxeo_mcp import query_dsl
+    from nuxeo_mcp.es_passthrough import PassthroughError
+
+    query_dsl.reset_sample_cache()
+    with patch(
+        "nuxeo_mcp.es_passthrough.ElasticsearchPassthrough.execute_query",
+        side_effect=PassthroughError("Search is disabled.", 400, unavailable=True),
+    ):
+        content = _register()[uri]()["content"]
+
+    assert content.startswith("> **Unavailable on this server:** Search is disabled.")
+
+
+def test_guide_has_no_warning_for_a_query_error() -> None:
+    from nuxeo_mcp import query_dsl
+    from nuxeo_mcp.es_passthrough import PassthroughError
+
+    query_dsl.reset_sample_cache()
+    with patch(
+        "nuxeo_mcp.es_passthrough.ElasticsearchPassthrough.execute_query",
+        side_effect=PassthroughError("bad query", 400),
+    ):
+        content = _register()["nuxeo://query-dsl-guide"]()["content"]
+
+    assert "Unavailable" not in content

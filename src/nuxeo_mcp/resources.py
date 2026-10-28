@@ -8,7 +8,7 @@ This module defines the resources for the Nuxeo MCP Server.
 import logging
 import os
 from importlib import resources
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from fastmcp.exceptions import ToolError
 
@@ -178,25 +178,40 @@ def register_resources(mcp, nuxeo) -> None:
     # ones are discovered by sampling _source keys from real documents. This
     # matters because an unknown field name is not an error: it matches nothing
     # and returns HTTP 200 with zero hits, which reads as "no document matches".
-    def _discover_fields(index: str) -> Optional[list]:
-        """Sample field names from an index, or None if the engine is unreachable.
+    def _discover_fields(index: str) -> Tuple[Optional[list], Optional[str]]:
+        """Sample field names from an index.
+
+        Returns:
+            ``(fields, unavailable)``. ``fields`` is None when sampling failed;
+            ``unavailable`` explains why when the failure means the matching
+            Query DSL tool cannot work on this server for the current user.
 
         A guide that is slightly less complete is far better than a guide that
-        fails, so every error here degrades to the curated tables.
+        fails, so every error here degrades to the curated tables. But a guide
+        that looks normal for a tool that can only fail sends the model into a
+        retry loop, so that case is stated upfront.
         """
-        try:
-            from .es_passthrough import ElasticsearchPassthrough
+        from .es_passthrough import ElasticsearchPassthrough, PassthroughError
 
+        try:
             passthrough = ElasticsearchPassthrough(
                 nuxeo_url=os.environ.get("NUXEO_URL", nuxeo.client.host),
                 auth=nuxeo.client.auth,
             )
-            return query_dsl.sample_field_names(passthrough.execute_query, index)
+            return query_dsl.sample_field_names(passthrough.execute_query, index), None
+        except PassthroughError as e:
+            logger.info(f"Could not sample {index} fields: {e}")
+            return None, str(e) if e.unavailable else None
         except Exception as e:
             logger.info(
                 f"Could not sample {index} fields, serving curated guide only: {e}"
             )
-            return None
+            return None, None
+
+    def _with_warning(content: str, unavailable: Optional[str]) -> str:
+        if not unavailable:
+            return content
+        return f"> **Unavailable on this server:** {unavailable}\n\n{content}"
 
     @mcp.resource(
         uri="nuxeo://query-dsl-guide",
@@ -208,8 +223,9 @@ def register_resources(mcp, nuxeo) -> None:
     )
     def get_query_dsl_guide() -> Dict[str, Any]:
         """Return the repository index field reference."""
+        fields, unavailable = _discover_fields("nuxeo")
         return {
-            "content": query_dsl.field_guide(_discover_fields("nuxeo")),
+            "content": _with_warning(query_dsl.field_guide(fields), unavailable),
             "format": "markdown",
             "title": "Repository Query DSL Field Reference",
         }
@@ -224,8 +240,9 @@ def register_resources(mcp, nuxeo) -> None:
     )
     def get_audit_query_dsl_guide() -> Dict[str, Any]:
         """Return the audit index field reference."""
+        fields, unavailable = _discover_fields("audit")
         return {
-            "content": query_dsl.audit_field_guide(_discover_fields("audit")),
+            "content": _with_warning(query_dsl.audit_field_guide(fields), unavailable),
             "format": "markdown",
             "title": "Audit Query DSL Field Reference",
         }

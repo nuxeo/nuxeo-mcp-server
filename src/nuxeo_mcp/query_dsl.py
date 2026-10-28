@@ -44,7 +44,7 @@ DEFAULT_BUCKET_COUNT = 10
 
 # Returned when no body is supplied, so the model can correct itself without a
 # round trip.
-USAGE = """nuxeo_search_documents_with_query_dsl needs an Elasticsearch/OpenSearch request body.
+USAGE = """nuxeo_search_documents_with_query_dsl needs an OpenSearch/Elasticsearch request body.
 
 Full-text search with highlighting:
   {"size": 10, "_source": ["dc:title", "ecm:path"],
@@ -65,7 +65,7 @@ Filter on type and path, newest first:
 
 Read nuxeo://query-dsl-guide for the available field names."""
 
-AUDIT_USAGE = """nuxeo_search_audit_with_query_dsl needs an Elasticsearch/OpenSearch request body.
+AUDIT_USAGE = """nuxeo_search_audit_with_query_dsl needs an OpenSearch/Elasticsearch request body.
 
 What happened to one document, newest first:
   {"size": 20, "query": {"term": {"docUUID": "<uuid>"}},
@@ -478,7 +478,7 @@ def _render_guide(
         "",
         "## Examples",
         "",
-        examples.split("needs an Elasticsearch/OpenSearch request body.\n\n")[1]
+        examples.split("needs an OpenSearch/Elasticsearch request body.\n\n")[1]
         .split("\nRead nuxeo://")[0]
         .strip(),
     ]

@@ -1,7 +1,7 @@
 """Unit tests for Query DSL and audit search error handling.
 
 Covers the 401/403 permission-denied branches and the connectivity-failure branch
-without requiring a live Nuxeo or Elasticsearch server.
+without requiring a live Nuxeo or search engine.
 """
 
 import asyncio
@@ -66,6 +66,7 @@ def test_query_dsl_engine_error_raises_tool_error(mock_post: MagicMock) -> None:
     """A non-200 from the passthrough surfaces as an error, not an empty result."""
     response = MagicMock()
     response.status_code = 403
+    response.json.side_effect = ValueError("not json")
     response.text = "forbidden"
     mock_post.return_value = response
     fn = _register_and_capture(_make_nuxeo())["nuxeo_search_documents_with_query_dsl"]
@@ -73,7 +74,27 @@ def test_query_dsl_engine_error_raises_tool_error(mock_post: MagicMock) -> None:
     with pytest.raises(ToolError) as excinfo:
         fn({"query": {"match_all": {}}})
 
-    assert "Query DSL search failed" in str(excinfo.value)
+    assert "Permission denied: forbidden" in str(excinfo.value)
+
+
+@patch("requests.post")
+def test_query_dsl_engine_error_in_http_200_is_not_an_empty_result(
+    mock_post: MagicMock,
+) -> None:
+    """Nuxeo relays engine errors with HTTP 200; no 'No hits' hint must follow."""
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {
+        "error": {"type": "parsing_exception", "reason": "unknown query [bogus]"},
+        "status": 400,
+    }
+    mock_post.return_value = response
+    fn = _register_and_capture(_make_nuxeo())["nuxeo_search_documents_with_query_dsl"]
+
+    with pytest.raises(ToolError) as excinfo:
+        fn({"query": {"bogus": {}}})
+
+    assert "unknown query [bogus]" in str(excinfo.value)
 
 
 @patch("requests.post")
@@ -84,7 +105,7 @@ def test_query_dsl_connection_error_raises_tool_error(mock_post: MagicMock) -> N
     with pytest.raises(ToolError) as excinfo:
         fn({"query": {"match_all": {}}})
 
-    assert "Query DSL search failed" in str(excinfo.value)
+    assert "Could not reach Nuxeo" in str(excinfo.value)
 
 
 @patch("requests.post")
@@ -114,6 +135,7 @@ def test_audit_non_admin_403_raises_tool_error(mock_post: MagicMock) -> None:
     """Nuxeo restricts the audit index server-side; the 403 must surface."""
     response = MagicMock()
     response.status_code = 403
+    response.json.side_effect = ValueError("not json")
     response.text = "forbidden"
     mock_post.return_value = response
     fn = _register_and_capture(_make_nuxeo())["nuxeo_search_audit_with_query_dsl"]
@@ -121,7 +143,7 @@ def test_audit_non_admin_403_raises_tool_error(mock_post: MagicMock) -> None:
     with pytest.raises(ToolError) as excinfo:
         fn({"query": {"match_all": {}}})
 
-    assert "audit" in str(excinfo.value)
+    assert "restricted to administrators" in str(excinfo.value)
 
 
 def test_audit_missing_body_returns_audit_usage_help() -> None:

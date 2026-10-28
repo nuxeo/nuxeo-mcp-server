@@ -152,7 +152,19 @@ def test_semantic_mode_is_announced_as_unavailable() -> None:
     with pytest.raises(ToolError) as excinfo:
         _search_tool()("anything", mode="semantic")
 
-    assert "not yet available" in str(excinfo.value)
+    # The MCP server lacks it, not Nuxeo: say so rather than "on this server".
+    assert "not implemented yet in this MCP server" in str(excinfo.value)
+
+
+def test_semantic_mode_is_not_advertised() -> None:
+    """A listed mode invites a call that can only fail."""
+    tool = _search_tool()
+    mode_doc = next(line for line in tool.__doc__.splitlines() if "mode:" in line)
+
+    assert "semantic" not in mode_doc
+    with pytest.raises(ToolError) as excinfo:
+        tool("anything", mode="sparql")
+    assert "semantic" not in str(excinfo.value)
 
 
 def test_page_size_is_clamped() -> None:

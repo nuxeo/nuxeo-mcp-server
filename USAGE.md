@@ -99,9 +99,9 @@ python -m nuxeo_mcp
 | `nuxeo_list_document_types` | yes | no | no | Get information about document types and schemas defined in the Nuxeo server |
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
 | `nuxeo_move_document` | no | yes | no | Move a document to a different location in the Nuxeo repository |
-| `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo audit log index and return the engine response unchanged. Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
+| `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo audit log index and return the engine response unchanged. Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
 | `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. Use mode='natural' for a plain-English query, mode='nxql' for an exact NXQL statement. Returns a normalized result envelope that is identical for every mode. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. |
-| `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo repository index and return the engine response unchanged. Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. |
+| `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo repository index and return the engine response unchanged. Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. |
 | `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
 
 <!-- END GENERATED TOOLS -->

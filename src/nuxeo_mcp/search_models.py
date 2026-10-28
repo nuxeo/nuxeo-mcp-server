@@ -65,8 +65,7 @@ class SearchHit(BaseModel):
     snippets: List[str] = Field(
         default_factory=list,
         description=(
-            "Passages explaining why this document matched -- semantic chunks or "
-            "highlight fragments depending on the mode. Empty when the mode "
+            "Passages explaining why this document matched. Empty when the mode "
             "produces no evidence passages."
         ),
     )
@@ -95,7 +94,7 @@ class SearchResult(BaseModel):
     interpretedQuery: Optional[str] = Field(
         default=None,
         description=(
-            "The NXQL actually executed. For natural and semantic modes this is the "
+            "The NXQL actually executed. For natural mode this is the "
             "generated query, so the caller can see how the request was understood."
         ),
     )

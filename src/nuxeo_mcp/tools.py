@@ -20,6 +20,7 @@ from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
 from nuxeo_mcp.query_dsl import QueryDslRejected, apply_guardrails
 from nuxeo_mcp.search_models import (
     MODE_NATURAL,
+    MODE_NXQL,
     MODE_SEMANTIC,
     SEARCH_MODES,
     SearchResult,
@@ -65,6 +66,10 @@ _NL_STOP_WORDS = frozenset(
 # Type aliases
 ToolFunction = Callable[[Dict[str, Any]], Dict[str, Any]]
 
+# MODE_SEMANTIC stays in the contract but is not advertised until it is
+# implemented: a listed mode invites a call that can only fail.
+_IMPLEMENTED_MODES = (MODE_NATURAL, MODE_NXQL)
+
 
 def _escape_nxql_literal(value: str) -> str:
     """Escape ``value`` for use inside single quotes in an NXQL statement.
@@ -89,7 +94,7 @@ class DocRef(BaseModel):
 
 from typing import Union
 
-# Timeout in seconds for Elasticsearch connectivity probes
+# Timeout in seconds for search engine connectivity probes
 ES_PROBE_TIMEOUT = 10
 
 
@@ -913,7 +918,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
         Args:
             query: Plain English (mode="natural") or a NXQL statement (mode="nxql").
-            mode: One of "natural", "nxql", "semantic".
+            mode: One of "natural", "nxql".
             page_size: Documents per page.
             page_index: Zero-based page to retrieve.
 
@@ -923,20 +928,21 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
         Raises:
             ToolError: on an empty query, an unknown mode, or a mode that is not
-                yet available.
+                implemented yet.
         """
         if not query or not query.strip():
             raise ToolError(_SEARCH_USAGE)
 
-        if mode not in SEARCH_MODES:
-            raise ToolError(
-                f"Unknown mode {mode!r}. Supported modes: {', '.join(SEARCH_MODES)}."
-            )
-
         if mode == MODE_SEMANTIC:
             raise ToolError(
-                "mode='semantic' is not yet available on this server. Use "
+                "mode='semantic' is not implemented yet in this MCP server. Use "
                 "mode='natural' or mode='nxql'."
+            )
+
+        if mode not in SEARCH_MODES:
+            raise ToolError(
+                f"Unknown mode {mode!r}. Supported modes: "
+                f"{', '.join(_IMPLEMENTED_MODES)}."
             )
 
         page_size = max(1, min(page_size, 100))
@@ -1008,7 +1014,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         except QueryDslRejected as e:
             raise ToolError(str(e))
 
-        from .es_passthrough import ElasticsearchPassthrough
+        from .es_passthrough import ElasticsearchPassthrough, PassthroughError
 
         passthrough = ElasticsearchPassthrough(
             nuxeo_url=os.environ.get("NUXEO_URL", nuxeo.client.host),
@@ -1017,6 +1023,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
         try:
             response = passthrough.execute_query(index=index, query=guarded)
+        except PassthroughError as e:
+            raise ToolError(str(e))
         except Exception as e:
             raise ToolError(f"Query DSL search failed on index {index!r}: {e}")
 
@@ -1046,7 +1054,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
     @tool(
         name="nuxeo_search_documents_with_query_dsl",
         description=(
-            "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "
+            "Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo "
             "repository index and return the engine response unchanged. Use this for "
             "aggregations, highlighting, sorting and any query the normalized search "
             "cannot express. Read nuxeo://query-dsl-guide first for the field names."
@@ -1058,7 +1066,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         """Search the repository index with a Query DSL body.
 
         Args:
-            query: An Elasticsearch/OpenSearch request body.
+            query: An OpenSearch/Elasticsearch request body.
 
         Returns:
             The engine response, unchanged apart from the applied guardrails.
@@ -1074,7 +1082,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
     @tool(
         name="nuxeo_search_audit_with_query_dsl",
         description=(
-            "Run a raw Elasticsearch/OpenSearch Query DSL request against the Nuxeo "
+            "Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo "
             "audit log index and return the engine response unchanged. Administrators "
             "only. Read nuxeo://audit-query-dsl-guide first for the field names."
         ),
@@ -1088,7 +1096,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         shape rather than the normalized document envelope.
 
         Args:
-            query: An Elasticsearch/OpenSearch request body.
+            query: An OpenSearch/Elasticsearch request body.
 
         Returns:
             The engine response, unchanged apart from the applied guardrails.
