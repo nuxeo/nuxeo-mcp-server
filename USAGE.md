@@ -26,19 +26,7 @@ pip install -e .
 
 ## Configuration
 
-The Nuxeo MCP Server can be configured using a configuration file or environment variables.
-
-### Configuration File
-
-Create a file named `nuxeo_mcp_config.json` with the following content:
-
-```json
-{
-  "nuxeo_url": "http://localhost:8080/nuxeo",
-  "username": "Administrator",
-  "password": "Administrator"
-}
-```
+The Nuxeo MCP Server is configured with environment variables. `NUXEO_USERNAME` and `NUXEO_PASSWORD` are required for Basic authentication; there is no default identity.
 
 ### Environment Variables
 

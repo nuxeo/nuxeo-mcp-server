@@ -197,6 +197,8 @@ stringData:
 
 ## Exposing the Service
 
+Every client that reaches the service acts as the Nuxeo user in `nuxeo-mcp-secret`: the server runs in `local` auth mode, one Nuxeo identity shared by all callers (see [Authentication Mode](README.md#authentication-mode)). Expose it only to callers who may all act as that user.
+
 ### Using Ingress
 
 If you want to expose the service outside the cluster using an Ingress controller, create a file named `nuxeo-mcp-ingress.yaml` with the following content:

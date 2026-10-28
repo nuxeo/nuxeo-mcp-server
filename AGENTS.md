@@ -192,13 +192,13 @@ def my_prompt(arg: str) -> str:
 
 | Module | Responsibility |
 |--------|---------------|
-| `server.py` | Instantiates `FastMCP`, wires auth middleware, calls all `register_*()` functions |
+| `server.py` | Instantiates `FastMCP`, builds the Nuxeo client for the configured auth method, calls all `register_*()` functions |
 | `tools.py` | Implements every MCP tool; delegates to the Nuxeo Python client |
 | `resources.py` | Implements every MCP resource; formats documents for consumption |
 | `prompts.py` | Defines reusable prompt templates |
-| `config.py` | `NuxeoServerConfig`, `OAuth2Config`, `MCPAuthConfig` dataclasses; `AuthMethod` enum |
+| `config.py` | `NuxeoServerConfig`, `OAuth2Config`, `MCPAuthConfig` dataclasses; `AuthMethod` and `AuthMode` enums |
 | `auth.py` | `OAuth2AuthHandler` (PKCE flow), `BasicAuthHandler`; browser-based callback server |
-| `middleware.py` | `AuthenticationManager` wraps tool/resource callables to inject auth headers |
+| `middleware.py` | `AuthenticationManager` runs the OAuth2 sign-in at startup and hands the server an authenticated Nuxeo client; it does not wrap tools |
 | `token_store.py` | `TokenManager` — persists and refreshes OAuth2 tokens |
 | `es_passthrough.py` | `ElasticsearchPassthrough` — forwards Query DSL to Nuxeo `/site/es`; Nuxeo applies the ACLs |
 | `query_dsl.py` | Guardrails (size/from/response caps, script rejection) and field guides for the Query DSL tools |
@@ -211,8 +211,8 @@ def my_prompt(arg: str) -> str:
 ```
 __main__.py  →  main()
   └─ server.py: NuxeoMCPServer.__init__()
-       ├─ config.py: read NUXEO_URL / NUXEO_AUTH_METHOD / credentials from env
-       ├─ auth.py / middleware.py: build Nuxeo client (basic or OAuth2)
+       ├─ server.py main(): read NUXEO_URL / NUXEO_AUTH_METHOD / NUXEO_MCP_AUTH_MODE / credentials from env
+       ├─ auth.py / middleware.py: build Nuxeo client (basic or OAuth2); basic refuses to start without credentials
        ├─ server.py: create FastMCP instance + /health endpoint
        ├─ tools.py: register_tools()
        ├─ resources.py: register_resources()
@@ -221,17 +221,20 @@ __main__.py  →  main()
 
 ### Authentication Flow
 
+Authentication happens once, at startup. The server then holds one Nuxeo client and every tool call uses it, so every caller acts as the same Nuxeo identity (`NUXEO_MCP_AUTH_MODE=local`, the default and only mode).
+
 ```
-Client request
-  → AuthenticationManager.wrap()
-      ├─ BasicAuthHandler  (NUXEO_AUTH_METHOD=basic)
-      └─ OAuth2AuthHandler (NUXEO_AUTH_METHOD=oauth2)
-           ├─ TokenManager: check stored token
-           ├─ If expired: refresh_token()
-           └─ If none: launch PKCE browser flow → callback server
+Startup
+  ├─ basic  (NUXEO_AUTH_METHOD=basic, the default)
+  │    └─ Nuxeo client from NUXEO_USERNAME / NUXEO_PASSWORD (both required, no default)
+  └─ oauth2 (--oauth2 or NUXEO_AUTH_METHOD=oauth2)
+       └─ AuthenticationManager → OAuth2AuthHandler
+            ├─ TokenManager: check stored token
+            ├─ If expired: refresh_token()
+            └─ If none: launch PKCE browser flow → callback server
 ```
 
-Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the authentication method.
+Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the authentication method. OAuth2 is for stdio from a desktop client; it does not work in a container.
 
 ### Elasticsearch Passthrough
 
@@ -242,9 +245,10 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 | Variable | Purpose |
 |----------|---------|
 | `NUXEO_URL` | Nuxeo server URL (default: `http://localhost:8080/nuxeo`) |
-| `NUXEO_USERNAME` | Username for Basic auth |
-| `NUXEO_PASSWORD` | Password for Basic auth |
-| `NUXEO_AUTH_METHOD` | `basic` or `oauth2` |
+| `NUXEO_USERNAME` | Username for Basic auth (required, no default) |
+| `NUXEO_PASSWORD` | Password for Basic auth (required, no default) |
+| `NUXEO_AUTH_METHOD` | `basic` or `oauth2`; any other value stops startup |
+| `NUXEO_MCP_AUTH_MODE` | `local` (default, only value): one Nuxeo identity for every caller |
 | `NUXEO_OAUTH_CLIENT_ID` | OAuth2 client ID |
 | `NUXEO_OAUTH_CLIENT_SECRET` | OAuth2 client secret |
 | `NUXEO_OAUTH_AUTH_ENDPOINT` | OAuth2 authorization endpoint |
@@ -352,7 +356,7 @@ All workflows use the composite action `.github/actions/setup-and-install-dep` f
 - Don't store credentials in source code or tests; use environment variables or `tests/test_credentials.py`.
 - Don't merge without passing `uv run mypy src/` in strict mode.
 - Don't add `standalone_test_*.py` files to the CI test suite — they are development-only debugging utilities.
-- Don't bypass authentication middleware when adding new tools; all tools must go through `AuthenticationManager`.
+- Don't build a Nuxeo client inside a tool; use the one `register_tools()` receives, so every call runs as the configured identity.
 
 ### Common Pitfalls
 
