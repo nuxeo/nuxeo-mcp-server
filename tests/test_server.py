@@ -163,3 +163,64 @@ def test_mcp_resources_registration() -> None:
         # Check that the expected resources are registered
         resource_uris = [resource.uri for resource in resources]
         assert "nuxeo://info" in resource_uris
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("basic_credentials", [False, True])
+def test_oauth2_flag_uses_oauth2_when_auth_method_unset(
+    monkeypatch, tmp_path, basic_credentials
+) -> None:
+    """--oauth2 means OAuth2 even when NUXEO_AUTH_METHOD is unset."""
+    from nuxeo_mcp.config import AuthMethod
+
+    for name in ("NUXEO_AUTH_METHOD", "NUXEO_USERNAME", "NUXEO_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("NUXEO_URL", "http://localhost:8080/nuxeo")
+    monkeypatch.setenv("NUXEO_OAUTH_CLIENT_ID", "client")
+    monkeypatch.setenv("NUXEO_OAUTH_CLIENT_SECRET", "secret")
+    if basic_credentials:
+        monkeypatch.setenv("NUXEO_USERNAME", "user")
+        monkeypatch.setenv("NUXEO_PASSWORD", "pass")
+    monkeypatch.setattr(
+        "nuxeo_mcp.config.MCPAuthConfig._get_default_config_path",
+        staticmethod(lambda: tmp_path / "auth_config.json"),
+    )
+
+    with patch("nuxeo_mcp.server.AuthenticationManager") as manager_class:
+        manager = manager_class.return_value
+        manager.setup.return_value = True
+        manager.authenticate.return_value = True
+        NuxeoMCPServer(use_oauth2=True, fastmcp_class=MockFastMCP)
+
+    server_config = manager.setup.call_args.args[0]
+    assert server_config.auth_method == AuthMethod.OAUTH2
+
+
+@pytest.mark.unit
+def test_oauth2_ignores_a_non_oauth2_default_server(monkeypatch, tmp_path) -> None:
+    """A basic default server from a config file does not stand in for OAuth2."""
+    from nuxeo_mcp.config import AuthMethod, MCPAuthConfig, NuxeoServerConfig
+
+    monkeypatch.setenv("NUXEO_OAUTH_CLIENT_ID", "client")
+    monkeypatch.setenv("NUXEO_OAUTH_CLIENT_SECRET", "secret")
+    auth_config = MCPAuthConfig(config_file_path=tmp_path / "auth_config.json")
+    auth_config.add_server(
+        "default",
+        NuxeoServerConfig(
+            url="http://localhost:8080/nuxeo",
+            auth_method=AuthMethod.BASIC,
+            username="user",
+            password="pass",
+        ),
+    )
+
+    with patch("nuxeo_mcp.server.AuthenticationManager") as manager_class:
+        manager = manager_class.return_value
+        manager.setup.return_value = True
+        manager.authenticate.return_value = True
+        NuxeoMCPServer(
+            use_oauth2=True, auth_config=auth_config, fastmcp_class=MockFastMCP
+        )
+
+    server_config = manager.setup.call_args.args[0]
+    assert server_config.auth_method == AuthMethod.OAUTH2

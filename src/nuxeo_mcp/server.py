@@ -99,11 +99,12 @@ class NuxeoMCPServer:
                 self.auth_config = auth_config
             else:
                 # Create config from environment or parameters
-                self.auth_config = MCPAuthConfig.load()
+                self.auth_config = MCPAuthConfig.load(auth_method=AuthMethod.OAUTH2)
 
-            # Get server configuration
+            # Get server configuration; only an OAuth2 one will do here, or
+            # the server would run as another identity while reporting oauth2
             server_config = self.auth_config.get_server_config()
-            if not server_config:
+            if not server_config or server_config.auth_method != AuthMethod.OAUTH2:
                 # Create OAuth2 server config
                 oauth2_config = OAuth2Config.from_env()
                 if not oauth2_config:
