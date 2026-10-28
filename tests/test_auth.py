@@ -13,6 +13,7 @@ import pytest
 from nuxeo_mcp.auth import BasicAuthHandler, OAuth2AuthHandler
 from nuxeo_mcp.config import (
     AuthMethod,
+    AuthMode,
     MCPAuthConfig,
     NuxeoServerConfig,
     OAuth2Config,
@@ -145,6 +146,35 @@ class TestMCPAuthConfig:
             assert loaded_config.servers["test"].auth_method == AuthMethod.OAUTH2
             # Client secret should be empty when loaded without env var
             assert loaded_config.servers["test"].oauth2_config.client_secret == ""
+
+    def test_load_writes_nothing_to_disk(self, monkeypatch, tmp_path):
+        """Loading the configuration creates no file or directory."""
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        monkeypatch.delenv("APPDATA", raising=False)
+
+        MCPAuthConfig.load()
+
+        assert list(tmp_path.iterdir()) == []
+
+
+class TestAuthMode:
+    """Test the NUXEO_MCP_AUTH_MODE setting."""
+
+    @pytest.mark.parametrize("value", [None, "", "local", " Local "])
+    def test_local(self, monkeypatch, value):
+        """Unset, empty, or any spelling of local means local."""
+        if value is None:
+            monkeypatch.delenv("NUXEO_MCP_AUTH_MODE", raising=False)
+        else:
+            monkeypatch.setenv("NUXEO_MCP_AUTH_MODE", value)
+        assert AuthMode.from_env() == AuthMode.LOCAL
+
+    def test_unsupported_value_is_rejected(self, monkeypatch):
+        """Any other value fails and names the supported ones."""
+        monkeypatch.setenv("NUXEO_MCP_AUTH_MODE", "delegated")
+        with pytest.raises(ValueError, match="supported: local"):
+            AuthMode.from_env()
 
 
 class TestOAuth2Token:

@@ -140,7 +140,9 @@ def test_mcp_tools_registration() -> None:
     """Test that the MCP server registers tools correctly."""
     # Mock the Nuxeo client to avoid actual connection
     with mock.patch("nuxeo_mcp.server.Nuxeo"):
-        server = NuxeoMCPServer(fastmcp_class=MockFastMCP)
+        server = NuxeoMCPServer(
+            username="user", password="pass", fastmcp_class=MockFastMCP
+        )
 
         # Get the list of tools
         tools = server.mcp.list_tools()
@@ -155,7 +157,9 @@ def test_mcp_resources_registration() -> None:
     """Test that the MCP server registers resources correctly."""
     # Mock the Nuxeo client to avoid actual connection
     with mock.patch("nuxeo_mcp.server.Nuxeo"):
-        server = NuxeoMCPServer(fastmcp_class=MockFastMCP)
+        server = NuxeoMCPServer(
+            username="user", password="pass", fastmcp_class=MockFastMCP
+        )
 
         # Get the list of resources
         resources = server.mcp.list_resources()
@@ -224,3 +228,125 @@ def test_oauth2_ignores_a_non_oauth2_default_server(monkeypatch, tmp_path) -> No
 
     server_config = manager.setup.call_args.args[0]
     assert server_config.auth_method == AuthMethod.OAUTH2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "username,password",
+    [(None, "s3cret-pw"), ("user", None), ("user", ""), ("", "s3cret-pw")],
+)
+def test_basic_auth_requires_explicit_credentials(username, password) -> None:
+    """Basic auth refuses to start without both credentials, and never echoes them."""
+    with mock.patch("nuxeo_mcp.server.Nuxeo") as nuxeo_class:
+        with pytest.raises(ValueError, match="NUXEO_USERNAME and NUXEO_PASSWORD") as e:
+            NuxeoMCPServer(
+                username=username, password=password, fastmcp_class=MockFastMCP
+            )
+
+    assert "s3cret-pw" not in str(e.value)
+    nuxeo_class.assert_not_called()
+
+
+@pytest.mark.unit
+def test_health_reports_auth_mode() -> None:
+    """The /health endpoint stays public and reports the auth mode."""
+    import asyncio
+    import json
+
+    with mock.patch("nuxeo_mcp.server.Nuxeo"):
+        server = NuxeoMCPServer(
+            username="user", password="pass", fastmcp_class=MockFastMCP
+        )
+
+    health = server.mcp.custom_routes[0]
+    response = asyncio.run(health["func"](MagicMock()))
+    body = json.loads(response.body)
+    assert health["path"] == "/health"
+    assert body["auth_mode"] == "local"
+    assert body["auth_method"] == "basic"
+
+
+def _prepare_main(monkeypatch, env: Dict[str, str]) -> None:
+    """Give main() a clean environment and command line."""
+    for name in (
+        "NUXEO_URL",
+        "NUXEO_USERNAME",
+        "NUXEO_PASSWORD",
+        "NUXEO_AUTH_METHOD",
+        "NUXEO_MCP_AUTH_MODE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(sys, "argv", ["nuxeo-mcp"])
+
+
+@pytest.mark.unit
+def test_main_refuses_to_start_without_credentials(monkeypatch, caplog) -> None:
+    """With no credentials configured, main() exits instead of running as anyone."""
+    from nuxeo_mcp.server import main
+
+    _prepare_main(monkeypatch, {})
+    caplog.set_level("INFO", logger="nuxeo_mcp")
+    with mock.patch("nuxeo_mcp.server.Nuxeo") as nuxeo_class:
+        with pytest.raises(SystemExit) as e:
+            main()
+
+    assert e.value.code == 1
+    assert "NUXEO_USERNAME and NUXEO_PASSWORD" in caplog.text
+    nuxeo_class.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "name,value,expected",
+    [
+        ("NUXEO_MCP_AUTH_MODE", "delegated", "supported: local"),
+        ("NUXEO_AUTH_METHOD", "jwt", "supported: basic, oauth2"),
+    ],
+)
+def test_main_rejects_unsupported_settings(
+    monkeypatch, caplog, name, value, expected
+) -> None:
+    """An unknown auth mode or auth method stops startup with a clear error."""
+    from nuxeo_mcp.server import main
+
+    _prepare_main(
+        monkeypatch, {"NUXEO_USERNAME": "user", "NUXEO_PASSWORD": "pass", name: value}
+    )
+    with mock.patch("nuxeo_mcp.server.NuxeoMCPServer") as server_class:
+        with pytest.raises(SystemExit) as e:
+            main()
+
+    assert e.value.code == 1
+    assert expected in caplog.text
+    server_class.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "mode,source", [(None, "default"), ("LOCAL", "NUXEO_MCP_AUTH_MODE")]
+)
+def test_main_starts_in_local_mode_and_logs_it(
+    monkeypatch, caplog, mode, source
+) -> None:
+    """main() runs in local mode by default, says so, and never logs the password."""
+    from nuxeo_mcp.config import AuthMode
+    from nuxeo_mcp.server import main
+
+    env = {"NUXEO_USERNAME": "user", "NUXEO_PASSWORD": "s3cret-pw"}
+    if mode:
+        env["NUXEO_MCP_AUTH_MODE"] = mode
+    _prepare_main(monkeypatch, env)
+    caplog.set_level("INFO", logger="nuxeo_mcp")
+    with (
+        mock.patch("nuxeo_mcp.server.Nuxeo"),
+        mock.patch("requests.get"),
+        mock.patch("nuxeo_mcp.server.FastMCP", MockFastMCP),
+        mock.patch.object(NuxeoMCPServer, "run") as run,
+    ):
+        main()
+
+    run.assert_called_once()
+    assert f"Auth mode: local ({source})" in caplog.text
+    assert "s3cret-pw" not in caplog.text

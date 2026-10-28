@@ -8,6 +8,7 @@ HTTP and direct Python imports.
 
 import argparse
 import json
+import os
 import requests
 import sys
 from typing import Dict, Any, Optional
@@ -45,8 +46,12 @@ def call_info_via_import() -> Optional[Dict[str, Any]]:
         # Import the server module
         from nuxeo_mcp.server import NuxeoMCPServer
         
-        # Create a server instance
-        server = NuxeoMCPServer()
+        # Create a server instance; credentials have no default
+        server = NuxeoMCPServer(
+            nuxeo_url=os.environ.get("NUXEO_URL", "http://localhost:8080/nuxeo"),
+            username=os.environ.get("NUXEO_USERNAME"),
+            password=os.environ.get("NUXEO_PASSWORD"),
+        )
         
         # Get the resources
         resources = server.mcp.list_resources()

@@ -20,7 +20,13 @@ from starlette.responses import PlainTextResponse
 from .auth import create_auth_handler
 
 # Import authentication modules
-from .config import AuthMethod, MCPAuthConfig, NuxeoServerConfig, OAuth2Config
+from .config import (
+    AuthMethod,
+    AuthMode,
+    MCPAuthConfig,
+    NuxeoServerConfig,
+    OAuth2Config,
+)
 from .middleware import AuthenticationManager
 from .prompts import register_prompts
 from .resources import register_resources
@@ -42,32 +48,42 @@ class NuxeoMCPServer:
     def __init__(
         self,
         nuxeo_url: str = "http://localhost:8080/nuxeo",
-        username: str = "Administrator",
-        password: str = "Administrator",
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         fastmcp_class: Optional[Type[FastMCP]] = None,
         use_oauth2: bool = False,
         auth_config: Optional[MCPAuthConfig] = None,
+        auth_mode: AuthMode = AuthMode.LOCAL,
     ):
         """
         Initialize the Nuxeo MCP Server.
 
         Args:
             nuxeo_url: URL of the Nuxeo server
-            username: Nuxeo username (for basic auth)
-            password: Nuxeo password (for basic auth)
+            username: Nuxeo username (required for basic auth, no default)
+            password: Nuxeo password (required for basic auth, no default)
             fastmcp_class: FastMCP class to use (for testing)
             use_oauth2: Whether to use OAuth2 authentication
             auth_config: Authentication configuration
+            auth_mode: Whose identity the server uses when calling Nuxeo
         """
         self.nuxeo_url = nuxeo_url
         self.username = username
         self.password = password
         self.use_oauth2 = use_oauth2
+        self.auth_mode = auth_mode
         self.auth_manager = AuthenticationManager()
         self.nuxeo = None
 
         # For basic auth, use simple direct connection (temporary fix)
         if not use_oauth2:
+            # Never fall back to a default identity: a misconfigured deployment
+            # must fail here rather than run as an administrator.
+            if not username or not password:
+                raise ValueError(
+                    "Basic authentication requires NUXEO_USERNAME and "
+                    "NUXEO_PASSWORD; there is no default identity"
+                )
             logger.info(f"Using basic auth with URL: {nuxeo_url}, username: {username}")
             # Direct basic auth connection
             self.nuxeo = Nuxeo(
@@ -141,6 +157,7 @@ class NuxeoMCPServer:
             "nuxeo_url": self.nuxeo_url,
             "username": self.username,
             "auth_method": "oauth2" if use_oauth2 else "basic",
+            "auth_mode": auth_mode.value,
         }
         add_healthcheck(self.mcp, server_info)
 
@@ -158,14 +175,17 @@ class NuxeoMCPServer:
         self.mcp.run()
 
 
-def add_healthcheck(mcp, server_info: Dict[str, str] = None):
+def add_healthcheck(mcp, server_info: Optional[Dict[str, Optional[str]]] = None):
     """Add health check endpoint with server configuration info."""
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> PlainTextResponse:
         import json
 
-        health_data = {"status": "OK", "server": "Nuxeo MCP Server"}
+        health_data: Dict[str, Optional[str]] = {
+            "status": "OK",
+            "server": "Nuxeo MCP Server",
+        }
 
         # Add server configuration info if available
         if server_info:
@@ -207,21 +227,38 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Get configuration from environment variables
-    # Use the hardcoded defaults if not provided
+    # Get configuration from environment variables. Credentials have no
+    # default: basic auth refuses to start without them.
     nuxeo_url = os.environ.get("NUXEO_URL", "http://localhost:8080/nuxeo")
-    username = os.environ.get("NUXEO_USERNAME", "Administrator")
-    password = os.environ.get("NUXEO_PASSWORD", "Administrator")
+    username = os.environ.get("NUXEO_USERNAME")
+    password = os.environ.get("NUXEO_PASSWORD")
     auth_method = os.environ.get("NUXEO_AUTH_METHOD", "basic").lower()
+
+    if auth_method not in ("basic", "oauth2"):
+        logger.error(
+            f"Unsupported NUXEO_AUTH_METHOD {auth_method!r}; supported: basic, oauth2"
+        )
+        sys.exit(1)
+    try:
+        auth_mode = AuthMode.from_env()
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    # Check if OAuth2 should be used
+    use_oauth2 = args.oauth2 or auth_method == "oauth2"
+    mode_source = (
+        "NUXEO_MCP_AUTH_MODE" if os.environ.get("NUXEO_MCP_AUTH_MODE") else "default"
+    )
 
     logger.info(f"Starting Nuxeo MCP Server")
     logger.info(f"  NUXEO_URL from env: {os.environ.get('NUXEO_URL', 'NOT SET')}")
     logger.info(f"  Using URL: {nuxeo_url}")
-    logger.info(f"  Using username: {username}")
-    logger.info(f"  Auth method: {auth_method}")
-
-    # Check if OAuth2 should be used
-    use_oauth2 = args.oauth2 or auth_method == "oauth2"
+    logger.info(f"  Auth method: {'oauth2' if use_oauth2 else 'basic'}")
+    logger.info(
+        f"  Auth mode: {auth_mode.value} ({mode_source}); every caller acts as "
+        "the same Nuxeo identity"
+    )
 
     # Create the server
     try:
@@ -230,6 +267,7 @@ def main() -> None:
             username=username,
             password=password,
             use_oauth2=use_oauth2,
+            auth_mode=auth_mode,
         )
 
         # If OAuth2 and browser auth is enabled, perform initial authentication

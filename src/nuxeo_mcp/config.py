@@ -24,6 +24,29 @@ class AuthMethod(Enum):
     JWT = "jwt"
 
 
+class AuthMode(Enum):
+    """Whose identity the server uses when it calls Nuxeo.
+
+    ``local`` is the only mode: one Nuxeo identity, fixed at startup from the
+    configured credentials, shared by every caller of the server whatever the
+    transport.
+    """
+
+    LOCAL = "local"
+
+    @classmethod
+    def from_env(cls) -> "AuthMode":
+        """Read NUXEO_MCP_AUTH_MODE, defaulting to ``local`` when unset."""
+        value = os.environ.get("NUXEO_MCP_AUTH_MODE") or cls.LOCAL.value
+        try:
+            return cls(value.strip().lower())
+        except ValueError:
+            supported = ", ".join(mode.value for mode in cls)
+            raise ValueError(
+                f"Unsupported NUXEO_MCP_AUTH_MODE {value!r}; supported: {supported}"
+            ) from None
+
+
 @dataclass
 class OAuth2Config:
     """OAuth2 configuration settings."""
@@ -111,9 +134,9 @@ class MCPAuthConfig:
         else:
             base_path = Path.home() / ".config"
 
-        config_dir = base_path / "nuxeo-mcp"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        return config_dir / "auth_config.json"
+        # No mkdir here: loading must not touch the disk. save() creates the
+        # directory when it actually writes the file.
+        return base_path / "nuxeo-mcp" / "auth_config.json"
 
     def save(self) -> None:
         """Save configuration to file."""
