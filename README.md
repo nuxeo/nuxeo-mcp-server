@@ -27,7 +27,7 @@ A Model Context Protocol (MCP) server for interacting with a Nuxeo Content Repos
 
 ## Account Privileges
 
-The MCP server connects to Nuxeo using the credentials you provide through configuration — the `NUXEO_USERNAME`/`NUXEO_PASSWORD` environment variables, or OAuth2 (see below). These are not hardcoded: if left unset, the server falls back to `Administrator`/`Administrator` against a local `http://localhost:8080/nuxeo` dev stack purely as a convenience. Override them for any real deployment. Whichever account is configured is the identity Nuxeo uses to enforce ACLs — the server does not assume or force an administrator. Most tools work with **any authenticated Nuxeo user**; administrator privileges are not required for day-to-day operations.
+The MCP server connects to Nuxeo using the credentials you provide through configuration — the `NUXEO_USERNAME`/`NUXEO_PASSWORD` environment variables, or OAuth2 (see below). There is no default: with Basic authentication the server refuses to start unless both `NUXEO_USERNAME` and `NUXEO_PASSWORD` are set. Whichever account is configured is the identity Nuxeo uses to enforce ACLs — the server does not assume or force an administrator. Most tools work with **any authenticated Nuxeo user**; administrator privileges are not required for day-to-day operations.
 
 | Privilege | Tools |
 |---|---|
@@ -35,9 +35,22 @@ The MCP server connects to Nuxeo using the credentials you provide through confi
 | **Administrator only** | `nuxeo_search_audit_with_query_dsl` — the Nuxeo ES passthrough enforces this server-side and returns HTTP 403 for non-admins, which the MCP tool surfaces as a clear permission error |
 | **Depends on operation** | `nuxeo_execute_operation` — privilege is determined by the specific Nuxeo Automation operation invoked; enforced server-side |
 
-Using a least-privilege account (a regular Nuxeo user) is recommended for production deployments. The `Administrator/Administrator` default is a convenience for local development only.
+Using a least-privilege account (a regular Nuxeo user) is recommended for production deployments.
 
 > **Note:** read and write tools are still subject to per-document ACLs enforced by Nuxeo — a user only sees documents they have `Read` on, and can only modify documents where they have `Write`. The `nuxeo_search_documents_with_query_dsl` tool additionally requires the Nuxeo `/site/es` passthrough to be accessible to non-admin users (a server-side configuration decision); the tool's probe returns a clear `"Permission denied"` error if it is not.
+
+## Authentication Mode
+
+The server calls Nuxeo as **one identity, fixed at startup** from the configured credentials. Every client that reaches the server acts as that Nuxeo user, over stdio and over HTTP alike. This is the `local` mode, set with `NUXEO_MCP_AUTH_MODE`: `local` is the default and the only supported value, and any other value stops the server at startup.
+
+Local mode is single-tenant. It is safe on your own machine or a trusted network; it is not safe exposed to callers who should not all act as the configured Nuxeo user.
+
+| Credential | Use it for | Notes |
+|---|---|---|
+| Basic (`NUXEO_USERNAME` / `NUXEO_PASSWORD`) | Any transport, including the Docker image | The supported configuration for containers. Both variables are required. |
+| OAuth2 (`--oauth2` or `NUXEO_AUTH_METHOD=oauth2`) | stdio, from a desktop MCP client | Not supported in containers: sign-in opens a browser and waits for the redirect on a callback server bound to `localhost`, and inside a container that listener is not reachable from the host's browser. |
+
+With OAuth2, the server keeps the tokens it obtains so you do not sign in on every start: in the operating system's keyring when one is available, otherwise in an encrypted `tokens.enc` file whose key sits beside it, both readable only by your user. The fallback directory is `nuxeo-mcp/tokens` under `~/Library/Application Support` on macOS, `$XDG_DATA_HOME` (default `~/.local/share`) on Linux, and `%APPDATA%` on Windows.
 
 
 ## Quick Start
@@ -45,14 +58,11 @@ Using a least-privilege account (a regular Nuxeo user) is recommended for produc
 ### Basic Authentication (Default)
 
 ```bash
-# Start the MCP server with default settings
-nuxeo-mcp
-
-# With custom configuration
+# Credentials are required; there is no default identity
 NUXEO_URL="http://mynuxeo.example.com/nuxeo" NUXEO_USERNAME="admin" NUXEO_PASSWORD="secret" nuxeo-mcp
 ```
 
-### OAuth2 Authentication (Recommended)
+### OAuth2 Authentication (stdio, desktop only)
 
 ```bash
 # Configure OAuth2 credentials
@@ -95,11 +105,15 @@ docker buildx build --platform linux/amd64 -t nuxeo-mcp-server:latest .
 
 ### Running the Docker Container
 
-Once built, you can run the nuxeo-mcp server in a Docker container:
+Once built, you can run the nuxeo-mcp server in a Docker container. The image uses Basic authentication and refuses to start without `NUXEO_USERNAME` and `NUXEO_PASSWORD`. Every client that reaches the container acts as that Nuxeo user (see [Authentication Mode](#authentication-mode)).
 
 ```bash
-# Run the container in SSE mode (default), exposing port 8181
-docker run -p 8181:8181 --name nuxeo-mcp nuxeo-mcp-server
+# Run the container, exposing port 8181
+docker run -p 8181:8181 --name nuxeo-mcp \
+  -e NUXEO_URL="http://mynuxeo.example.com/nuxeo" \
+  -e NUXEO_USERNAME="admin" \
+  -e NUXEO_PASSWORD="secret" \
+  nuxeo-mcp-server
 ```
 
 ### Environment Variables
@@ -109,21 +123,15 @@ You can configure the nuxeo-mcp server using environment variables:
 #### Authentication Settings
 
 ```bash
-# Basic Authentication (default)
+# Basic Authentication (required in the container)
 docker run -p 8181:8181 \
   -e NUXEO_URL="http://mynuxeo.example.com/nuxeo" \
   -e NUXEO_USERNAME="admin" \
   -e NUXEO_PASSWORD="secret" \
   nuxeo-mcp-server
-
-# OAuth2 Authentication
-docker run -p 8181:8181 \
-  -e NUXEO_URL="https://mynuxeo.example.com/nuxeo" \
-  -e NUXEO_AUTH_METHOD="oauth2" \
-  -e NUXEO_OAUTH_CLIENT_ID="your-client-id" \
-  -e NUXEO_OAUTH_CLIENT_SECRET="your-client-secret" \
-  nuxeo-mcp-server
 ```
+
+OAuth2 is not supported in the container; see [Authentication Mode](#authentication-mode).
 
 #### Server Mode Configuration
 
@@ -136,6 +144,8 @@ The Docker container supports configurable server modes through environment vari
 > **Note:** The `sse` transport is deprecated in FastMCP and scheduled for
 > removal in a future release. New deployments should use `MCP_MODE=http`
 > (streamable-HTTP). The `sse` default is retained for backward compatibility.
+
+These examples leave out the credentials; add the `NUXEO_URL`, `NUXEO_USERNAME` and `NUXEO_PASSWORD` variables shown above.
 
 ```bash
 # Run in HTTP mode
