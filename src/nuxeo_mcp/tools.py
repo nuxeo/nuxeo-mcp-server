@@ -61,14 +61,13 @@ from typing import Union
 ES_PROBE_TIMEOUT = 10
 
 
-def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
+def register_tools(mcp, nuxeo) -> None:
     """
     Register MCP tools with the FastMCP server.
 
     Args:
         mcp: The FastMCP server instance
         nuxeo: The Nuxeo client instance
-        auth_middleware: Optional authentication middleware to wrap tools
     """
 
     def tool(**kwargs):
