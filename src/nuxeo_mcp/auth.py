@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 import aiohttp
 from nuxeo.auth import OAuth2
 from nuxeo.client import Nuxeo
+from nuxeo.exceptions import Forbidden, Unauthorized
 
 from .config import AuthMethod, NuxeoServerConfig
 from .token_store import TokenManager
@@ -261,10 +262,8 @@ class OAuth2AuthHandler:
             # Check for existing valid token
             existing_token = self.token_manager.get_token(self.server_config.url)
             if existing_token and not self._is_token_expired(existing_token):
-                # Check it with Nuxeo as a fresh token is checked: that also
-                # learns the user, and a revoked token leads to a new sign-in
                 self._setup_nuxeo_client(existing_token)
-                if self._validate_token(existing_token):
+                if not self._stored_token_rejected(self.nuxeo_client):
                     logger.info("Using existing valid token")
                     return True
                 logger.info("Stored token was rejected; signing in again")
@@ -384,6 +383,25 @@ class OAuth2AuthHandler:
         if not expires_at:
             return False
         return datetime.now().timestamp() >= expires_at - 60  # 60 second buffer
+
+    def _stored_token_rejected(self, client: Nuxeo) -> bool:
+        """Check a stored token with Nuxeo, learning its user when it is accepted.
+
+        Only a 401 or 403 is a rejection. When Nuxeo cannot be reached the
+        token is kept, as it was before this check existed, and the user stays
+        unknown.
+        """
+        try:
+            response = client.client.request("GET", "/api/v1/me")
+        except (Unauthorized, Forbidden):
+            return True
+        except Exception as e:
+            logger.warning(f"Could not check the stored token with Nuxeo: {e}")
+            return False
+        if response.status_code == 200:
+            self.username = response.json().get("id")
+            logger.info(f"Authenticated as user: {self.username or 'unknown'}")
+        return False
 
     def _validate_token(self, token: Dict[str, Any]) -> bool:
         """Validate token by making a test API request."""

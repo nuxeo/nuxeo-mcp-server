@@ -10,6 +10,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 import pytest
+import requests
+from nuxeo.exceptions import Forbidden, Unauthorized
 
 from nuxeo_mcp.auth import BasicAuthHandler, OAuth2AuthHandler
 from nuxeo_mcp.config import (
@@ -417,12 +419,14 @@ class TestOAuth2AuthHandler:
         assert handler.username == "jdoe"
         start.assert_not_called()
 
+    @pytest.mark.parametrize("refusal", [Unauthorized, Forbidden])
     @patch("nuxeo_mcp.auth.OAuth2")
     @patch("nuxeo_mcp.auth.Nuxeo")
-    def test_rejected_stored_token_signs_in_again(self, mock_nuxeo_class, mock_oauth2):
+    def test_rejected_stored_token_signs_in_again(
+        self, mock_nuxeo_class, mock_oauth2, refusal
+    ):
         """A stored token Nuxeo rejects leads to a new sign-in."""
-        response = mock_nuxeo_class.return_value.client.request.return_value
-        response.status_code = 401
+        mock_nuxeo_class.return_value.client.request.side_effect = refusal()
         handler = self._handler_with_stored_token()
 
         with (
@@ -434,6 +438,21 @@ class TestOAuth2AuthHandler:
             assert handler.authenticate() is False
 
         start.assert_called_once_with(8765)
+        assert handler.username is None
+
+    @patch("nuxeo_mcp.auth.OAuth2")
+    @patch("nuxeo_mcp.auth.Nuxeo")
+    def test_unreachable_nuxeo_keeps_stored_token(self, mock_nuxeo_class, mock_oauth2):
+        """When Nuxeo cannot be reached, the stored token is kept, not replaced."""
+        mock_nuxeo_class.return_value.client.request.side_effect = (
+            requests.ConnectionError("connection refused")
+        )
+        handler = self._handler_with_stored_token()
+
+        with patch.object(handler, "_start_callback_server") as start:
+            assert handler.authenticate() is True
+
+        start.assert_not_called()
         assert handler.username is None
 
 
