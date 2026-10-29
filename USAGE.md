@@ -100,7 +100,7 @@ python -m nuxeo_mcp
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
 | `nuxeo_move_document` | no | yes | no | Move a document, identified by UID, under the folder at target_path. Not idempotent: repeating the call renames the document. To move by path, read the UID with nuxeo_get_document first. |
 | `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo audit log index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
-| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository with a NXQL statement. Read nuxeo://nxql-guide first: it gives the default filter that keeps versions and system documents out. Returns a normalized result envelope. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
+| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. mode='nxql' (default) runs a NXQL statement: read nuxeo://nxql-guide first, it gives the default filter that keeps versions and system documents out. mode='semantic' matches a question or phrase on meaning, only on servers with vector search; elsewhere it fails with an error saying so. Returns a normalized result envelope. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo repository index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
 
@@ -155,8 +155,74 @@ for doc in result["documents"]:
     print(doc["id"], doc["documentType"], doc["title"], doc["path"])
 ```
 
-`mode` defaults to `"nxql"`. `mode="semantic"` is reserved and currently
-reports that it is not yet available.
+`mode` defaults to `"nxql"`.
+
+#### `mode="semantic"`
+
+Matches a question or phrase on meaning rather than keywords, against the Nuxeo
+vector index. **Most Nuxeo servers have no vector index**: there the call fails
+with an error saying semantic search is not available and naming the
+exact-match alternatives (`mode="nxql"` with `ecm:fulltext`, or the Query DSL
+tool). An agent should not retry semantic mode after that error.
+
+**Use it as a fulltext search by meaning, with basic filtering.** It is not a
+general NXQL engine: the query text is the point, and `nxql_filter` is a
+best-effort narrowing over a small set of indexed scalar fields. If you need
+real query expressiveness (conditions on arbitrary properties, `OR`, `LIKE`,
+sorting) use `mode="nxql"`; for aggregations use
+`nuxeo_search_documents_with_query_dsl`.
+
+```python
+result = use_tool("nuxeo", "nuxeo_search_documents", {
+    "query": "what causes musty cork taint from chlorine and mould",
+    "mode": "semantic",
+    # semantic-only, both optional
+    "nxql_filter": "ecm:primaryType = 'File' AND ecm:isProxy = 0 AND ecm:isVersion = 0",
+    "include_snippets": True,
+})
+
+for doc in result["documents"]:
+    print(doc["score"], doc["title"])
+    for passage in doc["snippets"]:
+        print("   ", passage)
+```
+
+Notes:
+
+- **Phrase it as a question or a domain-rich sentence.** Hybrid scoring combines
+  neural and BM25 signals, so two or three keywords rank markedly worse.
+- `interpretedQuery` reports the NXQL that ran: the vector client embeds the
+  `ecm:fulltext` term and still applies the remaining scalar predicates.
+- `nxql_filter` replaces the default
+  `ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 AND ecm:isVersion = 0`.
+  `ecm:isTrashed` is not in the default vector mapping, so trashed documents
+  cannot be filtered out here.
+  **A clause the vector client cannot translate is dropped, not refused**: the
+  filter is not applied, you get more documents than you asked for, and nothing
+  reports it.
+
+  Filterable fields come from the index mapping, not from NXQL. Defaults:
+
+  | Kind | Fields |
+  |---|---|
+  | keyword | `ecm:primaryType`, `ecm:mixinType`, `ecm:ancestorId`, `ecm:tag`, `ecm:uuid`, `ecm:repository` |
+  | path | `ecm:path` |
+  | boolean | `ecm:isProxy`, `ecm:isVersion` |
+  | range | `dc:modified`, `chunk_id` |
+
+  A deployment can extend this with its own mapping file. Anything unmapped
+  (`dc:title`, `dc:description`, custom schema fields) is dropped.
+
+  Operators: `=` `<>` `IN` `NOT IN` `IS [NOT] NULL` on any filterable field;
+  `<` `<=` `>` `>=` `BETWEEN` `NOT BETWEEN` on range fields only; `STARTSWITH`
+  on `ecm:path` only. `OR` and `NOT` discard the whole sub-expression. `LIKE`
+  is never supported. `ORDER BY` is ignored; results are ranked by relevance.
+- `score` is filled only when the search client exposes it; otherwise it stays
+  null.
+- **`totalCount` does not mean "total matches" in this mode.** k-NN has no
+  exhaustive match count, so it reports how many candidates the retrieval
+  considered, and it grows with `page_size`. `hasMore` is true for the same
+  reason. Use it for "there is more to page through", never as a corpus total.
 
 Calling the tool with an empty query returns usage help with a worked example
 instead of an error.
