@@ -14,6 +14,26 @@ import pytest
 from nuxeo_mcp.resources import register_resources
 
 
+@pytest.fixture(autouse=True)
+def _no_live_sampling() -> Any:
+    """Keep guide reads off the network.
+
+    Guides sample field names through a real passthrough client; with NUXEO_URL
+    set and an empty cache, an unmocked read waits for the request timeout.
+    Tests that exercise a sampling outcome patch execute_query themselves, which
+    overrides this.
+    """
+    from nuxeo_mcp import query_dsl
+
+    query_dsl.reset_sample_cache()
+    with patch(
+        "nuxeo_mcp.es_passthrough.ElasticsearchPassthrough.execute_query",
+        return_value={"hits": {"hits": []}},
+    ):
+        yield
+    query_dsl.reset_sample_cache()
+
+
 def _register() -> Dict[str, Callable[..., Any]]:
     captured: Dict[str, Callable[..., Any]] = {}
 
