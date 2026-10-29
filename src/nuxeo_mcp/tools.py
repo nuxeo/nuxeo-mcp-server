@@ -545,9 +545,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         if as_resource:
             return f"nuxeo://{doc.uid}"
 
-        # Handle blob operations if requested
-        blob_info = {}
-
+        # A failed blob, conversion or rendition is a tool error: returned as text,
+        # it reads as the content the caller asked for.
         if fetch_blob:
             try:
                 # built in method do not propagate headers
@@ -570,7 +569,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
                 }
                 return return_blob(blob_info)
             except Exception as e:
-                blob_info["blob_error"] = str(e)
+                raise ToolError(f"Could not fetch the main blob: {e}")
 
         if conversion_format:
             try:
@@ -626,7 +625,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
                 return return_blob(blob_info)
 
             except Exception as e:
-                return str(e)
+                raise ToolError(f"Rendition {rendition!r} failed: {e}")
 
         # Format the document
         result = format_doc(doc)
@@ -823,26 +822,22 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         # Execute the operation
         result = operation.execute()
 
-        # Format and return the result
-        if hasattr(result, "uid"):
-            return {
-                "status": "success",
-                "message": f"Document moved successfully to {target_path}",
-                "uid": result.uid,
-                "path": result.path,
-                "title": (
-                    result.properties.get("dc:title", "")
-                    if hasattr(result, "properties")
-                    else ""
-                ),
-                "url": f"{nuxeo.client.host}/ui/#!/browse{result.path}",
-            }
-        else:
-            return {
-                "status": "success",
-                "message": f"Document moved to {target_path}",
-                "details": str(result),
-            }
+        # Document.Move answers with the document as a JSON dict, not a Document.
+        # Its path is the one to report: on a name conflict Nuxeo renames the
+        # document (name.<timestamp>), so the caller cannot guess it.
+        moved = result.as_dict() if hasattr(result, "as_dict") else result
+        if not isinstance(moved, dict) or not moved.get("uid"):
+            raise ToolError(f"Move returned no document: {result!r}")
+        properties = moved.get("properties") or {}
+        path = moved.get("path")
+        return {
+            "status": "success",
+            "message": f"Document moved to {path}",
+            "uid": moved["uid"],
+            "path": path,
+            "title": moved.get("title") or properties.get("dc:title", ""),
+            "url": f"{nuxeo.client.host}/ui/#!/browse{path}",
+        }
 
     # --- Search -------------------------------------------------------------
     #
