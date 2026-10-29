@@ -77,7 +77,7 @@ nuxeo-mcp --oauth2
 NUXEO_AUTH_METHOD=oauth2 nuxeo-mcp
 ```
 
-See the [Authentication Guide](specs/20_authentication.md) for detailed OAuth2 setup instructions.
+See the [Authentication Guide](specs/20_authentication.md) for registering the OAuth2 client in Nuxeo and the sign-in flow.
 
 ## Documentation
 

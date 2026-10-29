@@ -1,311 +1,153 @@
 # Nuxeo MCP Authentication Guide
 
-## Overview
+## Local mode: one identity
 
-The Nuxeo MCP server now supports multiple authentication methods to securely connect to your Nuxeo instance:
+The server calls Nuxeo as **one identity, fixed at startup**. Every client that
+reaches the server acts as that Nuxeo user, over stdio and over HTTP alike, and
+Nuxeo enforces that user's ACLs on every call.
 
-1. **OAuth2 Authentication** (Recommended) - Browser-based authentication with secure token storage
-2. **Basic Authentication** - Traditional username/password authentication
-3. **JWT Authentication** (Coming soon) - Token-based authentication for service accounts
+This is the `local` mode, set with `NUXEO_MCP_AUTH_MODE`. `local` is the default
+and the only supported value; any other value stops the server at startup.
 
-## OAuth2 Authentication
+Local mode is single-tenant. It is safe on your own machine or a trusted
+network. It is not safe exposed to callers who should not all act as the
+configured Nuxeo user.
 
-### Benefits
+## Choosing a credential
 
-- 🔐 **Enhanced Security** - No need to store passwords, uses secure token exchange
-- 🔄 **Automatic Token Refresh** - Tokens are refreshed automatically when they expire
-- 🔑 **Secure Storage** - Tokens are stored in OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-- 🌐 **Browser-Based** - Familiar login experience through your browser
-- 🛡️ **PKCE Protection** - Uses Proof Key for Code Exchange for enhanced security
+| Credential | Use it for | Notes |
+|---|---|---|
+| Basic (`NUXEO_USERNAME` / `NUXEO_PASSWORD`) | Any transport, including the Docker image | The supported configuration for containers. Both variables are required. |
+| OAuth2 (`--oauth2` or `NUXEO_AUTH_METHOD=oauth2`) | stdio, from a desktop MCP client | Not supported in containers, see below. |
 
-### Setup
+`NUXEO_AUTH_METHOD` accepts `basic` (default) or `oauth2`; any other value stops
+the server at startup.
 
-#### 1. Configure OAuth2 Client in Nuxeo
-
-First, register an OAuth2 client in your Nuxeo server:
-
-1. Log in to your Nuxeo Web UI as an administrator
-2. Navigate to **Administration** > **Cloud Services** > **Consumers** tab
-3. Click **Add** to create a new OAuth2 consumer
-4. Configure the client:
-   - **Name**: `nuxeo-mcp`
-   - **Client ID**: `nuxeo-mcp-client` (or your preferred ID)
-   - **Client Secret**: Generate a secure secret
-   - **Redirect URIs**: Add `http://localhost:*` to allow any local port
-5. Click **Save**
-
-#### 2. Configure Environment Variables
-
-Set the following environment variables:
+## Basic authentication
 
 ```bash
-# Required OAuth2 configuration
-export NUXEO_URL="https://your-nuxeo-instance.com/nuxeo"
-export NUXEO_AUTH_METHOD="oauth2"
-export NUXEO_OAUTH_CLIENT_ID="nuxeo-mcp-client"
-export NUXEO_OAUTH_CLIENT_SECRET="your-client-secret"
-
-# Optional: Specify a fixed callback port (default: auto-detect)
-export NUXEO_OAUTH_REDIRECT_PORT="8888"
-
-# Optional: Custom OAuth2 endpoints (if not using standard Nuxeo endpoints)
-export NUXEO_OAUTH_AUTH_ENDPOINT="https://your-nuxeo-instance.com/nuxeo/oauth2/authorize"
-export NUXEO_OAUTH_TOKEN_ENDPOINT="https://your-nuxeo-instance.com/nuxeo/oauth2/token"
-```
-
-#### 3. Start the MCP Server with OAuth2
-
-```bash
-# Start with OAuth2 authentication (browser will open automatically)
-nuxeo-mcp --oauth2
-
-# Start without opening browser (manual authentication)
-nuxeo-mcp --oauth2 --no-browser
-
-# Or use environment variable
-NUXEO_AUTH_METHOD=oauth2 nuxeo-mcp
-```
-
-### Authentication Flow
-
-1. When the MCP server starts with OAuth2 enabled, it will:
-   - Check for existing valid tokens in secure storage
-   - If no valid tokens found, open your default browser
-   - Direct you to the Nuxeo login page
-
-2. After successful login:
-   - You'll be redirected to a local callback URL
-   - The MCP server captures the authorization code
-   - Exchanges it for access and refresh tokens
-   - Stores tokens securely in your OS keychain
-   - The browser window closes automatically
-
-3. For subsequent connections:
-   - Tokens are retrieved from secure storage
-   - Automatically refreshed when needed
-   - No browser interaction required
-
-### Configuration File
-
-You can also use a configuration file for persistent settings:
-
-**Location:**
-- macOS: `~/Library/Application Support/nuxeo-mcp/auth_config.json`
-- Linux: `~/.config/nuxeo-mcp/auth_config.json`
-- Windows: `%APPDATA%\nuxeo-mcp\auth_config.json`
-
-**Example Configuration:**
-
-```json
-{
-  "servers": {
-    "production": {
-      "url": "https://prod.nuxeo.com/nuxeo",
-      "auth_method": "oauth2",
-      "oauth2_config": {
-        "client_id": "nuxeo-mcp-client",
-        "client_secret": "***",
-        "scope": "openid profile email"
-      }
-    },
-    "staging": {
-      "url": "https://staging.nuxeo.com/nuxeo",
-      "auth_method": "oauth2",
-      "oauth2_config": {
-        "client_id": "nuxeo-mcp-client-staging",
-        "client_secret": "***"
-      }
-    }
-  },
-  "default_server": "production",
-  "enable_browser_auth": true,
-  "token_storage_backend": "keyring"
-}
-```
-
-**Note:** Client secrets are masked in the config file. Provide them via environment variables:
-```bash
-export NUXEO_OAUTH_CLIENT_SECRET_PRODUCTION="actual-secret"
-export NUXEO_OAUTH_CLIENT_SECRET_STAGING="staging-secret"
-```
-
-## Basic Authentication
-
-### Setup
-
-Basic authentication is the default method and requires only username and password:
-
-```bash
-# Using environment variables
 export NUXEO_URL="http://localhost:8080/nuxeo"
-export NUXEO_USERNAME="Administrator"
-export NUXEO_PASSWORD="Administrator"
-
-# Start the server
+export NUXEO_USERNAME="alice"
+export NUXEO_PASSWORD="secret"
 nuxeo-mcp
 ```
 
-Or pass directly when starting:
+- **There is no default identity.** Without both variables the server refuses to
+  start.
+- At startup the server checks the credentials against `/api/v1/me`. If Nuxeo
+  rejects them (HTTP 401 or 403) the server stops, since no restart can fix
+  them. If Nuxeo cannot be reached it logs the failure and starts anyway, as
+  Nuxeo may still be starting.
+- The password never appears in logs or error messages.
+- Prefer a regular Nuxeo user over an administrator; see the README's Account
+  Privileges section for what each tool needs.
+- Basic authentication sends the credentials on every request: use HTTPS to
+  reach any Nuxeo that is not on your machine.
+
+## OAuth2 authentication (stdio, desktop only)
+
+OAuth2 signs you in through your browser and keeps the resulting tokens, so you
+do not handle a password. It is meant for running the server over stdio from a
+desktop MCP client.
+
+**It does not work in a container.** Sign-in opens a browser and waits for the
+redirect on a callback server bound to `localhost` inside the server process; in
+a container that listener is not reachable from the host's browser. Use Basic
+authentication there.
+
+### 1. Register an OAuth2 client in Nuxeo
+
+As an administrator, register a client through the REST API. The redirect URI
+must match the callback the server listens on, `http://localhost:<port>/callback`,
+so pick a fixed port:
 
 ```bash
-NUXEO_USERNAME="admin" NUXEO_PASSWORD="secret" nuxeo-mcp
+curl -u Administrator:<password> -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/nuxeo/api/v1/oauth2/client -d '{
+    "entity-type": "oauth2Client",
+    "id": "nuxeo-mcp",
+    "name": "Nuxeo MCP server",
+    "secret": "<client secret>",
+    "redirectURIs": ["http://localhost:8888/callback"],
+    "isAutoGrant": true,
+    "isEnabled": true
+  }'
 ```
 
-### Security Considerations
+`GET /api/v1/oauth2/client` lists the registered clients.
 
-⚠️ **Warning:** Basic authentication sends credentials with every request. Use OAuth2 for production environments.
+### 2. Configure and start
 
-## Token Storage
+```bash
+export NUXEO_URL="http://localhost:8080/nuxeo"
+export NUXEO_OAUTH_CLIENT_ID="nuxeo-mcp"
+export NUXEO_OAUTH_CLIENT_SECRET="<client secret>"
+export NUXEO_OAUTH_REDIRECT_PORT="8888"   # must match the registered redirect URI
 
-### Secure Storage Backends
+nuxeo-mcp --oauth2
+# or: NUXEO_AUTH_METHOD=oauth2 nuxeo-mcp
+```
 
-1. **OS Keychain** (Default)
-   - macOS: Keychain Access
-   - Windows: Credential Manager
-   - Linux: Secret Service (gnome-keyring, KWallet)
+Optional variables:
 
-2. **Encrypted File** (Fallback)
-   - Used when keychain is unavailable
-   - Stored in user's data directory
-   - Encrypted with user-specific key
-   - File permissions set to owner-only (600)
+| Variable | Default |
+|---|---|
+| `NUXEO_OAUTH_REDIRECT_PORT` | a free port picked at startup; set it, or the redirect URI will not match |
+| `NUXEO_OAUTH_SCOPE` | `openid profile email` |
+| `NUXEO_OAUTH_AUTH_ENDPOINT`, `NUXEO_OAUTH_TOKEN_ENDPOINT` | Nuxeo's own `/oauth2/authorize` and `/oauth2/token` |
+| `NUXEO_OAUTH_OPENID_URL` | none; when set, the endpoints are read from this OpenID configuration |
 
-### Managing Stored Tokens
+### 3. Sign-in flow
 
-To clear stored tokens:
+1. At startup the server looks for a stored token for `NUXEO_URL` and checks it
+   with Nuxeo. A valid token is reused without a browser.
+2. Without one, or if Nuxeo rejects it (HTTP 401 or 403), the server opens your
+   browser on the Nuxeo sign-in page, using PKCE, and waits up to 5 minutes for
+   the redirect.
+3. It exchanges the code for tokens, stores them, and starts. Expired tokens are
+   refreshed with the refresh token.
+4. If Nuxeo cannot be reached when checking a stored token, the token is kept,
+   not discarded.
+
+`/health` reports `auth_method: oauth2` and the signed-in user.
+
+### Token storage
+
+Tokens are kept in the operating system's keyring when one is available
+(macOS Keychain, Windows Credential Manager, Linux Secret Service). Otherwise
+they go in an encrypted `tokens.enc` file whose key sits beside it, both
+readable only by your user. The fallback directory is `nuxeo-mcp/tokens` under
+`~/Library/Application Support` on macOS, `$XDG_DATA_HOME` (default
+`~/.local/share`) on Linux, and `%APPDATA%` on Windows.
+
+To sign in again from scratch, clear the stored tokens:
 
 ```python
 from nuxeo_mcp.token_store import TokenManager
 
-# Clear all tokens
-token_manager = TokenManager()
-token_manager.clear_all_tokens()
-
-# Clear tokens for specific server
-token_manager.delete_token("https://prod.nuxeo.com/nuxeo")
+TokenManager().delete_token("http://localhost:8080/nuxeo")  # one server
+TokenManager().clear_all_tokens()                           # all
 ```
+
+### Known limitation
+
+`--no-browser` does not prevent the browser from opening: the server signs in
+while it is being created, before the flag is read.
 
 ## Troubleshooting
 
-### OAuth2 Issues
+**The server stops with "requires NUXEO_USERNAME and NUXEO_PASSWORD".** Basic
+authentication has no default identity; set both variables.
 
-**Browser doesn't open:**
-- Check if `NUXEO_OAUTH_CLIENT_ID` and `NUXEO_OAUTH_CLIENT_SECRET` are set
-- Try manual authentication with `--no-browser` flag
-- Verify the OAuth2 client is properly configured in Nuxeo
+**The server stops with "Nuxeo rejected the credentials".** Nuxeo answered 401
+or 403 to `/api/v1/me`; fix the username or password.
 
-**Authentication fails:**
-- Verify redirect URI in Nuxeo matches `http://localhost:*`
-- Check client ID and secret are correct
-- Ensure user has proper permissions in Nuxeo
+**OAuth2 sign-in fails after the browser redirect.** Check that the registered
+redirect URI is exactly `http://localhost:<NUXEO_OAUTH_REDIRECT_PORT>/callback`
+and that the client id and secret match.
 
-**Token refresh fails:**
-- Tokens may have expired completely
-- Run `nuxeo-mcp --oauth2` to re-authenticate
-- Check network connectivity to Nuxeo server
+**OAuth2 in Docker never completes.** Expected: use Basic authentication in
+containers.
 
-### Storage Issues
-
-**Keyring not available:**
-- Install keyring dependencies for your OS
-- Falls back to encrypted file storage automatically
-- Check file permissions in `~/.local/share/nuxeo-mcp/tokens/`
-
-**Permission denied errors:**
-- Ensure you have write access to config directory
-- Check file ownership and permissions
-- Try clearing corrupted token storage
-
-## Security Best Practices
-
-1. **Use OAuth2 for Production**
-   - Never use basic auth over unencrypted connections
-   - OAuth2 provides better security with token rotation
-
-2. **Protect Client Secrets**
-   - Never commit secrets to version control
-   - Use environment variables or secure vaults
-   - Rotate secrets regularly
-
-3. **Token Security**
-   - Tokens are automatically encrypted at rest
-   - Use OS keychain when available
-   - Set appropriate file permissions for fallback storage
-
-4. **Network Security**
-   - Always use HTTPS in production
-   - Verify SSL certificates
-   - Use VPN for additional security when needed
-
-## Migration from Basic Auth
-
-To migrate existing setups from basic authentication to OAuth2:
-
-1. Register OAuth2 client in Nuxeo (see setup above)
-2. Update environment variables:
-   ```bash
-   # Change from:
-   export NUXEO_USERNAME="admin"
-   export NUXEO_PASSWORD="password"
-   
-   # To:
-   export NUXEO_AUTH_METHOD="oauth2"
-   export NUXEO_OAUTH_CLIENT_ID="your-client-id"
-   export NUXEO_OAUTH_CLIENT_SECRET="your-secret"
-   ```
-3. Run `nuxeo-mcp --oauth2` to authenticate
-4. Tokens will be stored securely for future use
-
-## Advanced Configuration
-
-### Custom OAuth2 Endpoints
-
-For non-standard Nuxeo installations:
-
-```bash
-export NUXEO_OAUTH_AUTH_ENDPOINT="https://custom-auth.example.com/authorize"
-export NUXEO_OAUTH_TOKEN_ENDPOINT="https://custom-auth.example.com/token"
-export NUXEO_OAUTH_OPENID_URL="https://custom-auth.example.com/.well-known/openid-configuration"
-```
-
-### Multiple Nuxeo Instances
-
-Use the configuration file to manage multiple instances:
-
-```python
-from nuxeo_mcp.config import MCPAuthConfig, NuxeoServerConfig, OAuth2Config
-
-config = MCPAuthConfig()
-
-# Add production server
-prod_oauth = OAuth2Config(
-    client_id="prod-client",
-    client_secret="prod-secret"
-)
-config.add_server("production", NuxeoServerConfig(
-    url="https://prod.nuxeo.com/nuxeo",
-    auth_method=AuthMethod.OAUTH2,
-    oauth2_config=prod_oauth
-))
-
-# Add staging server
-staging_oauth = OAuth2Config(
-    client_id="staging-client",
-    client_secret="staging-secret"
-)
-config.add_server("staging", NuxeoServerConfig(
-    url="https://staging.nuxeo.com/nuxeo",
-    auth_method=AuthMethod.OAUTH2,
-    oauth2_config=staging_oauth
-))
-
-config.default_server = "production"
-config.save()
-```
-
-## Support
-
-For issues or questions:
-- Check the [troubleshooting section](#troubleshooting)
-- Review [Nuxeo OAuth2 documentation](https://doc.nuxeo.com/nxdoc/using-oauth2/)
-- Open an issue on GitHub
+**No keyring available.** The encrypted file fallback is used automatically;
+check the permissions of the fallback directory above.
