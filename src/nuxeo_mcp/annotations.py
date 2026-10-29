@@ -76,11 +76,10 @@ TOOL_ANNOTATIONS: Dict[str, ToolAnnotations] = {
     "nuxeo_update_metadata": _write(
         "Update document metadata", destructive=True, idempotent=True
     ),
-    # Moving is reversible in principle but changes the path other references
-    # rely on, and a second identical move is a no-op.
-    "nuxeo_move_document": _write(
-        "Move or rename a document", destructive=True, idempotent=True
-    ),
+    # Not idempotent: the source is a UID, which survives the move, so a replay
+    # moves the document into the folder it is already in and Nuxeo renames it
+    # with a timestamp suffix (verified on LTS 2025).
+    "nuxeo_move_document": _write("Move or rename a document", destructive=True),
     "nuxeo_delete_document": _write(
         "Delete a document", destructive=True, idempotent=True
     ),

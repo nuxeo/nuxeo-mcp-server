@@ -215,3 +215,10 @@ def test_only_caller_supplied_payload_tools_are_open_world(mcp: FastMCP) -> None
         "nuxeo_search_documents_with_query_dsl",
         "nuxeo_search_audit_with_query_dsl",
     }
+
+
+def test_move_is_not_declared_idempotent() -> None:
+    """A replayed move, by UID, renames the document with a timestamp suffix."""
+    from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
+
+    assert TOOL_ANNOTATIONS["nuxeo_move_document"].idempotent_hint is False

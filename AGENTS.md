@@ -107,7 +107,7 @@ Tools are registered via `register_tools(mcp, nuxeo, auth_middleware=None)`.
 | Tool | Read-only | Destructive | Open-world | Description |
 |------|-----------|-------------|------------|-------------|
 | `nuxeo_create_document` | no | no | no | Create a new document in the Nuxeo repository with optional file attachment. To confirm the result, read it back with nuxeo_get_document; search may not see it yet. |
-| `nuxeo_delete_document` | no | yes | no | Delete a document from the Nuxeo repository |
+| `nuxeo_delete_document` | no | yes | no | Delete a document from the Nuxeo repository, by UID. To delete by path, read the UID with nuxeo_get_document first. |
 | `nuxeo_execute_operation` | no | yes | yes | Execute a Nuxeo Operation with the specified parameters and input |
 | `nuxeo_get_document` | yes | no | no | Get a document from the Nuxeo repository |
 | `nuxeo_get_metadata_schema` | yes | no | no | Get detailed information about schemas defined in the Nuxeo server |
@@ -115,7 +115,7 @@ Tools are registered via `register_tools(mcp, nuxeo, auth_middleware=None)`.
 | `nuxeo_list_children` | yes | no | no | list children of a folder document |
 | `nuxeo_list_document_types` | yes | no | no | Get information about document types and schemas defined in the Nuxeo server |
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
-| `nuxeo_move_document` | no | yes | no | Move a document to a different location in the Nuxeo repository |
+| `nuxeo_move_document` | no | yes | no | Move a document, identified by UID, under the folder at target_path. Not idempotent: repeating the call renames the document. To move by path, read the UID with nuxeo_get_document first. |
 | `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo audit log index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
 | `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository with a NXQL statement. Read nuxeo://nxql-guide first: it gives the default filter that keeps versions and system documents out. Returns a normalized result envelope. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo repository index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
