@@ -71,16 +71,6 @@ ToolFunction = Callable[[Dict[str, Any]], Dict[str, Any]]
 _IMPLEMENTED_MODES = (MODE_NATURAL, MODE_NXQL)
 
 
-def _escape_nxql_literal(value: str) -> str:
-    """Escape ``value`` for use inside single quotes in an NXQL statement.
-
-    NXQL escapes with a backslash, not by doubling the quote, so ``Alice's``
-    becomes ``Alice\\'s``. Backslashes go first, or the ones added here would
-    themselves be escaped.
-    """
-    return value.replace("\\", "\\\\").replace("'", "\\'")
-
-
 class DocRef(BaseModel):
     path: Annotated[str | None, Field(description="Repository path")] = None
     uid: Annotated[str | None, Field(description="Nuxeo UID")] = None
@@ -952,24 +942,29 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         degraded = None
 
         if mode == MODE_NATURAL:
-            from nuxeo_mcp.nl_parser import NaturalLanguageParser, NXQLBuilder
+            from nuxeo_mcp.nl_parser import (
+                NaturalLanguageParser,
+                NXQLBuilder,
+                quote_nxql_literal,
+            )
 
             try:
                 parsed = NaturalLanguageParser().parse(query)
                 nxql = NXQLBuilder(parsed).build()
-                if parsed.limit and parsed.limit < page_size:
+                # "top 5" shrinks the first page only: applied to a later page it
+                # would shift the boundaries of the pagination the caller asked for.
+                if parsed.limit and parsed.limit < page_size and page_index == 0:
                     page_size = parsed.limit
             except Exception as e:
                 # A parse failure must not look like "no documents match", so fall
                 # back to fulltext and say so rather than returning an empty page.
                 logger.warning(f"Natural language parsing failed: {e}; using fulltext")
-                terms = _escape_nxql_literal(
-                    " ".join(
-                        w for w in query.split() if w.lower() not in _NL_STOP_WORDS
-                    )
+                terms = " ".join(
+                    w for w in query.split() if w.lower() not in _NL_STOP_WORDS
                 )
                 nxql = (
-                    f"SELECT * FROM Document WHERE ecm:fulltext = '{terms}'"
+                    "SELECT * FROM Document WHERE ecm:fulltext = "
+                    f"{quote_nxql_literal(terms)}"
                     if terms
                     else "SELECT * FROM Document"
                 )
