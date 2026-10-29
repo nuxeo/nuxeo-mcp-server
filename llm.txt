@@ -80,6 +80,7 @@ Read:
    - Read `nuxeo://nxql-guide` first and start from its default filter: `ecm:mixinType != 'HiddenInNavigation' AND ecm:isProxy = 0 AND ecm:isVersion = 0 AND ecm:isTrashed = 0`
    - Returns: `documents[]` (id, documentType, title, path, createdAt, modifiedAt, createdBy, modifiedBy, metadata, score, snippets, extensions) plus totalCount, pageIndex, pageSize, hasMore, mode, interpretedQuery, degraded
    - For counts or groupings use `nuxeo_search_documents_with_query_dsl`.
+   - `"mode": "semantic"` matches a question on meaning, only on servers with vector search; elsewhere it fails with an error saying so: then search by exact terms with NXQL `ecm:fulltext` and do not retry semantic. Optional `nxql_filter` and `include_snippets`.
 5. `nuxeo_search_documents_with_query_dsl` - `{"query": {<OpenSearch request body>}}`
    - Read `nuxeo://query-dsl-guide` first. Returns the engine response plus `_nuxeo_executed_query` and, on empty results, `_nuxeo_hint`.
 6. `nuxeo_search_audit_with_query_dsl` - `{"query": {<OpenSearch request body>}}`

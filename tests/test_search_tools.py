@@ -157,23 +157,159 @@ def test_unknown_mode_is_rejected() -> None:
     assert "Unknown mode" in str(excinfo.value)
 
 
-def test_semantic_mode_is_announced_as_unavailable() -> None:
+# ---------------------------------------------------------------------------
+# mode="semantic"
+# ---------------------------------------------------------------------------
+
+SEMANTIC_RESPONSE = {
+    "resultsCount": 2,
+    "currentPageIndex": 0,
+    "pageSize": 10,
+    "isNextPageAvailable": False,
+    "entries": [
+        {
+            "entity-type": "document",
+            "uid": "uuid-1",
+            "path": "/default-domain/workspaces/cork.pdf",
+            "type": "File",
+            "title": "Cork taint",
+            "properties": {"dc:title": "Cork taint"},
+            "contextParameters": {
+                "score": 0.82,
+                "highlight": [
+                    {
+                        "field": "ecm:binarytext",
+                        "segments": ["chlorine reacts with\nmould to form TCA"],
+                    }
+                ],
+            },
+        },
+        {
+            "entity-type": "document",
+            "uid": "uuid-2",
+            "path": "/default-domain/workspaces/note",
+            "type": "Note",
+            "properties": {},
+        },
+    ],
+}
+
+
+def _semantic_nuxeo(response_json: Any = None, raise_exc: Any = None) -> MagicMock:
+    nuxeo = _make_nuxeo()
+    if raise_exc is not None:
+        nuxeo.client.request.side_effect = raise_exc
+    else:
+        response = MagicMock()
+        response.json.return_value = (
+            SEMANTIC_RESPONSE if response_json is None else response_json
+        )
+        nuxeo.client.request.return_value = response
+    return nuxeo
+
+
+def test_semantic_mode_returns_the_same_envelope() -> None:
+    """A mode changes how the query is expressed, never the shape of the answer."""
+    nuxeo = _semantic_nuxeo()
+    result = _search_tool(nuxeo)("why does cork smell musty", mode="semantic")
+
+    assert result.mode == "semantic"
+    assert result.totalCount == 2
+    assert [d.id for d in result.documents] == ["uuid-1", "uuid-2"]
+    # Ranked mode: score and snippets are populated where the engine supplied them,
+    # and present-but-empty where it did not -- never absent.
+    assert result.documents[0].score == 0.82
+    assert result.documents[0].snippets == ["chlorine reacts with mould to form TCA"]
+    assert result.documents[1].score is None
+    assert result.documents[1].snippets == []
+
+
+def test_semantic_mode_reports_the_executed_nxql() -> None:
+    nuxeo = _semantic_nuxeo()
+    result = _search_tool(nuxeo)("musty cork", mode="semantic")
+
+    params = nuxeo.client.request.call_args.kwargs["params"]
+    assert params["index"] == "vector"
+    assert params["queryParams"] == result.interpretedQuery
+    assert result.interpretedQuery == (
+        "SELECT * FROM Document WHERE ecm:fulltext = 'musty cork' "
+        "AND ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 "
+        "AND ecm:isVersion = 0"
+    )
+
+
+def test_semantic_mode_escapes_the_query_literal() -> None:
+    """Backslash escaping, as NXQL requires -- not a doubled quote."""
+    nuxeo = _semantic_nuxeo()
+    _search_tool(nuxeo)("Alice's report", mode="semantic")
+
+    assert (
+        nuxeo.client.request.call_args.kwargs["params"]["queryParams"]
+        == "SELECT * FROM Document WHERE ecm:fulltext = 'Alice\\'s report' "
+        "AND ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 "
+        "AND ecm:isVersion = 0"
+    )
+
+
+def test_semantic_mode_accepts_a_custom_filter() -> None:
+    nuxeo = _semantic_nuxeo()
+    _search_tool(nuxeo)("cork", mode="semantic", nxql_filter="ecm:primaryType = 'File'")
+
+    assert nuxeo.client.request.call_args.kwargs["params"]["queryParams"].endswith(
+        "AND ecm:primaryType = 'File'"
+    )
+
+
+def test_semantic_mode_can_omit_snippets() -> None:
+    nuxeo = _semantic_nuxeo()
+    result = _search_tool(nuxeo)("cork", mode="semantic", include_snippets=False)
+
+    assert result.documents[0].snippets == []
+    # The score is evidence of ranking, not a passage, so it survives.
+    assert result.documents[0].score == 0.82
+
+
+def test_semantic_mode_requests_both_enrichers() -> None:
+    """score needs 2025.22+; asking for it on an older server is harmless."""
+    nuxeo = _semantic_nuxeo()
+    _search_tool(nuxeo)("cork", mode="semantic")
+
+    headers = nuxeo.client.request.call_args.kwargs["headers"]
+    assert "highlight" in headers["enrichers-document"]
+    assert "score" in headers["enrichers-document"]
+
+
+def test_semantic_mode_says_the_server_has_no_vector_search() -> None:
+    """Most servers have no vector index: say so, and name the exact-match tools."""
+    nuxeo = _semantic_nuxeo(
+        raise_exc=Exception(
+            'HTTPError(400), error: "Invalid page provider configuration '
+            "'search_check_nxql': Configured indexes [vector] not found for "
+            "repository 'default'\""
+        )
+    )
+
     with pytest.raises(ToolError) as excinfo:
-        _search_tool()("anything", mode="semantic")
+        _search_tool(nuxeo)("cork", mode="semantic")
 
-    # The MCP server lacks it, not Nuxeo: say so rather than "on this server".
-    assert "not implemented yet in this MCP server" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "not available on this Nuxeo server" in message
+    assert "Do not retry mode='semantic'" in message
+    assert "ecm:fulltext" in message
+    assert "nuxeo_search_documents_with_query_dsl" in message
 
 
-def test_semantic_mode_is_not_advertised() -> None:
-    """A listed mode invites a call that can only fail."""
-    tool = _search_tool()
-    mode_doc = next(line for line in tool.__doc__.splitlines() if "mode:" in line)
+def test_semantic_mode_reports_other_failures_in_the_engine_words() -> None:
+    """A model still deploying is not "no vector search": do not claim it is."""
+    engine_error = "Model not ready yet. Please deploy the model first."
+    nuxeo = _semantic_nuxeo(raise_exc=Exception(engine_error))
 
-    assert "semantic" not in mode_doc
     with pytest.raises(ToolError) as excinfo:
-        tool("anything", mode="sparql")
-    assert "semantic" not in str(excinfo.value)
+        _search_tool(nuxeo)("cork", mode="semantic")
+
+    message = str(excinfo.value)
+    assert engine_error in message
+    assert "not available on this Nuxeo server" not in message
 
 
 def test_page_size_is_clamped() -> None:
