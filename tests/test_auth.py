@@ -557,3 +557,28 @@ def test_authorization_url_uses_the_real_nuxeo_client() -> None:
 
     with socket.socket() as probe:
         assert probe.connect_ex(("localhost", 18777)) != 0
+
+def test_token_manager_falls_back_when_the_keyring_is_locked(tmp_path) -> None:
+    """A locked keyring (e.g. over SSH) must not lose the token after sign-in."""
+    from unittest.mock import patch
+
+    from nuxeo_mcp import token_store
+
+    # keyring is an optional dependency: fake a present-but-locked one, so the
+    # test means the same with or without the package installed.
+    locked = MagicMock()
+    locked.get_password.side_effect = Exception("Failed to unlock the collection!")
+    with (
+        patch.object(token_store, "KEYRING_AVAILABLE", True),
+        patch.object(token_store, "keyring", locked, create=True),
+        patch.object(
+            token_store.EncryptedFileStorage,
+            "_get_default_storage_dir",
+            staticmethod(lambda: tmp_path),
+        ),
+    ):
+        manager = token_store.TokenManager()
+        manager.store_token("http://nuxeo.test", {"access_token": "a"})
+
+        assert isinstance(manager.storage, token_store.EncryptedFileStorage)
+        assert manager.get_token("http://nuxeo.test")["access_token"] == "a"
