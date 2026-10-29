@@ -15,6 +15,16 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 
+def _quoted(match: "re.Match[str]") -> str:
+    """Return the first group that matched.
+
+    Quoted values are matched as ``"..."`` or ``'...'`` in separate groups, so
+    an apostrophe inside double quotes (``"Alice's report"``) is kept rather
+    than ending the value.
+    """
+    return next(g for g in match.groups() if g is not None)
+
+
 def quote_nxql_literal(value: str) -> str:
     """Return ``value`` as a single-quoted NXQL string literal.
 
@@ -306,18 +316,21 @@ class NaturalLanguageParser:
     ) -> Optional[Dict[str, Any]]:
         """Extract title/name conditions"""
         patterns = [
-            (r'(?:named|called|titled|with title)\s+["\']([^"\']+)["\']', "="),
+            (r'(?:named|called|titled|with title)\s+(?:"([^"]+)"|\'([^\']+)\')', "="),
             (
-                r'(?:with title containing|title contains?|name contains?)\s+["\']([^"\']+)["\']',
+                r'(?:with title containing|title contains?|name contains?)\s+(?:"([^"]+)"|\'([^\']+)\')',
                 "LIKE",
             ),
-            (r'(?:title starts? with|name starts? with)\s+["\']([^"\']+)["\']', "LIKE"),
+            (
+                r'(?:title starts? with|name starts? with)\s+(?:"([^"]+)"|\'([^\']+)\')',
+                "LIKE",
+            ),
         ]
 
         for pattern, operator in patterns:
             match = re.search(pattern, original_query, re.IGNORECASE)
             if match:
-                title = match.group(1)
+                title = _quoted(match)
                 if operator == "LIKE":
                     if "starts with" in query_lower:
                         value = quote_nxql_literal(f"{title}%")
@@ -340,14 +353,14 @@ class NaturalLanguageParser:
             return None
 
         patterns = [
-            r'(?:containing|with content|with text|search for)\s+["\']([^"\']+)["\']',
+            r'(?:containing|with content|with text|search for)\s+(?:"([^"]+)"|\'([^\']+)\')',
             r"(?:containing|with content|with text|search for)\s+(\w+(?:\s+\w+)*?)(?:\s+(?:and|or|from|by|created|modified|in|under|not)|$)",
         ]
 
         for pattern in patterns:
             match = re.search(pattern, original_query, re.IGNORECASE)
             if match:
-                keywords = match.group(1).strip()
+                keywords = _quoted(match).strip()
                 # Don't create fulltext condition if keywords are time-related or user-related
                 skip_words = [
                     "today",
@@ -372,16 +385,16 @@ class NaturalLanguageParser:
     ) -> Optional[Dict[str, Any]]:
         """Extract path conditions"""
         patterns = [
-            r'(?:in folder|under|in path|in)\s+["\']([^"\']+)["\']',
+            r'(?:in folder|under|in path|in)\s+(?:"([^"]+)"|\'([^\']+)\')',
             r"(?:in folder|under|in path|in)\s+(/[\w\-/]+)",
-            r'(?:from|within)\s+["\']([^"\']+)["\']',
+            r'(?:from|within)\s+(?:"([^"]+)"|\'([^\']+)\')',
             r"(?:from|within)\s+(/[\w\-/]+)",
         ]
 
         for pattern in patterns:
             match = re.search(pattern, original_query, re.IGNORECASE)
             if match:
-                path = match.group(1)
+                path = _quoted(match)
                 if not path.startswith("/"):
                     path = "/" + path
                 return {

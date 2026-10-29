@@ -358,6 +358,15 @@ def test_natural_mode_escapes_literals_when_parsing_succeeds() -> None:
     assert result.degraded is None
 
 
+def test_natural_mode_keeps_an_apostrophe_inside_double_quotes() -> None:
+    """The apostrophe must not end the quoted value: "Alice's" is not "Alice"."""
+    nuxeo = _make_nuxeo()
+    _search_tool(nuxeo)('documents titled "Alice\'s report"', mode="natural")
+
+    executed = nuxeo.client.query.call_args[0][0]
+    assert executed == "SELECT * FROM Document WHERE dc:title = 'Alice\\'s report'"
+
+
 def test_natural_mode_escapes_backslashes_in_quoted_values() -> None:
     nuxeo = _make_nuxeo()
     _search_tool(nuxeo)('documents titled "O\\Brien"', mode="natural")
