@@ -963,10 +963,12 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         except Exception as e:
             raise ToolError(f"Query DSL search failed on index {index!r}: {e}")
 
-        hits = response.get("hits", {}).get("hits", [])
-        if not hits and "aggregations" not in response:
+        total = response.get("hits", {}).get("total")
+        matched = total.get("value") if isinstance(total, dict) else total
+        if matched == 0:
             # Silently empty results are the main failure mode here: a hallucinated
             # field name returns 200 with no hits, which reads as "nothing matches".
+            # Keyed on the match count, not the hit list: size 0 asks for no hits.
             response["_nuxeo_hint"] = (
                 f"No hits. Verify field names against the {guide} resource -- "
                 "unknown fields match nothing rather than erroring."

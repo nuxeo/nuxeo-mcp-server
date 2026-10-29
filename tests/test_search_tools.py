@@ -398,3 +398,76 @@ def test_usage_highlights_source_backed_fields() -> None:
     assert '"all_field"' not in highlight
     assert "require_field_match" in highlight
     assert "dc:title" in highlight
+
+
+def _dsl_with_response(
+    monkeypatch: pytest.MonkeyPatch, response: Dict[str, Any]
+) -> Callable[..., Any]:
+    from nuxeo_mcp import es_passthrough
+
+    class FakePassthrough:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def execute_query(self, index: str, query: Dict[str, Any]) -> Dict[str, Any]:
+            return dict(response)
+
+    monkeypatch.setattr(es_passthrough, "ElasticsearchPassthrough", FakePassthrough)
+    return _register_and_capture(_make_nuxeo())["nuxeo_search_documents_with_query_dsl"]
+
+
+def test_hint_is_set_when_nothing_matches(monkeypatch: pytest.MonkeyPatch) -> None:
+    fn = _dsl_with_response(
+        monkeypatch, {"hits": {"total": {"value": 0, "relation": "eq"}, "hits": []}}
+    )
+
+    assert "_nuxeo_hint" in fn({"query": {"term": {"dc:titel": "x"}}})
+
+
+def test_no_hint_on_a_count_query_that_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """size 0 asks for no hits; an empty hit list there is not a wrong field."""
+    fn = _dsl_with_response(
+        monkeypatch, {"hits": {"total": {"value": 3180, "relation": "eq"}, "hits": []}}
+    )
+
+    assert "_nuxeo_hint" not in fn({"size": 0, "track_total_hits": True})
+
+
+def test_an_aggregation_named_top_hits_is_not_rewritten() -> None:
+    """Under aggs, keys are caller-chosen names, not the top_hits type."""
+    guarded = apply_guardrails(
+        {"size": 0, "aggs": {"top_hits": {"top_hits": {"size": 50}}}},
+        default_source=["dc:title"],
+    )
+
+    container = guarded["aggs"]["top_hits"]
+    assert set(container) == {"top_hits"}
+    assert container["top_hits"]["size"] == MAX_TOP_HITS_SIZE
+    assert container["top_hits"]["_source"] == ["dc:title"]
+
+
+def test_top_hits_is_capped_in_sub_aggregations() -> None:
+    guarded = apply_guardrails(
+        {
+            "size": 0,
+            "aggregations": {
+                "a": {
+                    "terms": {"field": "x"},
+                    "aggs": {"b": {"aggs": {"c": {"top_hits": {"size": 99}}}}},
+                }
+            },
+        }
+    )
+
+    inner = guarded["aggregations"]["a"]["aggs"]["b"]["aggs"]["c"]["top_hits"]
+    assert inner["size"] == MAX_TOP_HITS_SIZE
+
+
+def test_audit_guide_does_not_promise_a_source_projection() -> None:
+    """The audit tool applies no _source default."""
+    from nuxeo_mcp.query_dsl import audit_field_guide
+
+    assert "defaults to a small projection" not in audit_field_guide()
+    assert "defaults to a small projection" in field_guide()

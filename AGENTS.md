@@ -21,7 +21,6 @@ nuxeo-mcp-server/
 │   ├── query_dsl.py        # Query DSL guardrails & field guides
 │   ├── search_models.py    # Normalized search envelope
 │   ├── annotations.py      # Tool safety annotations
-│   ├── search_filters.py   # Search filter helpers
 │   ├── auth.py             # OAuth2 / Basic auth handlers
 │   ├── middleware.py       # Authentication middleware
 │   ├── config.py           # Configuration dataclasses & enums
@@ -201,11 +200,10 @@ def my_prompt(arg: str) -> str:
 | `auth.py` | `OAuth2AuthHandler` (PKCE flow), `BasicAuthHandler`; browser-based callback server |
 | `middleware.py` | `AuthenticationManager` wraps tool/resource callables to inject auth headers |
 | `token_store.py` | `TokenManager` — persists and refreshes OAuth2 tokens |
-| `es_passthrough.py` | `ElasticsearchPassthrough` — forwards ES queries while enforcing Nuxeo ACLs |
+| `es_passthrough.py` | `ElasticsearchPassthrough` — forwards Query DSL to Nuxeo `/site/es`; Nuxeo applies the ACLs |
 | `query_dsl.py` | Guardrails (size/from/response caps, script rejection) and field guides for the Query DSL tools |
 | `search_models.py` | `SearchResult`/`SearchHit` — the normalized envelope shared by every search mode |
 | `annotations.py` | `TOOL_ANNOTATIONS` — declared safety hints, one entry per tool |
-| `search_filters.py` | Parses and applies search filter objects |
 | `utility.py` | `format_document()`, UUID detection, blob helpers |
 
 ### Startup Sequence
@@ -237,7 +235,7 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 
 ### Elasticsearch Passthrough
 
-`ElasticsearchPassthrough` in `es_passthrough.py` accepts an ES query dict, injects Nuxeo security filters (principal ACLs), and forwards the request to the Nuxeo ES endpoint. `ElasticsearchQueryBuilder` helps build the ES DSL from higher-level condition objects.
+`ElasticsearchPassthrough` in `es_passthrough.py` forwards a Query DSL body, unchanged, to Nuxeo's `/site/es/{index}/_search`. Nuxeo applies the caller's ACLs and restricts the audit index to administrators; this server adds no filter. `query_dsl.apply_guardrails()` bounds the body before it is sent (script rejection, size/from caps, `top_hits`/`inner_hits` caps), and `PassthroughError` turns Nuxeo and engine failures into messages that tell the model whether to fix the query or stop.
 
 ### Configuration via Environment Variables
 

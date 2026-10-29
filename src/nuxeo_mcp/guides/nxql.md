@@ -22,10 +22,11 @@ to list versions, `ecm:isTrashed = 1` to look in the trash.
 
 ## What this tool does not do
 
-- **No aggregates or projections.** The `SELECT` clause is ignored: `SELECT
-  COUNT(...)`, `SELECT dc:title`, `DISTINCT` and `GROUP BY` all return whole
+- **No aggregation.** NXQL has no `GROUP BY` or `HAVING`, and the query is
+  rejected if you write one. The `SELECT` list is ignored: `SELECT *`,
+  `SELECT dc:title`, `SELECT COUNT(...)` and `DISTINCT` all return whole
   documents, not values. To count matches, read `totalCount` (use
-  `page_size: 1`). For counts per value, sums, date histograms, or
+  `page_size: 1`). For counts per value, sums, date histograms or
   highlighting, use `nuxeo_search_documents_with_query_dsl`.
 - **No paging past the result window.** Refine the query instead of walking
   many pages.
