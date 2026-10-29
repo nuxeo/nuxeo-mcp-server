@@ -168,19 +168,20 @@ class TestOAuth2Integration:
                     mock_server.auth_error = None
                     mock_callback.return_value = mock_server
 
-                    # Mock state validation
-                    with patch.object(handler, "_generate_pkce_challenge") as mock_pkce:
-                        mock_pkce.return_value = ("verifier", "challenge")
+                    result = handler.authenticate(open_browser=True)
 
-                        result = handler.authenticate(open_browser=True)
+                    assert result is True
+                    mock_browser_open.assert_called_once()
+                    # The verifier is the one the client generated with the URL.
+                    assert (
+                        mock_oauth2.request_token.call_args.kwargs["code_verifier"]
+                        == "test-verifier"
+                    )
 
-                        assert result is True
-                        mock_browser_open.assert_called_once()
-
-                        # Check token was stored
-                        stored_token = token_manager.get_token("http://test.com")
-                        assert stored_token is not None
-                        assert stored_token["access_token"] == "test-access-token"
+                    # Check token was stored
+                    stored_token = token_manager.get_token("http://test.com")
+                    assert stored_token is not None
+                    assert stored_token["access_token"] == "test-access-token"
 
     def test_token_refresh_simulation(self):
         """Test token refresh mechanism."""

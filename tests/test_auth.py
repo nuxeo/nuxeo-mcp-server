@@ -512,3 +512,48 @@ class TestAuthenticationManager:
         assert manager.auth_handler is not None
         assert manager.middleware is not None
         mock_basic_handler.assert_called_once_with(server_config)
+
+
+def test_authorization_url_uses_the_real_nuxeo_client() -> None:
+    """The mocked flow hid a duplicate code_challenge keyword for a year.
+
+    Build the sign-in URL with the real nuxeo.auth.OAuth2, so a signature
+    change in the client fails here rather than at the first real sign-in.
+    """
+    from unittest.mock import patch
+
+    from nuxeo_mcp.auth import OAuth2AuthHandler
+    from nuxeo_mcp.config import AuthMethod, NuxeoServerConfig, OAuth2Config
+
+    handler = OAuth2AuthHandler(
+        NuxeoServerConfig(
+            url="http://nuxeo.test/nuxeo",
+            auth_method=AuthMethod.OAUTH2,
+            oauth2_config=OAuth2Config(
+                client_id="mcp", client_secret="s", redirect_port=18777
+            ),
+        ),
+        token_manager=MagicMock(get_token=MagicMock(return_value=None)),
+    )
+    seen = {}
+
+    class StopAfterUrl(Exception):
+        pass
+
+    def capture(url: str) -> bool:
+        seen["url"] = url
+        raise StopAfterUrl
+
+    with patch("webbrowser.open", side_effect=capture):
+        assert handler.authenticate(open_browser=True) is False
+
+    assert seen["url"].startswith("http://nuxeo.test/nuxeo/oauth2/authorize?")
+    assert "code_challenge=" in seen["url"]
+    assert "code_challenge_method=S256" in seen["url"]
+    assert "redirect_uri=http%3A%2F%2Flocalhost%3A18777%2Fcallback" in seen["url"]
+
+    # The sign-in failed mid-flow: its callback listener must be gone.
+    import socket
+
+    with socket.socket() as probe:
+        assert probe.connect_ex(("localhost", 18777)) != 0
