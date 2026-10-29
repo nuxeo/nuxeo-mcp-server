@@ -9,7 +9,7 @@ A Model Context Protocol (MCP) server for interacting with a Nuxeo Content Repos
 
 - 🔄 Connect to a Nuxeo Content Repository Server
 - 🛠️ MCP Tools for common Nuxeo operations (query, retrieve, create, update, delete documents)
-- 🔍 Document search in one tool - plain English or exact NXQL, one normalized result envelope either way
+- 🔍 Document search with NXQL, returning a normalized result envelope
 - ⚡ Query DSL search - raw Elasticsearch/OpenSearch request bodies for aggregations, highlighting and sorting
 - 🔐 Audit log search - Query DSL against the audit index (admin only)
 - 🔒 OAuth2 authentication - browser-based, with token storage

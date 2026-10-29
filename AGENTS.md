@@ -99,7 +99,7 @@ All three must pass before merging.
 
 ### Tools (`src/nuxeo_mcp/tools.py`)
 
-Tools are registered via `register_tools(mcp, nuxeo, skip_server_selection=False)`.
+Tools are registered via `register_tools(mcp, nuxeo, auth_middleware=None)`.
 
 <!-- BEGIN GENERATED TOOLS -->
 

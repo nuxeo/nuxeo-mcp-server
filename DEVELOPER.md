@@ -370,7 +370,7 @@ The `format_doc` function formats a Nuxeo document as markdown text:
 from nuxeo_mcp.utility import format_doc
 
 # Get a document from Nuxeo
-doc = nuxeo.client.nuxeo_get_document('/path/to/document')
+doc = nuxeo.documents.get(path='/path/to/document')
 
 # Format the document as markdown
 markdown = format_doc(doc)
