@@ -42,6 +42,37 @@ MAX_COLLECTED_HITS = 500
 # the engine's own default for terms.
 DEFAULT_BUCKET_COUNT = 10
 
+# Aggregations that always produce exactly one bucket. Counting them as
+# DEFAULT_BUCKET_COUNT would compound per level and reject cheap requests.
+_SINGLE_BUCKET_AGGS = frozenset(
+    {
+        "filter",
+        "global",
+        "missing",
+        "nested",
+        "reverse_nested",
+        "sampler",
+        "diversified_sampler",
+        "children",
+        "parent",
+    }
+)
+
+# Aggregations whose bucket count follows from an explicit list of ranges.
+_RANGE_AGGS = frozenset({"range", "date_range", "ip_range", "geo_distance"})
+
+# Aggregations whose bucket count depends on the data span, not on the request.
+# No bound can be read from the body, so a top_hits beneath them is counted as
+# exhausting the whole budget.
+_UNBOUNDED_AGGS = frozenset({"histogram", "date_histogram", "rare_terms"})
+
+# Grid aggregations default to 10,000 buckets, not 10.
+_GRID_AGGS = frozenset({"geohash_grid", "geotile_grid", "geohex_grid"})
+_GRID_DEFAULT_SIZE = 10_000
+
+# Hits whose documents are fetched in full, per outer hit, like top_hits.
+_INNER_HITS_DEFAULT_SIZE = 3
+
 # Returned when no body is supplied, so the model can correct itself without a
 # round trip.
 USAGE = """nuxeo_search_documents_with_query_dsl needs an OpenSearch/Elasticsearch request body.
@@ -168,6 +199,10 @@ DEFAULT_SOURCE_FIELDS: List[str] = [
 # (init/map/combine/reduce_script), and bucket_script, bucket_selector and
 # script_heuristic add more. Enumerating them invites the next omission, so any
 # key named "script" or ending in "_script" is refused.
+#
+# The match is on key names alone, so it also refuses a field named "script" or
+# "*_script". Telling a field from a carrier would mean parsing the clause
+# grammar; failing closed is the accepted trade-off, and the guide says so.
 _SCRIPT_KEYS = ("script", "script_fields", "script_score", "runtime_mappings")
 _SCRIPT_KEY_SUFFIX = "_script"
 
@@ -199,22 +234,36 @@ def _aggs_of(node: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _bucket_count(body: Dict[str, Any]) -> int:
-    """Estimate how many buckets an aggregation produces.
+    """Bound how many buckets an aggregation produces.
 
-    Deliberately an estimate: only the bucket aggregations that declare a size
-    can be read exactly, and the budget below is a bound, not accounting.
+    Deliberately a bound, not accounting: exact where the request declares the
+    count, an upper bound where it does not.
     """
-    count = DEFAULT_BUCKET_COUNT
     for agg_type, agg_body in body.items():
-        if agg_type in ("aggs", "aggregations") or not isinstance(agg_body, dict):
+        if agg_type in ("aggs", "aggregations", "meta") or not isinstance(
+            agg_body, dict
+        ):
             continue
-        if agg_type == "filters":
+        if agg_type in _SINGLE_BUCKET_AGGS:
+            return 1
+        if agg_type in _UNBOUNDED_AGGS:
+            return MAX_COLLECTED_HITS + 1
+        if agg_type in _RANGE_AGGS:
+            ranges = agg_body.get("ranges")
+            return max(len(ranges), 1) if isinstance(ranges, list) else 1
+        if agg_type in ("filters", "adjacency_matrix"):
             filters = agg_body.get("filters")
-            if isinstance(filters, (dict, list)):
-                count = max(len(filters), 1)
-        elif isinstance(agg_body.get("size"), int):
-            count = max(int(agg_body["size"]), 1)
-    return count
+            n = len(filters) if isinstance(filters, (dict, list)) else 1
+            # adjacency_matrix adds one bucket per intersecting pair.
+            n = n + n * (n - 1) // 2 if agg_type == "adjacency_matrix" else n
+            return max(n, 1) + (1 if agg_body.get("other_bucket") else 0)
+        if agg_type in ("auto_date_histogram", "variable_width_histogram"):
+            buckets = agg_body.get("buckets", DEFAULT_BUCKET_COUNT)
+            return max(int(buckets), 1) if isinstance(buckets, int) else 1
+        default = _GRID_DEFAULT_SIZE if agg_type in _GRID_AGGS else DEFAULT_BUCKET_COUNT
+        size = agg_body.get("size", default)
+        return max(int(size), 1) if isinstance(size, int) else default
+    return DEFAULT_BUCKET_COUNT
 
 
 def _bound_hit_collectors(
@@ -232,15 +281,7 @@ def _bound_hit_collectors(
 
         top_hits = body.get("top_hits")
         if isinstance(top_hits, dict):
-            size = top_hits.get("size", 3)
-            try:
-                size = int(size)
-            except (TypeError, ValueError):
-                raise QueryDslRejected(
-                    f"'size' in {where}.top_hits must be an integer, got {size!r}."
-                )
-            size = max(0, min(size, MAX_TOP_HITS_SIZE))
-            top_hits["size"] = size
+            size = _cap_hit_size(top_hits, f"{where}.top_hits", 3)
             if default_source and "_source" not in top_hits and size > 0:
                 top_hits["_source"] = list(default_source)
             collected += multiplier * size
@@ -251,6 +292,59 @@ def _bound_hit_collectors(
                 sub, multiplier * _bucket_count(body), default_source, where
             )
     return collected
+
+
+def _cap_hit_size(spec: Dict[str, Any], where: str, default: int) -> int:
+    """Clamp ``spec['size']`` to MAX_TOP_HITS_SIZE in place and return it."""
+    size = spec.get("size", default)
+    try:
+        size = int(size)
+    except (TypeError, ValueError):
+        raise QueryDslRejected(f"'size' in {where} must be an integer, got {size!r}.")
+    size = max(0, min(size, MAX_TOP_HITS_SIZE))
+    spec["size"] = size
+    return size
+
+
+def _bound_inner_hits(
+    node: Any, default_source: Optional[List[str]], path: str, parent: str = ""
+) -> int:
+    """Cap every ``inner_hits`` in place and return the documents fetched per hit.
+
+    inner_hits appears under nested, has_child and has_parent queries, and under
+    collapse, where it may be a list. Each outer hit carries its own inner hits,
+    so the caller multiplies the result by the top-level size.
+    """
+    per_hit = 0
+    if isinstance(node, dict):
+        for key, value in node.items():
+            where = f"{path}.{key}" if path else key
+            if key == "inner_hits":
+                specs = value if isinstance(value, list) else [value]
+                for i, spec in enumerate(specs):
+                    if not isinstance(spec, dict):
+                        continue
+                    spec_where = f"{where}[{i}]" if isinstance(value, list) else where
+                    size = _cap_hit_size(spec, spec_where, _INNER_HITS_DEFAULT_SIZE)
+                    # Nested inner hits return the nested object, not the
+                    # document, so a document projection would empty them.
+                    if (
+                        default_source
+                        and parent != "nested"
+                        and "_source" not in spec
+                        and size > 0
+                    ):
+                        spec["_source"] = list(default_source)
+                    per_hit += size
+                    per_hit += _bound_inner_hits(spec, default_source, spec_where)
+            else:
+                per_hit += _bound_inner_hits(value, default_source, where, key)
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            per_hit += _bound_inner_hits(
+                value, default_source, f"{path}[{index}]", parent
+            )
+    return per_hit
 
 
 def apply_guardrails(
@@ -299,16 +393,27 @@ def apply_guardrails(
     if default_source and "_source" not in guarded and guarded.get("size", 0) > 0:
         guarded["_source"] = list(default_source)
 
+    hits = int(guarded["size"])
+    searched = {k: v for k, v in guarded.items() if k not in ("aggs", "aggregations")}
+    inner = hits * _bound_inner_hits(searched, default_source, "")
+    if hits + inner > MAX_COLLECTED_HITS:
+        raise QueryDslRejected(
+            f"inner_hits retrieve up to {inner} documents on top of the {hits} "
+            f"hits, over the {MAX_COLLECTED_HITS} document budget. Reduce 'size' "
+            "or the inner_hits size."
+        )
+
     aggs = _aggs_of(guarded)
     if aggs:
         nested = _bound_hit_collectors(aggs, 1, default_source, "aggs")
-        budget = MAX_COLLECTED_HITS - int(guarded["size"])
+        budget = MAX_COLLECTED_HITS - hits - inner
         if nested > budget:
             raise QueryDslRejected(
                 f"The aggregations retrieve up to {nested} documents through "
                 f"top_hits, over the {budget} remaining in the "
                 f"{MAX_COLLECTED_HITS} document budget. Reduce the bucket count "
-                "or the top_hits size."
+                "or the top_hits size; histogram and date_histogram have no "
+                "declared bucket count, so top_hits beneath them is refused."
             )
 
     return guarded
@@ -467,12 +572,15 @@ def _render_guide(
         "",
         f"- `size` defaults to 10 and is capped at {MAX_SIZE}",
         f"- `from` is capped at {MAX_FROM}",
-        f"- `top_hits` is capped at {MAX_TOP_HITS_SIZE} per bucket, and a request "
-        f"whose buckets would retrieve more than {MAX_COLLECTED_HITS} documents "
-        "in total is rejected",
+        f"- `top_hits` and `inner_hits` are capped at {MAX_TOP_HITS_SIZE} each, "
+        f"and a request that would retrieve more than {MAX_COLLECTED_HITS} "
+        "documents in total is rejected; `top_hits` beneath `histogram` or "
+        "`date_histogram` is refused, as their bucket count is unbounded",
         f"- responses are capped at {MAX_RESPONSE_BYTES} bytes",
         "- `_source` defaults to a small projection; pass your own list to override",
-        "- scripted queries (`script`, `script_fields`, `script_score`) are rejected",
+        "- scripted queries are rejected: any key named `script` or ending in "
+        "`_script`, at any depth -- including a field name such as "
+        "`foo_script`, which therefore cannot be queried",
         "",
         acl_note,
         "",

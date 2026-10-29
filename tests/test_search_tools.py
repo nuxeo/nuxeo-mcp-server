@@ -267,6 +267,105 @@ def test_guardrails_reject_unbounded_nested_retrieval() -> None:
     assert "top_hits" in str(excinfo.value)
 
 
+def _with_top_hits(agg: Dict[str, Any], size: int) -> Dict[str, Any]:
+    return {
+        "size": 0,
+        "aggs": {"a": {**agg, "aggs": {"d": {"top_hits": {"size": size}}}}},
+    }
+
+
+def test_guardrails_count_ranges_as_declared() -> None:
+    """100 ranges x 10 hits was accepted under the old flat estimate of 10."""
+    ranges = [{"from": i} for i in range(100)]
+    with pytest.raises(QueryDslRejected):
+        apply_guardrails(
+            _with_top_hits({"range": {"field": "x", "ranges": ranges}}, 10)
+        )
+
+
+def test_guardrails_count_single_bucket_aggregations_as_one() -> None:
+    """filter > filter > filter > top_hits(1) retrieves one document."""
+    body = {
+        "size": 0,
+        "aggs": {
+            "a": {
+                "filter": {"term": {"x": 1}},
+                "aggs": {
+                    "b": {
+                        "filter": {"term": {"y": 1}},
+                        "aggs": {
+                            "c": {
+                                "nested": {"path": "n"},
+                                "aggs": {"d": {"top_hits": {"size": 1}}},
+                            }
+                        },
+                    }
+                },
+            }
+        },
+    }
+
+    apply_guardrails(body)
+
+
+def test_guardrails_refuse_top_hits_under_a_histogram() -> None:
+    """The bucket count depends on the data span, so no bound can be read."""
+    with pytest.raises(QueryDslRejected) as excinfo:
+        apply_guardrails(
+            _with_top_hits(
+                {
+                    "date_histogram": {
+                        "field": "dc:modified",
+                        "calendar_interval": "day",
+                    }
+                },
+                1,
+            )
+        )
+
+    assert "histogram" in str(excinfo.value)
+
+
+def test_guardrails_allow_a_histogram_without_hits() -> None:
+    apply_guardrails(
+        {"size": 0, "aggs": {"h": {"histogram": {"field": "x", "interval": 1}}}}
+    )
+
+
+def test_guardrails_cap_inner_hits() -> None:
+    guarded = apply_guardrails(
+        {
+            "size": 5,
+            "query": {
+                "nested": {"path": "n", "query": {}, "inner_hits": {"size": 100}}
+            },
+            "collapse": {"field": "a", "inner_hits": [{"name": "x", "size": 100}]},
+        },
+        default_source=["dc:title"],
+    )
+
+    nested = guarded["query"]["nested"]["inner_hits"]
+    assert nested["size"] == MAX_TOP_HITS_SIZE
+    # Nested inner hits return the nested object; a document projection empties it.
+    assert "_source" not in nested
+    collapsed = guarded["collapse"]["inner_hits"][0]
+    assert collapsed["size"] == MAX_TOP_HITS_SIZE
+    assert collapsed["_source"] == ["dc:title"]
+
+
+def test_guardrails_reject_inner_hits_over_budget() -> None:
+    """100 hits x 10 inner hits is 1,000 documents."""
+    with pytest.raises(QueryDslRejected) as excinfo:
+        apply_guardrails(
+            {
+                "size": 100,
+                "collapse": {"field": "a", "inner_hits": {"name": "x", "size": 100}},
+            }
+        )
+
+    assert "inner_hits" in str(excinfo.value)
+
+
 def test_guardrails_do_not_mutate_the_caller_body() -> None:
     body = {"size": 0, "aggs": {"d": {"top_hits": {"size": 50}}}}
 
