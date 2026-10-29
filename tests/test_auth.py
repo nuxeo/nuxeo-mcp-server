@@ -399,7 +399,7 @@ class TestOAuth2AuthHandler:
             oauth2_config=OAuth2Config(client_id="client", client_secret="secret"),
         )
         token_manager = MagicMock()
-        token_manager.get_token.return_value = {
+        token_manager.get_stored_token.return_value = {
             "access_token": "access",
             "expires_at": time.time() + 3600,
         }
@@ -534,7 +534,7 @@ def test_authorization_url_uses_the_real_nuxeo_client() -> None:
                 client_id="mcp", client_secret="s", redirect_port=18777
             ),
         ),
-        token_manager=MagicMock(get_token=MagicMock(return_value=None)),
+        token_manager=MagicMock(get_stored_token=MagicMock(return_value=None)),
     )
     seen = {}
 
@@ -598,7 +598,7 @@ def _oauth2_handler(port: int) -> Any:
                 client_id="mcp", client_secret="s", redirect_port=port
             ),
         ),
-        token_manager=MagicMock(get_token=MagicMock(return_value=None)),
+        token_manager=MagicMock(get_stored_token=MagicMock(return_value=None)),
     )
 
 
@@ -655,3 +655,168 @@ def test_no_browser_flag_reaches_the_sign_in(monkeypatch, tmp_path) -> None:
 
     assert calls == [False]
     token_manager.assert_called_once_with()
+
+
+def _file_token_manager(tmp_path: Path) -> Any:
+    from nuxeo_mcp.token_store import EncryptedFileStorage, TokenManager
+
+    manager = TokenManager(backend="encrypted_file")
+    manager.storage = EncryptedFileStorage(tmp_path)
+    return manager
+
+
+def test_expired_stored_token_is_refreshed_at_startup(tmp_path) -> None:
+    """Past the access token's hour, the refresh token avoids a new sign-in."""
+    from unittest.mock import patch
+
+    url = "http://nuxeo.test/nuxeo"
+    manager = _file_token_manager(tmp_path)
+    manager.store_token(
+        url,
+        {"access_token": "old", "refresh_token": "rt1", "expires_at": time.time() - 5},
+    )
+    handler = _oauth2_handler(18780)
+    handler.token_manager = manager
+    rotated = {
+        "access_token": "new",
+        "refresh_token": "rt2",
+        "token_type": "bearer",
+        "expires_at": time.time() + 3600,
+    }
+    me = MagicMock(status_code=200)
+    me.json.return_value = {"id": "bob"}
+
+    with (
+        patch(
+            "authlib.integrations.requests_client.OAuth2Session.refresh_token",
+            return_value=rotated,
+        ) as refresh,
+        patch("nuxeo.client.NuxeoClient.request", return_value=me),
+        patch.object(handler, "_start_callback_server") as sign_in,
+    ):
+        assert handler.authenticate(open_browser=False) is True
+
+    sign_in.assert_not_called()
+    assert refresh.call_args.args[1] == "rt1"
+    # Nuxeo rotates refresh tokens: the new one must replace the spent one.
+    assert manager.get_stored_token(url)["refresh_token"] == "rt2"
+    assert handler.username == "bob"
+
+
+def test_expired_token_without_refresh_token_signs_in(tmp_path) -> None:
+    from unittest.mock import patch
+
+    url = "http://nuxeo.test/nuxeo"
+    manager = _file_token_manager(tmp_path)
+    manager.store_token(url, {"access_token": "old", "expires_at": time.time() - 5})
+    handler = _oauth2_handler(18781)
+    handler.token_manager = manager
+
+    with patch.object(
+        handler, "_start_callback_server", side_effect=RuntimeError("sign-in")
+    ) as sign_in:
+        assert handler.authenticate(open_browser=False) is False
+
+    sign_in.assert_called_once()
+
+
+def test_token_refreshed_at_runtime_is_saved(tmp_path) -> None:
+    """The Nuxeo client refreshes before a request; the new token must be kept."""
+    from unittest.mock import patch
+
+    import requests as requests_lib
+
+    url = "http://nuxeo.test/nuxeo"
+    manager = _file_token_manager(tmp_path)
+    handler = _oauth2_handler(18782)
+    handler.token_manager = manager
+    handler._setup_nuxeo_client(
+        {"access_token": "old", "refresh_token": "rt1", "expires_at": time.time() - 5}
+    )
+    rotated = {
+        "access_token": "new",
+        "refresh_token": "rt2",
+        "token_type": "bearer",
+        "expires_at": time.time() + 3600,
+    }
+    request = requests_lib.Request("GET", f"{url}/api/v1/me").prepare()
+
+    with patch(
+        "authlib.integrations.requests_client.OAuth2Session.refresh_token",
+        return_value=rotated,
+    ):
+        handler.nuxeo_client.client.auth(request)
+
+    assert "Bearer new" in request.headers.values()
+    assert manager.get_stored_token(url)["refresh_token"] == "rt2"
+
+
+def test_concurrent_requests_refresh_once(tmp_path) -> None:
+    """A rotating refresh token can be spent once: parallel calls must share it."""
+    import threading
+    from unittest.mock import patch
+
+    import requests as requests_lib
+
+    handler = _oauth2_handler(18783)
+    handler.token_manager = _file_token_manager(tmp_path)
+    handler._setup_nuxeo_client(
+        {"access_token": "old", "refresh_token": "rt1", "expires_at": time.time() - 5}
+    )
+    auth = handler.nuxeo_client.client.auth
+    calls = []
+
+    def slow_refresh(*args: Any, **kwargs: Any) -> Any:
+        calls.append(args)
+        time.sleep(0.05)
+        return {
+            "access_token": "new",
+            "refresh_token": "rt2",
+            "expires_at": time.time() + 3600,
+        }
+
+    with patch(
+        "authlib.integrations.requests_client.OAuth2Session.refresh_token",
+        side_effect=slow_refresh,
+    ):
+        threads = [
+            threading.Thread(
+                target=auth,
+                args=(requests_lib.Request("GET", "http://x/").prepare(),),
+            )
+            for _ in range(5)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+    assert len(calls) == 1
+
+
+def test_token_save_failure_keeps_the_live_token(caplog) -> None:
+    """Nuxeo has rotated the refresh token: the request must still go through."""
+    from unittest.mock import patch
+
+    import requests as requests_lib
+
+    handler = _oauth2_handler(18784)
+    handler.token_manager = MagicMock()
+    handler.token_manager.store_token.side_effect = OSError("disk full")
+    handler._setup_nuxeo_client(
+        {"access_token": "old", "refresh_token": "rt1", "expires_at": time.time() - 5}
+    )
+    request = requests_lib.Request("GET", "http://nuxeo.test/x").prepare()
+
+    with patch(
+        "authlib.integrations.requests_client.OAuth2Session.refresh_token",
+        return_value={
+            "access_token": "new",
+            "refresh_token": "rt2",
+            "expires_at": time.time() + 3600,
+        },
+    ):
+        handler.nuxeo_client.client.auth(request)
+
+    assert "Bearer new" in request.headers.values()
+    assert "Could not save the OAuth2 token" in caplog.text

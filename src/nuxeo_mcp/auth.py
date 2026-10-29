@@ -39,6 +39,42 @@ def _tell(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
+class _PersistingOAuth2(OAuth2):
+    """Nuxeo's OAuth2 auth, saving every new token and refreshing one at a time.
+
+    The Nuxeo client refreshes an expired access token before a request, but
+    only in memory. Nuxeo rotates the refresh token on each refresh, so the one
+    on disk is spent after the first refresh: without saving the new token, a
+    restart past the access token's hour has to sign in again.
+
+    Over HTTP, tool calls run concurrently. Two of them refreshing with the
+    same rotating refresh token would leave one failing, so refresh is
+    serialized and re-checked under a lock.
+    """
+
+    def __init__(self, *args: Any, on_token: Any = None, **kwargs: Any) -> None:
+        self._on_token = None
+        self._refresh_lock = threading.Lock()
+        super().__init__(*args, **kwargs)
+        # Set after construction: the token passed in is already stored.
+        self._on_token = on_token
+
+    def set_token(self, token: Any) -> None:
+        super().set_token(token)
+        if self._on_token is not None:
+            self._on_token(dict(token))
+
+    def __call__(self, r: Any) -> Any:
+        with self._refresh_lock:
+            if self.token_is_expired():
+                if self.verify is not None:
+                    self.refresh_token(verify=self.verify)
+                else:
+                    self.refresh_token()
+        r.headers[self.AUTHORIZATION] = self._token_header
+        return r
+
+
 class OAuth2CallbackHandler(BaseHTTPRequestHandler):
     """HTTP request handler for OAuth2 callback."""
 
@@ -255,10 +291,13 @@ class OAuth2AuthHandler:
         """
         callback_server: Optional[HTTPServer] = None
         try:
-            # Check for existing valid token
-            existing_token = self.token_manager.get_token(self.server_config.url)
-            if existing_token and not self._is_token_expired(existing_token):
-                self._setup_nuxeo_client(existing_token)
+            # Reuse a stored token, refreshing it first if its hour is up: only
+            # a token Nuxeo refuses, or no token at all, needs the browser.
+            stored = self.token_manager.get_stored_token(self.server_config.url)
+            if stored and self._is_token_expired(stored):
+                stored = self._refresh_stored(stored)
+            if stored:
+                self._setup_nuxeo_client(stored)
                 if not self._stored_token_rejected(self.nuxeo_client):
                     logger.info("Using existing valid token")
                     return True
@@ -278,15 +317,7 @@ class OAuth2AuthHandler:
 
             # Create Nuxeo client with OAuth2
             self.nuxeo_client = Nuxeo(host=self.server_config.url)
-            oauth2_auth = OAuth2(
-                self.server_config.url,
-                client_id=self.oauth2_config.client_id,
-                client_secret=self.oauth2_config.client_secret,
-                redirect_uri=redirect_uri,
-                authorization_endpoint=self.oauth2_config.authorization_endpoint,
-                token_endpoint=self.oauth2_config.token_endpoint,
-                openid_configuration_url=self.oauth2_config.openid_configuration_url,
-            )
+            oauth2_auth = self._new_auth(redirect_uri=redirect_uri)
             self.nuxeo_client.client.auth = oauth2_auth
 
             # The Nuxeo client generates the PKCE pair itself and returns the
@@ -318,14 +349,11 @@ class OAuth2AuthHandler:
                         logger.error("State mismatch - possible CSRF attack")
                         return False
 
-                    # Exchange code for token
+                    # Exchange code for token; the auth object stores it
                     token = oauth2_auth.request_token(
                         authorization_response=f"{redirect_uri}?code={callback_server.auth_code}&state={state}",
                         code_verifier=code_verifier,
                     )
-
-                    # Store token
-                    self.token_manager.store_token(self.server_config.url, token)
 
                     # Validate token by making a test request
                     if self._validate_token(token):
@@ -360,16 +388,49 @@ class OAuth2AuthHandler:
                 callback_server.shutdown()
                 callback_server.server_close()
 
-    def _setup_nuxeo_client(self, token: Dict[str, Any]) -> None:
-        """Setup Nuxeo client with OAuth2 token."""
-        self.nuxeo_client = Nuxeo(host=self.server_config.url)
-        oauth2_auth = OAuth2(
+    def _store(self, token: Dict[str, Any]) -> None:
+        # Nuxeo has already rotated the refresh token and the client holds the
+        # new one: failing here would fail the tool call that triggered it.
+        try:
+            self.token_manager.store_token(self.server_config.url, token)
+        except Exception as e:
+            logger.warning(
+                f"Could not save the OAuth2 token ({e}); it works until the "
+                "server stops, then sign in again"
+            )
+
+    def _new_auth(
+        self, token: Optional[Dict[str, Any]] = None, redirect_uri: Optional[str] = None
+    ) -> OAuth2:
+        """Build the client auth, saving every token it obtains or refreshes."""
+        return _PersistingOAuth2(
             self.server_config.url,
             client_id=self.oauth2_config.client_id,
             client_secret=self.oauth2_config.client_secret,
             token=token,
+            redirect_uri=redirect_uri,
+            authorization_endpoint=self.oauth2_config.authorization_endpoint,
+            token_endpoint=self.oauth2_config.token_endpoint,
+            openid_configuration_url=self.oauth2_config.openid_configuration_url,
+            on_token=self._store,
         )
-        self.nuxeo_client.client.auth = oauth2_auth
+
+    def _setup_nuxeo_client(self, token: Dict[str, Any]) -> None:
+        """Setup Nuxeo client with OAuth2 token."""
+        self.nuxeo_client = Nuxeo(host=self.server_config.url)
+        self.nuxeo_client.client.auth = self._new_auth(token=token)
+
+    def _refresh_stored(self, token: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Trade an expired stored token for a new one, saved; None if impossible."""
+        if not token.get("refresh_token"):
+            return None
+        try:
+            new_token = dict(self._new_auth(token=token).refresh_token())
+        except Exception as e:
+            logger.info(f"Could not refresh the stored token ({e}); signing in again")
+            return None
+        logger.info("Refreshed the stored token")
+        return new_token
 
     def _is_token_expired(self, token: Dict[str, Any]) -> bool:
         """Check if token is expired."""
@@ -413,54 +474,22 @@ class OAuth2AuthHandler:
             return False
 
     def refresh_token(self) -> bool:
-        """
-        Refresh the OAuth2 token.
-
-        Returns:
-            True if refresh successful, False otherwise
-        """
-        try:
-            current_token = self.token_manager.get_token(self.server_config.url)
-            if not current_token or not current_token.get("refresh_token"):
-                logger.warning("No refresh token available")
-                return False
-
-            # Setup client with current token
-            self._setup_nuxeo_client(current_token)
-
-            # Refresh the token
-            new_token = self.nuxeo_client.client.auth.refresh_token(
-                refresh_token=current_token["refresh_token"]
-            )
-
-            # Store new token
-            self.token_manager.store_token(self.server_config.url, new_token)
-
-            # Update client with new token
-            self._setup_nuxeo_client(new_token)
-
-            logger.info("Token refreshed successfully")
-            return True
-
-        except Exception as e:
-            logger.error(f"Token refresh failed: {e}")
+        """Refresh the stored token now. Returns True if a new token was saved."""
+        stored = self.token_manager.get_stored_token(self.server_config.url)
+        new_token = self._refresh_stored(stored) if stored else None
+        if not new_token:
             return False
+        self._setup_nuxeo_client(new_token)
+        return True
 
     def get_nuxeo_client(self) -> Optional[Nuxeo]:
-        """Get authenticated Nuxeo client."""
-        if not self.nuxeo_client:
-            # Try to authenticate
-            if not self.authenticate():
-                return None
+        """Get the authenticated Nuxeo client.
 
-        # Check if token needs refresh
-        token = self.token_manager.get_token(self.server_config.url)
-        if token and self._is_token_expired(token):
-            if not self.refresh_token():
-                # Refresh failed, try full authentication
-                if not self.authenticate():
-                    return None
-
+        An expired access token needs no check here: the client refreshes it
+        before the next request, and the new token is saved.
+        """
+        if not self.nuxeo_client and not self.authenticate():
+            return None
         return self.nuxeo_client
 
     def logout(self) -> None:

@@ -114,14 +114,20 @@ Optional variables:
 
 ### 3. Sign-in flow
 
-1. At startup the server looks for a stored token for `NUXEO_URL` and checks it
-   with Nuxeo. A valid token is reused without a browser.
-2. Without one, or if Nuxeo rejects it (HTTP 401 or 403), the server opens your
-   browser on the Nuxeo sign-in page, using PKCE, or with `--no-browser` prints
-   its URL, and waits up to 5 minutes for the redirect.
-3. It exchanges the code for tokens, stores them, and starts. Expired tokens are
-   refreshed with the refresh token.
-4. If Nuxeo cannot be reached when checking a stored token, the token is kept,
+Nuxeo access tokens last one hour; the refresh token gets a new one, and Nuxeo
+replaces the refresh token on each use.
+
+1. At startup the server looks for a stored token for `NUXEO_URL`. If its hour
+   is up, it is refreshed first. The token is then checked with Nuxeo and
+   reused without a browser.
+2. Without a token, or if the refresh fails or Nuxeo rejects the token (HTTP 401
+   or 403), the server opens your browser on the Nuxeo sign-in page, using
+   PKCE, or with `--no-browser` prints its URL, and waits up to 5 minutes for
+   the redirect.
+3. It exchanges the code for tokens, stores them, and starts.
+4. While it runs, an expired access token is refreshed before the next request,
+   and the new token is stored, so a later restart does not need the browser.
+5. If Nuxeo cannot be reached when checking a stored token, the token is kept,
    not discarded.
 
 `/health` reports `auth_method: oauth2` and the signed-in user.

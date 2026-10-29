@@ -300,6 +300,15 @@ class TokenManager:
         )
         self.storage.store_token(server_url, token)
 
+    def get_stored_token(self, server_url: str) -> Optional[Dict[str, Any]]:
+        """Get the stored token for a server, expired or not.
+
+        An expired access token is still worth reading: its refresh token can
+        get a new one without signing in again.
+        """
+        token = self.storage.get_token(server_url)
+        return token.to_dict() if token else None
+
     def get_token(self, server_url: str) -> Optional[Dict[str, Any]]:
         """
         Get OAuth2 token for a server.
