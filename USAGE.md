@@ -230,10 +230,8 @@ Results are already filtered to what the authenticated user may read; Nuxeo
 applies the ACLs server-side. Do not filter on `ecm:acl` yourself.
 
 **Limits.** `size` defaults to 10 and is capped at 100, `from` is capped at
-1000, `top_hits` and `inner_hits` are capped at 10 each within a 500-document
-budget (`top_hits` beneath `histogram`, `date_histogram` or `rare_terms` is
-refused; use `composite` with a `date_histogram` source and a `size`
-instead), responses are capped at 256 KiB, `_source` defaults to a small
+1000, `top_hits` and `inner_hits` are capped at 10 each, responses are capped at
+256 KiB, `_source` defaults to a small
 projection, and scripted queries are rejected: any key named `script` or
 ending in `_script`, which also makes a field with such a name unqueryable.
 Without them an unqualified `match_all` with `size: 10000` returns several
