@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from nuxeo_mcp.auth import OAuth2AuthHandler, OAuth2CallbackHandler
+from nuxeo_mcp.auth import OAuth2AuthHandler, OAuth2CallbackHandler, _PersistingOAuth2
 from nuxeo_mcp.config import AuthMethod, MCPAuthConfig, NuxeoServerConfig, OAuth2Config
 from nuxeo_mcp.server import NuxeoMCPServer
 from nuxeo_mcp.token_store import EncryptedFileStorage, TokenManager
@@ -109,28 +109,30 @@ class TestOAuth2Integration:
         server.shutdown()
 
     @patch("webbrowser.open")
-    @patch("nuxeo_mcp.auth.OAuth2")
-    @patch("nuxeo_mcp.auth.secrets.token_urlsafe")
-    def test_oauth2_auth_flow_simulation(
-        self, mock_token_urlsafe, mock_oauth2_class, mock_browser_open
-    ):
-        """Test simulated OAuth2 authentication flow."""
-        # Mock the state generation to return a known value
-        mock_token_urlsafe.return_value = "test-state"
-
-        # Setup mocks
-        mock_oauth2 = MagicMock()
-        mock_oauth2.create_authorization_url.return_value = (
-            "http://test.com/authorize",
-            "test-state",
-            "test-verifier",
-        )
-        mock_oauth2.request_token.return_value = {
+    @patch(
+        "authlib.integrations.requests_client.OAuth2Session.fetch_token",
+        return_value={
             "access_token": "test-access-token",
             "refresh_token": "test-refresh-token",
             "expires_in": 3600,
-        }
-        mock_oauth2_class.return_value = mock_oauth2
+            "expires_at": time.time() + 3600,
+        },
+    )
+    @patch.object(
+        _PersistingOAuth2,
+        "create_authorization_url",
+        return_value=("http://test.com/authorize", "test-state", "test-verifier"),
+    )
+    @patch("nuxeo_mcp.auth.secrets.token_urlsafe")
+    def test_oauth2_auth_flow_simulation(
+        self, mock_token_urlsafe, mock_auth_url, mock_fetch_token, mock_browser_open
+    ):
+        """Test simulated OAuth2 authentication flow.
+
+        Only the network is faked: the real auth object exchanges the code and
+        stores the token it receives.
+        """
+        mock_token_urlsafe.return_value = "test-state"
 
         # Mock Nuxeo client
         with patch("nuxeo_mcp.auth.Nuxeo") as mock_nuxeo_class:
@@ -139,7 +141,6 @@ class TestOAuth2Integration:
             mock_response.status_code = 200
             mock_response.json.return_value = {"id": "testuser"}
             mock_client.client.request.return_value = mock_response
-            mock_client.client.auth = mock_oauth2
             mock_nuxeo_class.return_value = mock_client
 
             # Create handler with temp token storage
@@ -174,7 +175,7 @@ class TestOAuth2Integration:
                     mock_browser_open.assert_called_once()
                     # The verifier is the one the client generated with the URL.
                     assert (
-                        mock_oauth2.request_token.call_args.kwargs["code_verifier"]
+                        mock_fetch_token.call_args.kwargs["code_verifier"]
                         == "test-verifier"
                     )
 
@@ -185,8 +186,10 @@ class TestOAuth2Integration:
 
     def test_token_refresh_simulation(self):
         """Test token refresh mechanism."""
-        # Use in-memory backend
-        token_manager = TokenManager(backend="memory")
+        # A temporary file store: there is no in-memory backend, and the default
+        # directory is the user's real token store.
+        token_manager = TokenManager(backend="encrypted_file")
+        token_manager.storage = EncryptedFileStorage(Path(tempfile.mkdtemp()))
 
         # Store initial token
         initial_token = {
@@ -206,43 +209,24 @@ class TestOAuth2Integration:
             oauth2_config=oauth2_config,
         )
 
-        # Setup mocks before creating handler
-        with patch("nuxeo_mcp.auth.OAuth2") as mock_oauth2_class:
-            mock_oauth2 = MagicMock()
-            mock_oauth2.refresh_token.return_value = {
+        handler = OAuth2AuthHandler(server_config, token_manager)
+        token_manager.store_token("http://test.com", initial_token)
+
+        # Only the network is faked: the real auth object refreshes and stores.
+        with patch(
+            "authlib.integrations.requests_client.OAuth2Session.refresh_token",
+            return_value={
                 "access_token": "new-access-token",
                 "refresh_token": "new-refresh-token",
-                "expires_in": 3600,
-            }
-            mock_oauth2_class.return_value = mock_oauth2
+                "expires_at": time.time() + 3600,
+            },
+        ) as mock_refresh:
+            assert handler.refresh_token() is True
 
-            with patch("nuxeo_mcp.auth.Nuxeo") as mock_nuxeo_class:
-                mock_client = MagicMock()
-                mock_client.client.auth = mock_oauth2
-                mock_nuxeo_class.return_value = mock_client
-
-                handler = OAuth2AuthHandler(server_config, token_manager)
-
-                # Mock the token manager's get_token to return our initial token
-                with patch.object(
-                    token_manager, "get_token", return_value=initial_token
-                ):
-                    with patch.object(token_manager, "store_token") as mock_store:
-                        # Trigger refresh
-                        result = handler.refresh_token()
-
-                        assert result is True
-
-                        # Verify refresh_token was called with the correct token
-                        mock_oauth2.refresh_token.assert_called_once_with(
-                            refresh_token="refresh-token"
-                        )
-
-                        # Verify the new token was stored
-                        assert mock_store.called
-                        stored_url, stored_token = mock_store.call_args[0]
-                        assert stored_url == "http://test.com"
-                        assert stored_token["access_token"] == "new-access-token"
+        assert mock_refresh.call_args.args[1] == "refresh-token"
+        stored = token_manager.get_stored_token("http://test.com")
+        assert stored["access_token"] == "new-access-token"
+        assert stored["refresh_token"] == "new-refresh-token"
 
 
 @pytest.mark.integration
