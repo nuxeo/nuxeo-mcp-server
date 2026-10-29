@@ -18,9 +18,8 @@ from pydantic import BaseModel, Field
 
 # Mode names are part of the tool contract; keep them stable.
 MODE_NXQL = "nxql"
-MODE_NATURAL = "natural"
 MODE_SEMANTIC = "semantic"
-SEARCH_MODES = (MODE_NXQL, MODE_NATURAL, MODE_SEMANTIC)
+SEARCH_MODES = (MODE_NXQL, MODE_SEMANTIC)
 
 
 class SearchHit(BaseModel):
@@ -94,8 +93,8 @@ class SearchResult(BaseModel):
     interpretedQuery: Optional[str] = Field(
         default=None,
         description=(
-            "The NXQL actually executed. For natural mode this is the "
-            "generated query, so the caller can see how the request was understood."
+            "The query actually executed. For a mode that rewrites the request, "
+            "this shows how it was understood."
         ),
     )
     # Deliberately no aggregations field. This tool returns documents; counts and
@@ -106,8 +105,7 @@ class SearchResult(BaseModel):
         default=None,
         description=(
             "Set when the request succeeded but not as asked -- for example when "
-            "natural-language parsing failed and a fulltext fallback was used. "
-            "Null on a normal result."
+            "a mode had to fall back to a simpler search. Null on a normal result."
         ),
     )
 

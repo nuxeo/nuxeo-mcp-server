@@ -301,17 +301,13 @@ def test_search_tool(
         isinstance(t, str) and t.startswith("MCP Test Folder") for t in titles
     ), f"Expected seeded folder in {titles}"
 
-    # The envelope is the same for every mode, including the fields a mode
-    # cannot populate.
+    # The envelope carries every field, including those NXQL cannot populate.
     first = result.documents[0]
     assert first.id
     assert first.documentType
     assert first.score is None
     assert first.snippets == []
-
-    natural = search_tool(query="all folders", mode="natural")
-    assert natural.mode == "natural"
-    assert natural.interpretedQuery.upper().startswith("SELECT")
+    assert result.mode == "nxql"
 
     print(f"Search results for 'SELECT * FROM Folder': {titles}")
 

@@ -123,22 +123,31 @@ def test_envelope_shape_is_constant_when_mode_cannot_rank() -> None:
     assert payload["snippets"] == []
 
 
-def test_natural_mode_reports_the_generated_nxql() -> None:
-    nuxeo = _make_nuxeo()
-    result = _search_tool(nuxeo)("find all files", mode="natural")
-
-    assert result.mode == "natural"
-    assert result.interpretedQuery.upper().startswith("SELECT")
-    assert result.degraded is None
-
-
 def test_empty_query_returns_usage_help() -> None:
     with pytest.raises(ToolError) as excinfo:
         _search_tool()("")
 
     message = str(excinfo.value)
-    assert 'mode="nxql"' in message
+    assert "ecm:isVersion = 0" in message
     assert "nuxeo://nxql-guide" in message
+
+
+def test_nxql_is_the_default_mode() -> None:
+    nuxeo = _make_nuxeo()
+    result = _search_tool(nuxeo)("SELECT * FROM File")
+
+    assert result.mode == "nxql"
+    assert result.interpretedQuery == "SELECT * FROM File"
+    assert nuxeo.client.query.call_args[0][0] == "SELECT * FROM File"
+
+
+def test_natural_mode_is_gone() -> None:
+    """Agents write NXQL; a regex parser only lost information on the way."""
+    with pytest.raises(ToolError) as excinfo:
+        _search_tool()("find all files", mode="natural")
+
+    assert "Unknown mode" in str(excinfo.value)
+    assert "nxql" in str(excinfo.value)
 
 
 def test_unknown_mode_is_rejected() -> None:
@@ -334,69 +343,6 @@ def test_field_guide_documents_the_catch_all_field() -> None:
     assert "ecm:primaryType" in guide
     # The silent-empty-result failure mode must be called out explicitly.
     assert "matches nothing" in guide
-
-
-def test_natural_mode_degrades_with_an_escaped_literal(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A parse failure must still produce executable NXQL, apostrophes included."""
-    from nuxeo_mcp import nl_parser
-
-    def boom(self: Any, query: str) -> Any:
-        raise ValueError("nope")
-
-    monkeypatch.setattr(nl_parser.NaturalLanguageParser, "parse", boom)
-
-    nuxeo = _make_nuxeo()
-    result = _search_tool(nuxeo)("find Alice's report", mode="natural")
-
-    executed = nuxeo.client.query.call_args[0][0]
-    # Backslash escaping, not a doubled quote -- the latter is invalid NXQL.
-    assert executed == "SELECT * FROM Document WHERE ecm:fulltext = 'Alice\\'s report'"
-    assert result.interpretedQuery == executed
-    assert result.degraded is not None
-
-
-def test_natural_mode_escapes_literals_when_parsing_succeeds() -> None:
-    """User text reaches NXQL literals on the main path too, not only the fallback."""
-    nuxeo = _make_nuxeo()
-    result = _search_tool(nuxeo)("find Alice's report", mode="natural")
-
-    executed = nuxeo.client.query.call_args[0][0]
-    assert executed == "SELECT * FROM Document WHERE ecm:fulltext = 'Alice\\'s report'"
-    assert result.degraded is None
-
-
-def test_natural_mode_keeps_an_apostrophe_inside_double_quotes() -> None:
-    """The apostrophe must not end the quoted value: "Alice's" is not "Alice"."""
-    nuxeo = _make_nuxeo()
-    _search_tool(nuxeo)('documents titled "Alice\'s report"', mode="natural")
-
-    executed = nuxeo.client.query.call_args[0][0]
-    assert executed == "SELECT * FROM Document WHERE dc:title = 'Alice\\'s report'"
-
-
-def test_natural_mode_escapes_backslashes_in_quoted_values() -> None:
-    nuxeo = _make_nuxeo()
-    _search_tool(nuxeo)('documents titled "O\\Brien"', mode="natural")
-
-    executed = nuxeo.client.query.call_args[0][0]
-    assert executed == "SELECT * FROM Document WHERE dc:title = 'O\\\\Brien'"
-
-
-def test_parsed_limit_shrinks_the_first_page_only() -> None:
-    """Applied to a later page, it would shift the caller's page boundaries."""
-    nuxeo = _make_nuxeo()
-    search = _search_tool(nuxeo)
-
-    search("top 5 files", mode="natural", page_size=20)
-    assert nuxeo.client.query.call_args[1]["params"]["pageSize"] == 5
-
-    search("top 5 files", mode="natural", page_size=20, page_index=1)
-    assert nuxeo.client.query.call_args[1]["params"] == {
-        "pageSize": 20,
-        "currentPageIndex": 1,
-    }
 
 
 def test_query_dsl_size_check_covers_the_echoed_query(

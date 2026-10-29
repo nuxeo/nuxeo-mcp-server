@@ -19,7 +19,6 @@ from nuxeo_mcp import query_dsl
 from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
 from nuxeo_mcp.query_dsl import QueryDslRejected, apply_guardrails
 from nuxeo_mcp.search_models import (
-    MODE_NATURAL,
     MODE_NXQL,
     MODE_SEMANTIC,
     SEARCH_MODES,
@@ -37,38 +36,12 @@ from nuxeo_mcp.utility import (
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.tools")
 
-# Dropped before building the fulltext fallback query: they carry no search
-# signal and would otherwise narrow the fallback to nothing.
-_NL_STOP_WORDS = frozenset(
-    {
-        "find",
-        "show",
-        "list",
-        "get",
-        "search",
-        "for",
-        "all",
-        "the",
-        "me",
-        "with",
-        "in",
-        "from",
-        "by",
-        "a",
-        "an",
-        "of",
-        "to",
-        "and",
-        "please",
-    }
-)
-
 # Type aliases
 ToolFunction = Callable[[Dict[str, Any]], Dict[str, Any]]
 
 # MODE_SEMANTIC stays in the contract but is not advertised until it is
 # implemented: a listed mode invites a call that can only fail.
-_IMPLEMENTED_MODES = (MODE_NATURAL, MODE_NXQL)
+_IMPLEMENTED_MODES = (MODE_NXQL,)
 
 
 class DocRef(BaseModel):
@@ -878,14 +851,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
     # the engine response -- the opposite of the normalized envelope.
 
     _SEARCH_USAGE = (
-        "nuxeo_search_documents needs a non-empty query.\n"
-        "\n"
-        'mode="natural" (default) -- plain English:\n'
-        '  "invoices created by Alice in the last 30 days"\n'
-        '  "PDFs modified this week in /default-domain/workspaces"\n'
-        "\n"
-        'mode="nxql" -- a NXQL statement, when you need exact control. Start\n'
-        "from the default filter, or versions and system documents come back:\n"
+        "nuxeo_search_documents needs a NXQL statement. Start from the default\n"
+        "filter, or versions and system documents come back:\n"
         "  SELECT * FROM Document WHERE ecm:fulltext = 'contract'\n"
         "    AND ecm:mixinType != 'HiddenInNavigation' AND ecm:isProxy = 0\n"
         "    AND ecm:isVersion = 0 AND ecm:isTrashed = 0\n"
@@ -897,10 +864,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
     @tool(
         name="nuxeo_search_documents",
         description=(
-            "Search documents in the Nuxeo repository. Use mode='natural' for a "
-            "plain-English query, mode='nxql' for an exact NXQL statement. Returns "
-            "a normalized result envelope that is identical for every mode. For "
-            "counts, groupings or aggregations, use "
+            "Search documents in the Nuxeo repository with a NXQL statement. Read "
+            "nuxeo://nxql-guide first: it gives the default filter that keeps "
+            "versions and system documents out. Returns a normalized result "
+            "envelope. For counts, groupings or aggregations, use "
             "nuxeo_search_documents_with_query_dsl instead. "
             "Recently created or modified documents may take a few seconds to "
             "appear; read them by uid or path with nuxeo_get_document instead."
@@ -908,21 +875,21 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
     )
     def nuxeo_search_documents(
         query: str = "",
-        mode: str = MODE_NATURAL,
+        mode: str = MODE_NXQL,
         page_size: int = 20,
         page_index: int = 0,
     ) -> SearchResult:
         """Search the repository and return the normalized envelope.
 
         Args:
-            query: Plain English (mode="natural") or a NXQL statement (mode="nxql").
-            mode: One of "natural", "nxql".
+            query: A NXQL statement.
+            mode: "nxql". Kept as a parameter so other query modes can be added
+                without changing the contract.
             page_size: Documents per page.
             page_index: Zero-based page to retrieve.
 
         Returns:
-            SearchResult. ``interpretedQuery`` always reports the NXQL actually
-            executed, so a generated query can be inspected and corrected.
+            SearchResult. ``interpretedQuery`` reports the NXQL executed.
 
         Raises:
             ToolError: on an empty query, an unknown mode, or a mode that is not
@@ -934,7 +901,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         if mode == MODE_SEMANTIC:
             raise ToolError(
                 "mode='semantic' is not implemented yet in this MCP server. Use "
-                "mode='natural' or mode='nxql'."
+                "mode='nxql'."
             )
 
         if mode not in SEARCH_MODES:
@@ -946,54 +913,19 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         page_size = max(1, min(page_size, 100))
         page_index = max(0, page_index)
 
-        nxql = query
-        degraded = None
-
-        if mode == MODE_NATURAL:
-            from nuxeo_mcp.nl_parser import (
-                NaturalLanguageParser,
-                NXQLBuilder,
-                quote_nxql_literal,
-            )
-
-            try:
-                parsed = NaturalLanguageParser().parse(query)
-                nxql = NXQLBuilder(parsed).build()
-                # "top 5" shrinks the first page only: applied to a later page it
-                # would shift the boundaries of the pagination the caller asked for.
-                if parsed.limit and parsed.limit < page_size and page_index == 0:
-                    page_size = parsed.limit
-            except Exception as e:
-                # A parse failure must not look like "no documents match", so fall
-                # back to fulltext and say so rather than returning an empty page.
-                logger.warning(f"Natural language parsing failed: {e}; using fulltext")
-                terms = " ".join(
-                    w for w in query.split() if w.lower() not in _NL_STOP_WORDS
-                )
-                nxql = (
-                    "SELECT * FROM Document WHERE ecm:fulltext = "
-                    f"{quote_nxql_literal(terms)}"
-                    if terms
-                    else "SELECT * FROM Document"
-                )
-                degraded = (
-                    "Natural-language parsing failed; fell back to a fulltext search."
-                )
-
         try:
             query_result = nuxeo.client.query(
-                nxql, params={"pageSize": page_size, "currentPageIndex": page_index}
+                query, params={"pageSize": page_size, "currentPageIndex": page_index}
             )
         except Exception as e:
-            raise ToolError(f"Search failed for query {nxql!r}: {e}")
+            raise ToolError(f"Search failed for query {query!r}: {e}")
 
         return to_search_result(
             query_result,
             mode=mode,
-            interpreted_query=nxql,
+            interpreted_query=query,
             page_size=page_size,
             page_index=page_index,
-            degraded=degraded,
         )
 
     def _run_query_dsl(

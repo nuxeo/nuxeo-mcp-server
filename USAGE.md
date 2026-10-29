@@ -100,7 +100,7 @@ python -m nuxeo_mcp
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
 | `nuxeo_move_document` | no | yes | no | Move a document to a different location in the Nuxeo repository |
 | `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo audit log index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
-| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. Use mode='natural' for a plain-English query, mode='nxql' for an exact NXQL statement. Returns a normalized result envelope that is identical for every mode. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
+| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository with a NXQL statement. Read nuxeo://nxql-guide first: it gives the default filter that keeps versions and system documents out. Returns a normalized result envelope. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo repository index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
 
@@ -128,46 +128,35 @@ print(result)
 
 ### Search for Documents
 
-`nuxeo_search_documents` returns the same envelope whatever the mode, so you
-never have to branch on the shape of the result.
+`nuxeo_search_documents` runs a NXQL statement and returns a normalized
+envelope. Read the `nuxeo://nxql-guide` resource first: it gives the default
+filter that keeps versions, proxies, trashed and system documents out.
 
 ```python
 from fastmcp import use_tool
 
-# mode="nxql" -- an exact NXQL statement
 result = use_tool("nuxeo", "nuxeo_search_documents", {
-    "query": "SELECT * FROM Document WHERE ecm:primaryType = 'File'",
-    "mode": "nxql",
+    "query": (
+        "SELECT * FROM File WHERE ecm:fulltext = 'budget'"
+        " AND ecm:mixinType != 'HiddenInNavigation' AND ecm:isProxy = 0"
+        " AND ecm:isVersion = 0 AND ecm:isTrashed = 0"
+        " ORDER BY dc:modified DESC"
+    ),
     "page_size": 10,
     "page_index": 0,
 })
 
-# mode="natural" (the default) -- plain English, converted to NXQL
-result = use_tool("nuxeo", "nuxeo_search_documents", {
-    "query": "PDFs created by john in the last month",
-    "mode": "natural",
-})
-
-# interpretedQuery always reports the NXQL that actually ran, so a generated
-# query can be inspected and corrected.
-print(result["interpretedQuery"])
+print(result["interpretedQuery"])  # the NXQL that ran
 print(result["totalCount"], "matches,", "more pages" if result["hasMore"] else "last page")
 
 for doc in result["documents"]:
     print(doc["id"], doc["documentType"], doc["title"], doc["path"])
-    # score and snippets are populated by ranking modes and empty otherwise
-    print(doc["score"], doc["snippets"])
-
-# If natural-language parsing fails, the call still succeeds with a fulltext
-# fallback and says so rather than returning an empty page.
-if result["degraded"]:
-    print("degraded:", result["degraded"])
 ```
 
-`mode="semantic"` is reserved and currently reports that it is not yet
-available.
+`mode` defaults to `"nxql"`. `mode="semantic"` is reserved and currently
+reports that it is not yet available.
 
-Calling the tool with an empty query returns usage help with worked examples
+Calling the tool with an empty query returns usage help with a worked example
 instead of an error.
 
 ### Query DSL Search
@@ -175,7 +164,7 @@ instead of an error.
 `nuxeo_search_documents_with_query_dsl` takes a raw Elasticsearch/OpenSearch
 request body and returns the engine response unchanged. Use it for
 aggregations, highlighting, sorting and anything the normalized search cannot
-express. It is **not** a natural-language tool.
+express.
 
 Read the `nuxeo://query-dsl-guide` resource first: the search passthrough
 exposes `_search` only, so field names cannot be discovered at runtime, and an
@@ -280,27 +269,6 @@ result = use_tool("nuxeo", "nuxeo_search_audit_with_query_dsl", {
 
 Non-administrators receive an error: Nuxeo restricts the audit index
 server-side.
-
-#### Natural Language Patterns
-
-`mode="natural"` understands these patterns:
-
-**Document Types:** "find all invoices", "show me PDFs", "list folders"
-
-**Time:** "documents created today", "files from last week", "files since 2024-01-01"
-
-**Users:** "documents created by john", "alice's files"
-
-**Content:** "documents containing 'budget'", "files with title 'Project Report'"
-
-**Paths:** "documents in folder '/workspaces/project'", "files under /default-domain"
-
-**State:** "draft documents", "published files", "active documents not in trash"
-
-**Combined:** "invoices created by john from last week sorted by title limit 10"
-
-Parsing is best-effort. Always check `interpretedQuery` to see what actually
-ran, and use `mode="nxql"` when you need exact control.
 
 ### Get a Document
 

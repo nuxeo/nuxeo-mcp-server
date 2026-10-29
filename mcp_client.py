@@ -28,8 +28,8 @@ async def search(
     
     Args:
         url: The URL of the MCP server
-        query: Natural language (mode="natural") or NXQL (mode="nxql")
-        mode: Query mode -- natural or nxql
+        query: A NXQL statement
+        mode: Query mode -- nxql
         page_size: Number of results per page
         page_index: Page index
         
@@ -142,7 +142,7 @@ def main():
     search_parser.add_argument("--page-index", type=int, default=0, help="Page index")
     search_parser.add_argument(
         "--mode",
-        choices=["natural", "nxql"],
+        choices=["nxql"],
         default="nxql",
         help="How the query is expressed (default: nxql)",
     )
