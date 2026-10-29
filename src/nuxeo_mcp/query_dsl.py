@@ -61,10 +61,21 @@ _SINGLE_BUCKET_AGGS = frozenset(
 # Aggregations whose bucket count follows from an explicit list of ranges.
 _RANGE_AGGS = frozenset({"range", "date_range", "ip_range", "geo_distance"})
 
-# Aggregations whose bucket count depends on the data span, not on the request.
-# No bound can be read from the body, so a top_hits beneath them is counted as
-# exhausting the whole budget.
+# Aggregations whose bucket count depends on the data, not on the request. No
+# bound can be read from the body, so a top_hits beneath them is refused with
+# its own error: the generic budget message would advise shrinking sizes, which
+# cannot help, and the agent would retry in a loop.
 _UNBOUNDED_AGGS = frozenset({"histogram", "date_histogram", "rare_terms"})
+
+_UNBOUNDED_REWRITES = (
+    "Rewrite it one of these ways: "
+    "(1) a 'composite' aggregation with a date_histogram/histogram source and a "
+    "'size', which bounds the buckets (page on 'after_key'); "
+    "(2) 'date_range'/'range' with explicit 'ranges'; "
+    "(3) 'terms' with a 'size' instead of 'rare_terms'; "
+    "(4) keep the histogram for counts only and fetch example documents with a "
+    "second query filtered on one bucket."
+)
 
 # Grid aggregations default to 10,000 buckets, not 10.
 _GRID_AGGS = frozenset({"geohash_grid", "geotile_grid", "geohex_grid"})
@@ -87,6 +98,14 @@ Full-text search with highlighting:
 
 Count documents per type (no hits, just the aggregation):
   {"size": 0, "aggs": {"types": {"terms": {"field": "ecm:primaryType", "size": 20}}}}
+
+Latest document per month (composite bounds the buckets; top_hits beneath a
+plain date_histogram is refused because its bucket count is unbounded):
+  {"size": 0, "aggs": {"months": {
+       "composite": {"size": 12, "sources": [{"month": {"date_histogram":
+           {"field": "dc:modified", "calendar_interval": "month"}}}]},
+       "aggs": {"latest": {"top_hits": {"size": 1,
+           "sort": [{"dc:modified": "desc"}]}}}}}}
 
 Filter on type and path, newest first:
   {"size": 20, "query": {"bool": {"filter": [
@@ -246,8 +265,6 @@ def _bucket_count(body: Dict[str, Any]) -> int:
             continue
         if agg_type in _SINGLE_BUCKET_AGGS:
             return 1
-        if agg_type in _UNBOUNDED_AGGS:
-            return MAX_COLLECTED_HITS + 1
         if agg_type in _RANGE_AGGS:
             ranges = agg_body.get("ranges")
             return max(len(ranges), 1) if isinstance(ranges, list) else 1
@@ -266,13 +283,23 @@ def _bucket_count(body: Dict[str, Any]) -> int:
     return DEFAULT_BUCKET_COUNT
 
 
+def _unbounded_type(body: Dict[str, Any]) -> Optional[str]:
+    """Return the aggregation type if its bucket count cannot be read."""
+    return next((t for t in body if t in _UNBOUNDED_AGGS), None)
+
+
 def _bound_hit_collectors(
     aggs: Dict[str, Any],
     multiplier: int,
     default_source: Optional[List[str]],
     path: str,
+    unbounded: Optional[str] = None,
 ) -> int:
-    """Cap every ``top_hits`` in place and return the documents they retrieve."""
+    """Cap every ``top_hits`` in place and return the documents they retrieve.
+
+    ``unbounded`` names the nearest enclosing aggregation whose bucket count
+    cannot be read, if any.
+    """
     collected = 0
     for name, body in aggs.items():
         if not isinstance(body, dict):
@@ -282,14 +309,26 @@ def _bound_hit_collectors(
         top_hits = body.get("top_hits")
         if isinstance(top_hits, dict):
             size = _cap_hit_size(top_hits, f"{where}.top_hits", 3)
+            if unbounded and size > 0:
+                raise QueryDslRejected(
+                    f"top_hits at {where} sits beneath {unbounded}, whose bucket "
+                    "count depends on the data, so the documents it retrieves "
+                    "cannot be bounded. Reducing sizes will not help. "
+                    + _UNBOUNDED_REWRITES
+                )
             if default_source and "_source" not in top_hits and size > 0:
                 top_hits["_source"] = list(default_source)
             collected += multiplier * size
 
         sub = _aggs_of(body)
         if sub:
+            kind = _unbounded_type(body)
             collected += _bound_hit_collectors(
-                sub, multiplier * _bucket_count(body), default_source, where
+                sub,
+                multiplier * _bucket_count(body),
+                default_source,
+                where,
+                f"{where} ({kind})" if kind else unbounded,
             )
     return collected
 
@@ -412,8 +451,7 @@ def apply_guardrails(
                 f"The aggregations retrieve up to {nested} documents through "
                 f"top_hits, over the {budget} remaining in the "
                 f"{MAX_COLLECTED_HITS} document budget. Reduce the bucket count "
-                "or the top_hits size; histogram and date_histogram have no "
-                "declared bucket count, so top_hits beneath them is refused."
+                "or the top_hits size."
             )
 
     return guarded
@@ -574,8 +612,11 @@ def _render_guide(
         f"- `from` is capped at {MAX_FROM}",
         f"- `top_hits` and `inner_hits` are capped at {MAX_TOP_HITS_SIZE} each, "
         f"and a request that would retrieve more than {MAX_COLLECTED_HITS} "
-        "documents in total is rejected; `top_hits` beneath `histogram` or "
-        "`date_histogram` is refused, as their bucket count is unbounded",
+        "documents in total is rejected",
+        "- `top_hits` beneath `histogram`, `date_histogram` or `rare_terms` is "
+        "refused: their bucket count depends on the data. For documents per "
+        "time bucket, use a `composite` aggregation with a `date_histogram` "
+        "source and a `size`, or `date_range` with explicit `ranges`",
         f"- responses are capped at {MAX_RESPONSE_BYTES} bytes",
         "- `_source` defaults to a small projection; pass your own list to override",
         "- scripted queries are rejected: any key named `script` or ending in "

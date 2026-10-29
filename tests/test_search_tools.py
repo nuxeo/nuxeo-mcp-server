@@ -323,7 +323,44 @@ def test_guardrails_refuse_top_hits_under_a_histogram() -> None:
             )
         )
 
-    assert "histogram" in str(excinfo.value)
+    message = str(excinfo.value)
+    # The agent must learn where the problem is and how to rewrite, not be told
+    # to shrink sizes -- that cannot help and invites a retry loop.
+    assert "aggs.a (date_histogram)" in message
+    assert "composite" in message
+    assert "Reduce the bucket count" not in message
+
+
+def test_guardrails_refuse_top_hits_deep_under_a_histogram() -> None:
+    """A single-bucket aggregation in between does not bound the histogram."""
+    body = {
+        "size": 0,
+        "aggs": {
+            "a": {
+                "histogram": {"field": "x", "interval": 1},
+                "aggs": {
+                    "f": {
+                        "filter": {"term": {"y": 1}},
+                        "aggs": {"d": {"top_hits": {"size": 1}}},
+                    }
+                },
+            }
+        },
+    }
+    with pytest.raises(QueryDslRejected) as excinfo:
+        apply_guardrails(body)
+
+    assert "aggs.a (histogram)" in str(excinfo.value)
+
+
+def test_guardrails_accept_the_composite_rewrite_from_usage() -> None:
+    """The rewrite the error and the usage text recommend must itself pass."""
+    import json
+
+    from nuxeo_mcp.query_dsl import USAGE
+
+    example = USAGE.split("Latest document per month")[1].split("\n\n")[0]
+    apply_guardrails(json.loads(example[example.index("{") :]))
 
 
 def test_guardrails_allow_a_histogram_without_hits() -> None:
