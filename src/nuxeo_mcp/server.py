@@ -57,6 +57,7 @@ class NuxeoMCPServer:
         use_oauth2: bool = False,
         auth_config: Optional[MCPAuthConfig] = None,
         auth_mode: AuthMode = AuthMode.LOCAL,
+        open_browser: bool = True,
     ):
         """
         Initialize the Nuxeo MCP Server.
@@ -69,6 +70,8 @@ class NuxeoMCPServer:
             use_oauth2: Whether to use OAuth2 authentication
             auth_config: Authentication configuration
             auth_mode: Whose identity the server uses when calling Nuxeo
+            open_browser: For OAuth2, open the sign-in page in a browser; when
+                False the URL is only printed, on stderr
         """
         self.nuxeo_url = nuxeo_url
         self.username = username
@@ -152,7 +155,7 @@ class NuxeoMCPServer:
                 raise ValueError("OAuth2 setup failed")
             else:
                 # Authenticate and get Nuxeo client
-                if self.auth_manager.authenticate():
+                if self.auth_manager.authenticate(open_browser=open_browser):
                     self.nuxeo = self.auth_manager.get_nuxeo_client()
                     # Report the signed-in user, as basic auth reports its own
                     self.username = self.auth_manager.get_username()
@@ -282,14 +285,10 @@ def main() -> None:
             password=password,
             use_oauth2=use_oauth2,
             auth_mode=auth_mode,
+            # The OAuth2 sign-in runs while the server is created, so the flag
+            # has to reach it here, not after.
+            open_browser=not args.no_browser,
         )
-
-        # If OAuth2 and browser auth is enabled, perform initial authentication
-        if use_oauth2 and not args.no_browser:
-            logger.info("Starting OAuth2 authentication flow...")
-            if not server.auth_manager.authenticate():
-                logger.error("OAuth2 authentication failed")
-                sys.exit(1)
     except Exception as e:
         logger.error(f"Failed to create server: {e}")
         sys.exit(1)

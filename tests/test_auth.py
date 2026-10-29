@@ -7,6 +7,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 import pytest
@@ -558,6 +559,7 @@ def test_authorization_url_uses_the_real_nuxeo_client() -> None:
     with socket.socket() as probe:
         assert probe.connect_ex(("localhost", 18777)) != 0
 
+
 def test_token_manager_falls_back_when_the_keyring_is_locked(tmp_path) -> None:
     """A locked keyring (e.g. over SSH) must not lose the token after sign-in."""
     from unittest.mock import patch
@@ -582,3 +584,74 @@ def test_token_manager_falls_back_when_the_keyring_is_locked(tmp_path) -> None:
 
         assert isinstance(manager.storage, token_store.EncryptedFileStorage)
         assert manager.get_token("http://nuxeo.test")["access_token"] == "a"
+
+
+def _oauth2_handler(port: int) -> Any:
+    from nuxeo_mcp.auth import OAuth2AuthHandler
+    from nuxeo_mcp.config import AuthMethod, NuxeoServerConfig, OAuth2Config
+
+    return OAuth2AuthHandler(
+        NuxeoServerConfig(
+            url="http://nuxeo.test/nuxeo",
+            auth_method=AuthMethod.OAUTH2,
+            oauth2_config=OAuth2Config(
+                client_id="mcp", client_secret="s", redirect_port=port
+            ),
+        ),
+        token_manager=MagicMock(get_token=MagicMock(return_value=None)),
+    )
+
+
+def test_no_browser_prints_the_url_on_stderr_only(capsys) -> None:
+    """Over stdio, stdout is the MCP channel: sign-in must not write to it."""
+    from unittest.mock import patch
+
+    handler = _oauth2_handler(18778)
+    with (
+        patch("webbrowser.open") as browser,
+        patch("nuxeo_mcp.auth.time.time", side_effect=[0, 0, 10_000]),
+    ):
+        assert handler.authenticate(open_browser=False) is False
+
+    browser.assert_not_called()
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert "http://nuxeo.test/nuxeo/oauth2/authorize?" in err
+
+
+def test_no_browser_flag_reaches_the_sign_in(monkeypatch, tmp_path) -> None:
+    """The sign-in runs while the server is created, before main() resumes."""
+    from unittest.mock import patch
+
+    from nuxeo_mcp import server as server_module
+
+    for name in ("NUXEO_USERNAME", "NUXEO_PASSWORD", "NUXEO_AUTH_METHOD"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("NUXEO_URL", "http://nuxeo.test/nuxeo")
+    monkeypatch.setenv("NUXEO_OAUTH_CLIENT_ID", "mcp")
+    monkeypatch.setenv("NUXEO_OAUTH_CLIENT_SECRET", "s")
+    # Keep off the user's real config file, token store and keyring.
+    from nuxeo_mcp.config import MCPAuthConfig
+
+    monkeypatch.setattr(
+        MCPAuthConfig,
+        "_get_default_config_path",
+        staticmethod(lambda: tmp_path / "auth_config.json"),
+    )
+
+    calls = []
+
+    def fake_authenticate(self, open_browser=True):
+        calls.append(open_browser)
+        return False
+
+    with (
+        patch("nuxeo_mcp.auth.OAuth2AuthHandler.authenticate", fake_authenticate),
+        patch("nuxeo_mcp.auth.TokenManager") as token_manager,
+        patch("sys.argv", ["nuxeo-mcp", "--oauth2", "--no-browser"]),
+    ):
+        with pytest.raises(SystemExit):
+            server_module.main()
+
+    assert calls == [False]
+    token_manager.assert_called_once_with()

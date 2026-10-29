@@ -10,6 +10,7 @@ import hashlib
 import logging
 import secrets
 import socket
+import sys
 import threading
 import time
 import webbrowser
@@ -27,6 +28,15 @@ from .config import AuthMethod, NuxeoServerConfig
 from .token_store import TokenManager
 
 logger = logging.getLogger(__name__)
+
+
+def _tell(message: str) -> None:
+    """Show a sign-in message to the person at the terminal.
+
+    On stderr, never stdout: over stdio, stdout is the MCP message channel, and
+    the sign-in runs before the server starts reading it.
+    """
+    print(message, file=sys.stderr, flush=True)
 
 
 class OAuth2CallbackHandler(BaseHTTPRequestHandler):
@@ -290,10 +300,10 @@ class OAuth2AuthHandler:
             if open_browser:
                 # Open browser for authentication
                 webbrowser.open(auth_url)
-                print("\n🔐 Opening browser for authentication...")
-                print(f"If the browser doesn't open, please visit:\n{auth_url}\n")
+                _tell("\n🔐 Opening browser for authentication...")
+                _tell(f"If the browser doesn't open, please visit:\n{auth_url}\n")
             else:
-                print(
+                _tell(
                     f"\n🔐 Please visit the following URL to authenticate:\n{auth_url}\n"
                 )
 
@@ -320,28 +330,28 @@ class OAuth2AuthHandler:
                     # Validate token by making a test request
                     if self._validate_token(token):
                         logger.info("Authentication successful")
-                        print("✅ Authentication successful!")
+                        _tell("✅ Authentication successful!")
                         return True
                     else:
                         logger.error("Token validation failed")
-                        print("❌ Token validation failed")
+                        _tell("❌ Token validation failed")
                         return False
 
                 elif callback_server.auth_error:
                     logger.error(f"Authentication error: {callback_server.auth_error}")
-                    print(f"❌ Authentication failed: {callback_server.auth_error}")
+                    _tell(f"❌ Authentication failed: {callback_server.auth_error}")
                     return False
 
                 time.sleep(0.5)
 
             # Timeout
             logger.error("Authentication timeout")
-            print("❌ Authentication timeout - no response received")
+            _tell("❌ Authentication timeout - no response received")
             return False
 
         except Exception as e:
             logger.error(f"Authentication failed: {e}")
-            print(f"❌ Authentication failed: {e}")
+            _tell(f"❌ Authentication failed: {e}")
             return False
         finally:
             # Every way out, including an exception mid-flow: shutdown() alone
@@ -468,8 +478,8 @@ class BasicAuthHandler:
         self.server_config = server_config
         self.nuxeo_client: Optional[Nuxeo] = None
 
-    def authenticate(self) -> bool:
-        """Authenticate using basic auth."""
+    def authenticate(self, open_browser: bool = True) -> bool:
+        """Authenticate using basic auth. ``open_browser`` is ignored."""
         try:
             self.nuxeo_client = Nuxeo(
                 host=self.server_config.url,

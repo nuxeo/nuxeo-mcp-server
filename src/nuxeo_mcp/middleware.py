@@ -29,9 +29,12 @@ class AuthMiddleware:
         self._authenticated = False
         self._last_auth_check = None
 
-    def ensure_authenticated(self) -> bool:
+    def ensure_authenticated(self, open_browser: bool = True) -> bool:
         """
         Ensure the user is authenticated.
+
+        Args:
+            open_browser: For OAuth2, open the sign-in page in a browser
 
         Returns:
             True if authenticated, False otherwise
@@ -42,7 +45,7 @@ class AuthMiddleware:
         logger.info("Attempting authentication...")
 
         # Try to authenticate
-        if self.auth_handler.authenticate():
+        if self.auth_handler.authenticate(open_browser=open_browser):
             self._authenticated = True
             self._last_auth_check = datetime.now()
             return True
@@ -122,9 +125,12 @@ class AuthenticationManager:
             logger.error(f"Failed to setup authentication: {e}")
             return False
 
-    def authenticate(self) -> bool:
+    def authenticate(self, open_browser: bool = True) -> bool:
         """
         Perform authentication.
+
+        Args:
+            open_browser: For OAuth2, open the sign-in page in a browser
 
         Returns:
             True if authenticated, False otherwise
@@ -133,7 +139,7 @@ class AuthenticationManager:
             logger.error("Authentication not setup")
             return False
 
-        return self.middleware.ensure_authenticated()
+        return self.middleware.ensure_authenticated(open_browser=open_browser)
 
     def get_username(self) -> Optional[str]:
         """Return the Nuxeo user the handler authenticated as, if known."""
