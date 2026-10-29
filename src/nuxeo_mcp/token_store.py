@@ -265,9 +265,17 @@ class TokenManager:
         """Initialize the appropriate storage backend."""
         if backend == "keyring" or (backend is None and KEYRING_AVAILABLE):
             try:
-                return KeyringStorage()
+                storage = KeyringStorage()
+                # A keyring can be present but unusable: a locked Secret Service
+                # collection over SSH raises on every call, so a sign-in would
+                # get its token and then fail to keep it. Probe once.
+                if backend is None:
+                    keyring.get_password(KeyringStorage.SERVICE_NAME, "probe")
+                return storage
             except Exception as e:
-                logger.warning(f"Failed to initialize keyring storage: {e}")
+                logger.warning(
+                    f"OS keyring unusable ({e}); using the encrypted file instead"
+                )
                 if backend == "keyring":
                     raise
 
