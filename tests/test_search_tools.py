@@ -345,6 +345,39 @@ def test_natural_mode_degrades_with_an_escaped_literal(
     assert result.degraded is not None
 
 
+def test_natural_mode_escapes_literals_when_parsing_succeeds() -> None:
+    """User text reaches NXQL literals on the main path too, not only the fallback."""
+    nuxeo = _make_nuxeo()
+    result = _search_tool(nuxeo)("find Alice's report", mode="natural")
+
+    executed = nuxeo.client.query.call_args[0][0]
+    assert executed == "SELECT * FROM Document WHERE ecm:fulltext = 'Alice\\'s report'"
+    assert result.degraded is None
+
+
+def test_natural_mode_escapes_backslashes_in_quoted_values() -> None:
+    nuxeo = _make_nuxeo()
+    _search_tool(nuxeo)('documents titled "O\\Brien"', mode="natural")
+
+    executed = nuxeo.client.query.call_args[0][0]
+    assert executed == "SELECT * FROM Document WHERE dc:title = 'O\\\\Brien'"
+
+
+def test_parsed_limit_shrinks_the_first_page_only() -> None:
+    """Applied to a later page, it would shift the caller's page boundaries."""
+    nuxeo = _make_nuxeo()
+    search = _search_tool(nuxeo)
+
+    search("top 5 files", mode="natural", page_size=20)
+    assert nuxeo.client.query.call_args[1]["params"]["pageSize"] == 5
+
+    search("top 5 files", mode="natural", page_size=20, page_index=1)
+    assert nuxeo.client.query.call_args[1]["params"] == {
+        "pageSize": 20,
+        "currentPageIndex": 1,
+    }
+
+
 def test_query_dsl_size_check_covers_the_echoed_query(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
