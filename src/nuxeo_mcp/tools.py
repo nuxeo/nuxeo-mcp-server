@@ -720,7 +720,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
     @tool(
         name="nuxeo_delete_document",
-        description="Delete a document from the Nuxeo repository",
+        description=(
+            "Delete a document from the Nuxeo repository, by UID. To delete by "
+            "path, read the UID with nuxeo_get_document first."
+        ),
     )
     def nuxeo_delete_document(uid: str = None) -> Dict[str, Any]:
         """
@@ -755,7 +758,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
     @tool(
         name="nuxeo_move_document",
-        description="Move a document to a different location in the Nuxeo repository",
+        description=(
+            "Move a document, identified by UID, under the folder at target_path. "
+            "Not idempotent: repeating the call renames the document. To move by "
+            "path, read the UID with nuxeo_get_document first."
+        ),
     )
     def nuxeo_move_document(
         document_uid: str, target_path: str, new_name: str = None
