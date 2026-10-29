@@ -8,7 +8,6 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-import json
 
 from nuxeo_mcp.nl_parser import NaturalLanguageParser, NXQLBuilder
 
@@ -37,8 +36,3 @@ for query in test_queries:
     builder = NXQLBuilder(parsed)
     nxql = builder.build()
     print(f"\nNXQL: {nxql}")
-
-    # Build Elasticsearch query
-    es_query = parser.build_elasticsearch_query(parsed, "nuxeo")
-    print(f"\nElasticsearch query:")
-    print(json.dumps(es_query, indent=2))

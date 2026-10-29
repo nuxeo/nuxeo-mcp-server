@@ -139,12 +139,17 @@ def test_guide_degrades_to_curated_fields_when_sampling_fails() -> None:
 
     register_resources(FakeMCP(), nuxeo)
 
+    from nuxeo_mcp import query_dsl
+
+    # A sample cached by an earlier test would skip the fallback entirely.
+    query_dsl.reset_sample_cache()
     with patch(
         "nuxeo_mcp.es_passthrough.ElasticsearchPassthrough.execute_query",
         side_effect=Exception("connection refused"),
-    ):
+    ) as execute:
         result = captured["nuxeo://query-dsl-guide"]()
 
+    execute.assert_called_once()
     assert "ecm:primaryType" in result["content"]
     assert "Schema fields on this instance" not in result["content"]
 

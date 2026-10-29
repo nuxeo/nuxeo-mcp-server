@@ -1050,9 +1050,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         name="nuxeo_search_documents_with_query_dsl",
         description=(
             "Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo "
-            "repository index and return the engine response unchanged. Use this for "
-            "aggregations, highlighting, sorting and any query the normalized search "
-            "cannot express. Read nuxeo://query-dsl-guide first for the field names."
+            "repository index and return the engine response, plus two server-added "
+            "keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set "
+            "on empty results). Use this for aggregations, highlighting, sorting and "
+            "any query the normalized search cannot express. Read "
+            "nuxeo://query-dsl-guide first for the field names."
         ),
     )
     def nuxeo_search_documents_with_query_dsl(
@@ -1064,7 +1066,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
             query: An OpenSearch/Elasticsearch request body.
 
         Returns:
-            The engine response, unchanged apart from the applied guardrails.
+            The engine response for the guarded request, with the server-added
+            ``_nuxeo_executed_query`` and, on empty results, ``_nuxeo_hint``.
 
         Raises:
             ToolError: on a missing body, a scripted query, an engine error, or a
@@ -1078,8 +1081,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         name="nuxeo_search_audit_with_query_dsl",
         description=(
             "Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo "
-            "audit log index and return the engine response unchanged. Administrators "
-            "only. Read nuxeo://audit-query-dsl-guide first for the field names."
+            "audit log index and return the engine response, plus two server-added "
+            "keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set "
+            "on empty results). Administrators only. Read "
+            "nuxeo://audit-query-dsl-guide first for the field names."
         ),
     )
     def nuxeo_search_audit_with_query_dsl(
@@ -1094,7 +1099,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
             query: An OpenSearch/Elasticsearch request body.
 
         Returns:
-            The engine response, unchanged apart from the applied guardrails.
+            The engine response for the guarded request, with the server-added
+            ``_nuxeo_executed_query`` and, on empty results, ``_nuxeo_hint``.
 
         Raises:
             ToolError: on a missing body, a scripted query, an engine error
