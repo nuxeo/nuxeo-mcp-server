@@ -107,9 +107,59 @@ def test_discovered_fields_appear_in_the_guide() -> None:
 
     guide = query_dsl.field_guide(["dc:title", "invoice:amount"])
 
-    assert "invoice:amount" in guide
+    discovered = guide.split("## Schema fields on this instance")[1].split("##")[0]
+    assert "invoice:amount" in discovered
     # Curated fields are not repeated in the discovered section.
-    assert guide.count("`dc:title`") == 1
+    assert "`dc:title`" not in discovered
+
+
+def test_sampling_reads_documents_from_every_type_bucket() -> None:
+    """The first hits of a match_all are system documents, not content."""
+    from nuxeo_mcp import query_dsl
+
+    def execute_query(index: str, query: Dict[str, Any]) -> Dict[str, Any]:
+        assert query["aggs"]["types"]["terms"]["field"] == "ecm:primaryType"
+        bucket = {"docs": {"hits": {"hits": [{"_source": {"invoice:amount": 1}}]}}}
+        return {
+            "hits": {"hits": [{"_source": {"rnode:start": True}}]},
+            "aggregations": {"types": {"buckets": [bucket]}},
+        }
+
+    query_dsl.reset_sample_cache()
+    names = query_dsl.sample_field_names(execute_query, "nuxeo")
+
+    assert names == ["invoice:amount", "rnode:start"]
+
+
+@pytest.mark.parametrize("guide", ["nxql", "dsl"])
+def test_guides_lead_with_the_default_filter(guide: str) -> None:
+    """Without it, versions and system documents come back as duplicates."""
+    from nuxeo_mcp import query_dsl
+
+    if guide == "nxql":
+        text = (
+            resources.files("nuxeo_mcp.guides")
+            .joinpath("nxql.md")
+            .read_text(encoding="utf-8")
+        )
+        expected = [
+            "ecm:mixinType != 'HiddenInNavigation'",
+            "ecm:isProxy = 0",
+            "ecm:isVersion = 0",
+            "ecm:isTrashed = 0",
+        ]
+    else:
+        text = query_dsl.field_guide()
+        expected = [
+            '"ecm:mixinType": "HiddenInNavigation"',
+            '"ecm:isProxy": false',
+            '"ecm:isVersion": false',
+            '"ecm:isTrashed": false',
+        ]
+
+    head = text.split("## Fields")[0] if guide == "dsl" else text[:1500]
+    assert "default filter" in head
+    assert all(clause in head for clause in expected)
 
 
 def test_curated_field_families_are_not_listed_again() -> None:

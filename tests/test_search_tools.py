@@ -270,6 +270,15 @@ def test_guardrails_cap_inner_hits() -> None:
     assert collapsed["_source"] == ["dc:title"]
 
 
+def test_guides_carry_efficiency_advice() -> None:
+    """Advice the caps cannot enforce reaches the agent through both guides."""
+    from nuxeo_mcp.query_dsl import EFFICIENCY_TIPS, audit_field_guide
+
+    for guide in (field_guide(), audit_field_guide()):
+        assert "## Writing efficient queries" in guide
+        assert all(tip in guide for tip in EFFICIENCY_TIPS)
+
+
 def test_guardrails_do_not_mutate_the_caller_body() -> None:
     body = {"size": 0, "aggs": {"d": {"top_hits": {"size": 50}}}}
 

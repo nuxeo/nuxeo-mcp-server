@@ -363,7 +363,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
     @tool(
         name="nuxeo_create_document",
-        description="Create a new document in the Nuxeo repository with optional file attachment",
+        description=(
+            "Create a new document in the Nuxeo repository with optional file "
+            "attachment. To confirm the result, read it back with "
+            "nuxeo_get_document; search may not see it yet."
+        ),
     )
     def nuxeo_create_document(
         name: str,
@@ -880,9 +884,11 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         '  "invoices created by Alice in the last 30 days"\n'
         '  "PDFs modified this week in /default-domain/workspaces"\n'
         "\n"
-        'mode="nxql" -- a NXQL statement, when you need exact control:\n'
-        "  SELECT * FROM File WHERE dc:title LIKE 'Invoice%' ORDER BY dc:modified DESC\n"
-        "  SELECT * FROM Document WHERE ecm:fulltext = 'contract' AND ecm:isTrashed = 0\n"
+        'mode="nxql" -- a NXQL statement, when you need exact control. Start\n'
+        "from the default filter, or versions and system documents come back:\n"
+        "  SELECT * FROM Document WHERE ecm:fulltext = 'contract'\n"
+        "    AND ecm:mixinType != 'HiddenInNavigation' AND ecm:isProxy = 0\n"
+        "    AND ecm:isVersion = 0 AND ecm:isTrashed = 0\n"
         "\n"
         "See the nuxeo://nxql-guide resource for the full NXQL syntax, and "
         "nuxeo_search_documents_with_query_dsl for aggregations and highlighting."
@@ -895,7 +901,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
             "plain-English query, mode='nxql' for an exact NXQL statement. Returns "
             "a normalized result envelope that is identical for every mode. For "
             "counts, groupings or aggregations, use "
-            "nuxeo_search_documents_with_query_dsl instead."
+            "nuxeo_search_documents_with_query_dsl instead. "
+            "Recently created or modified documents may take a few seconds to "
+            "appear; read them by uid or path with nuxeo_get_document instead."
         ),
     )
     def nuxeo_search_documents(
@@ -1054,7 +1062,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
             "keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set "
             "on empty results). Use this for aggregations, highlighting, sorting and "
             "any query the normalized search cannot express. Read "
-            "nuxeo://query-dsl-guide first for the field names."
+            "nuxeo://query-dsl-guide first for the field names. "
+            "Recently created or modified documents may take a few seconds to "
+            "appear; read them by uid or path with nuxeo_get_document instead."
         ),
     )
     def nuxeo_search_documents_with_query_dsl(

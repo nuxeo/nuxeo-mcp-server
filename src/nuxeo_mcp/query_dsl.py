@@ -39,21 +39,36 @@ MAX_TOP_HITS_SIZE = 10
 # round trip.
 USAGE = """nuxeo_search_documents_with_query_dsl needs an OpenSearch/Elasticsearch request body.
 
-Full-text search with highlighting:
+Full-text search with highlighting, live user documents only:
   {"size": 10, "_source": ["dc:title", "ecm:path"],
-   "query": {"match": {"all_field": "quarterly report"}},
+   "query": {"bool": {
+       "must": {"match": {"all_field": "quarterly report"}},
+       "filter": [{"term": {"ecm:isProxy": false}},
+                  {"term": {"ecm:isVersion": false}},
+                  {"term": {"ecm:isTrashed": false}}],
+       "must_not": [{"term": {"ecm:mixinType": "HiddenInNavigation"}}]}},
    "highlight": {"require_field_match": false,
-                 "fields": {"dc:title": {}, "dc:description": {},
+                 "fields": {"dc:title.fulltext": {},
+                            "dc:description.fulltext": {},
                             "ecm:binarytext": {"fragment_size": 150,
                                                "number_of_fragments": 3}}}}
 
 Count documents per type (no hits, just the aggregation):
-  {"size": 0, "aggs": {"types": {"terms": {"field": "ecm:primaryType", "size": 20}}}}
+  {"size": 0, "query": {"bool": {
+       "filter": [{"term": {"ecm:isProxy": false}},
+                  {"term": {"ecm:isVersion": false}},
+                  {"term": {"ecm:isTrashed": false}}],
+       "must_not": [{"term": {"ecm:mixinType": "HiddenInNavigation"}}]}},
+   "aggs": {"types": {"terms": {"field": "ecm:primaryType", "size": 20}}}}
 
-Filter on type and path, newest first:
-  {"size": 20, "query": {"bool": {"filter": [
-       {"term": {"ecm:primaryType": "File"}},
-       {"prefix": {"ecm:path": "/default-domain/workspaces"}}]}},
+Files under a path, newest first:
+  {"size": 20, "query": {"bool": {
+       "filter": [{"term": {"ecm:primaryType": "File"}},
+                  {"term": {"ecm:path.children": "/default-domain/workspaces"}},
+                  {"term": {"ecm:isProxy": false}},
+                  {"term": {"ecm:isVersion": false}},
+                  {"term": {"ecm:isTrashed": false}}],
+       "must_not": [{"term": {"ecm:mixinType": "HiddenInNavigation"}}]}},
    "sort": [{"dc:modified": "desc"}]}
 
 Read nuxeo://query-dsl-guide for the available field names."""
@@ -64,13 +79,26 @@ What happened to one document, newest first:
   {"size": 20, "query": {"term": {"docUUID": "<uuid>"}},
    "sort": [{"eventDate": "desc"}]}
 
-Deletions over the last day:
+Documents trashed or deleted over the last day:
   {"size": 50, "query": {"bool": {"filter": [
-       {"term": {"eventId": "documentRemoved"}},
+       {"terms": {"eventId": ["documentTrashed", "documentRemoved"]}},
        {"range": {"eventDate": {"gte": "now-1d"}}}]}},
    "sort": [{"eventDate": "desc"}]}
 
-Who is most active (no hits, just the aggregation):
+Who downloaded files under a folder this week:
+  {"size": 50, "_source": ["eventDate", "principalName", "docPath",
+                           "extended.blobFilename"],
+   "query": {"bool": {"filter": [
+       {"term": {"eventId": "download"}},
+       {"term": {"docPath.children": "/default-domain/workspaces"}},
+       {"range": {"eventDate": {"gte": "now-7d"}}}]}},
+   "sort": [{"eventDate": "desc"}]}
+
+Failed logins per user (no hits, just the aggregation):
+  {"size": 0, "query": {"term": {"eventId": "loginFailed"}},
+   "aggs": {"users": {"terms": {"field": "principalName", "size": 20}}}}
+
+Most active users:
   {"size": 0, "aggs": {"users": {"terms": {"field": "principalName", "size": 20}}}}
 
 Read nuxeo://audit-query-dsl-guide for the available field names."""
@@ -78,65 +106,123 @@ Read nuxeo://audit-query-dsl-guide for the available field names."""
 # Audit index fields. Audit entries are events, not documents, so they share no
 # schema with the repository index.
 AUDIT_FIELDS: Dict[str, str] = {
-    "id": "keyword - audit entry id",
-    "eventId": "keyword - event name, e.g. documentCreated, documentModified, documentRemoved, loginSuccess",
+    "id": "long - audit entry id",
+    "eventId": "keyword - event name: documentCreated, documentModified, "
+    "documentTrashed, documentUntrashed, documentRemoved (permanent deletion), "
+    "documentMoved, documentCheckedIn, documentLocked, documentSecurityUpdated, "
+    "download, search, loginSuccess, loginFailed, logout, user_created, "
+    "user_deleted, group_created",
+    "category": "keyword - eventDocumentCategory (document events), "
+    "NuxeoAuthentication (logins), userGroup (users and groups)",
     "eventDate": "date - when the event happened; the usual sort field",
     "logDate": "date - when the entry was written",
-    "category": "keyword - event category, e.g. eventDocumentCategory, eventLifeCycleCategory",
     "principalName": "keyword - user who caused the event",
-    "docUUID": "keyword - UUID of the document concerned",
-    "docPath": "keyword - path of the document at the time of the event",
+    "docUUID": "keyword - id of the document concerned",
+    "docPath": "keyword - path at the time of the event; term on "
+    "docPath.children for everything under a path",
     "docType": "keyword - document type",
     "docLifeCycle": "keyword - lifecycle state at the time of the event",
     "repositoryId": "keyword - repository name",
-    "comment": "text - free-text comment attached to the event",
-    "extended": "object - event-specific extra properties",
+    "comment": "text - comment, e.g. the version label on documentCheckedIn; "
+    "match comment.fulltext",
+    "entity-type": "keyword - always logEntry",
+    "extended": "object - event-specific details, e.g. extended.blobFilename "
+    "and extended.downloadReason on download, extended.effectiveQuery and "
+    "extended.resultsCount on search",
 }
 
 
-# Core index fields, stable across Nuxeo instances. Schema-specific fields exist
-# too but depend on the deployed content model.
+# Core index fields, stable across Nuxeo instances, with their type in the
+# default LTS 2025 mapping. Schema-specific fields exist too but depend on the
+# deployed content model.
 CORE_FIELDS: Dict[str, str] = {
-    "all_field": "catch-all full-text field; queryable but never returned in "
-    "_source, so highlight source-backed fields (dc:title, dc:description, "
-    "ecm:binarytext) with require_field_match: false instead",
-    "ecm:uuid": "keyword - document UUID",
-    "ecm:name": "keyword - document name",
-    "ecm:title": "text - document title",
-    "ecm:path": "keyword - full repository path",
+    "all_field": "text - catch-all full-text field (every string property and "
+    "the extracted text); query it with match; never in _source, so it cannot "
+    "be highlighted",
+    "ecm:uuid": "keyword - document id",
+    "ecm:name": "keyword - name in its parent",
+    "ecm:title": "keyword - title, exact value; use dc:title.fulltext to find words",
+    "ecm:path": "keyword - full path; prefix or term on it, or term on "
+    "ecm:path.children for everything under a path",
     "ecm:path@depth": "integer - path depth",
     "ecm:path@level*": "keyword - path segment at each level, level1 to level5",
+    "ecm:parentId": "keyword - parent id",
+    "ecm:ancestorId": "keyword[] - every ancestor id; term on it for a subtree",
     "ecm:primaryType": "keyword - document type, e.g. File, Note, Folder",
-    "ecm:mixinType": "keyword[] - facets",
-    "ecm:currentLifeCycleState": "keyword - lifecycle state, e.g. project, deleted",
-    "ecm:parentId": "keyword - parent UUID",
-    "ecm:ancestorId": "keyword[] - every ancestor UUID; use to search a subtree",
-    "ecm:isVersion": "boolean",
+    "ecm:mixinType": "keyword[] - facets, e.g. Folderish, HiddenInNavigation",
+    "ecm:currentLifeCycleState": "keyword - lifecycle state, e.g. project",
+    "ecm:isVersion": "boolean - see the default filter",
+    "ecm:isProxy": "boolean - see the default filter",
+    "ecm:isTrashed": "boolean - see the default filter",
     "ecm:isLatestVersion": "boolean",
     "ecm:isLatestMajorVersion": "boolean",
-    "ecm:isProxy": "boolean",
-    "ecm:isTrashed": "boolean - filter on false to exclude the trash",
+    "ecm:isCheckedIn": "boolean",
     "ecm:isRecord": "boolean",
     "ecm:hasLegalHold": "boolean",
-    "ecm:isCheckedIn": "boolean",
-    "ecm:binarytext": "text - extracted text of the attached binary",
-    "ecm:acl": "keyword[] - principals allowed to read; applied by Nuxeo, do not filter on it",
-    "ecm:changeToken": "keyword",
-    "ecm:pos": "integer - position among its siblings, for ordered folders",
+    "ecm:versionLabel": "keyword - e.g. 1.0, versions only",
+    "ecm:versionVersionableId": "keyword - live document id, versions only",
+    "ecm:binarytext": "text - text extracted from attached files; match and "
+    "highlight it directly",
+    "ecm:acl": "keyword[] - applied by Nuxeo; do not filter on it",
+    "ecm:pos": "integer - position in an ordered folder",
     "ecm:repository": "keyword - repository name",
-    "dc:title": "text - title",
-    "dc:description": "text - description",
-    "dc:creator": "keyword - username of the creator",
+    "ecm:changeToken": "keyword",
+    "dc:title": "text - match it, or dc:title.fulltext for the full-text "
+    "analyzer; sortable",
+    "dc:description": "keyword - exact value; match or highlight "
+    "dc:description.fulltext",
+    "dc:creator": "keyword - username",
+    "dc:lastContributor": "keyword - username",
+    "dc:contributors": "keyword[] - usernames",
     "dc:created": "date",
     "dc:modified": "date",
-    "dc:contributors": "keyword[]",
-    "dc:lastContributor": "keyword",
-    "file:content": "object - attached blob: name, mime-type, length, digest",
-    "uid:major_version": "integer",
-    "uid:minor_version": "integer",
+    "file:content.name": "keyword - main attached file name",
+    "file:content.mime-type": "keyword - e.g. application/pdf",
+    "file:content.length": "long - size in bytes",
+    "file:content.digest": "keyword",
+    "uid:major_version": "long",
+    "uid:minor_version": "long",
     "common:icon": "keyword",
-    "thumb:thumbnail": "object",
+    "thumb:thumbnail": "object - not indexed; cannot be queried",
 }
+
+# How the default mapping indexes properties. Without this a model writes match
+# on keyword fields, or highlights a field with no analysed text, and gets
+# silence rather than an error.
+MAPPING_NOTES: List[str] = [
+    "Schema properties are indexed under their prefixed name (`dc:title`).",
+    "Complex sub-properties use a dot: `file:content.mime-type` (NXQL uses `/`).",
+    "A string property without an explicit mapping is a `keyword`, copied to",
+    "`all_field`, and values over 256 characters are not indexed. Query it",
+    "with `term`/`terms`/`prefix` on the exact value; to find words in it,",
+    "`match` on `all_field`.",
+    "Properties mapped for full-text, like `dc:description` or `note:note`,",
+    "have an analysed `<field>.fulltext` subfield: `match` and highlight that",
+    "subfield, and use the field itself for `term`, sorting and aggregations.",
+    "Only `keyword`, numeric, date and boolean fields can be sorted or",
+    "aggregated (`dc:title` too: it has fielddata).",
+]
+
+# Excludes system documents, versions, proxies and the trash: each is a separate
+# index entry, so without it one document is returned several times. Mirrors the
+# NXQL guide's default filter.
+DEFAULT_FILTER: Dict[str, Any] = {
+    "bool": {
+        "filter": [
+            {"term": {"ecm:isProxy": False}},
+            {"term": {"ecm:isVersion": False}},
+            {"term": {"ecm:isTrashed": False}},
+        ],
+        "must_not": [{"term": {"ecm:mixinType": "HiddenInNavigation"}}],
+    }
+}
+DEFAULT_FILTER_LINES: List[str] = [
+    '  {"bool": {',
+    '     "filter": [{"term": {"ecm:isProxy": false}},',
+    '                {"term": {"ecm:isVersion": false}},',
+    '                {"term": {"ecm:isTrashed": false}}],',
+    '     "must_not": [{"term": {"ecm:mixinType": "HiddenInNavigation"}}]}}',
+]
 
 # Default _source projection: enough to identify and cite a document without
 # dragging every schema of every hit into the context window.
@@ -284,9 +370,12 @@ def apply_guardrails(
     return guarded
 
 
-# Number of documents sampled to discover instance-specific field names. Large
-# enough to cover the common document types, small enough to stay cheap.
-SAMPLE_SIZE = 50
+# Documents sampled to discover instance-specific field names: a few per document
+# type, because the first N hits of a match_all are whatever was indexed first --
+# on a fresh instance, workflow and admin documents rather than content.
+SAMPLE_TYPES = 20
+SAMPLE_PER_TYPE = 3
+SAMPLE_SIZE = SAMPLE_TYPES * SAMPLE_PER_TYPE
 
 # Excluded from the sample: discovery needs key names, and this one carries the
 # entire extracted text of every binary. Already documented in the curated table.
@@ -318,17 +407,36 @@ def sample_field_names(
     if index in _SAMPLE_CACHE:
         return _SAMPLE_CACHE[index]
 
+    # Plain hits as well as per-type buckets: the audit index has no
+    # ecm:primaryType, so the aggregation comes back empty there.
+    source = {"excludes": SAMPLE_SOURCE_EXCLUDES}
     response = execute_query(
         index=index,
         query={
-            "size": SAMPLE_SIZE,
-            "_source": {"excludes": SAMPLE_SOURCE_EXCLUDES},
-            "query": {"match_all": {}},
+            "size": SAMPLE_PER_TYPE * 3,
+            "_source": source,
+            # Sample what a user searches, not workflow and admin documents.
+            "query": DEFAULT_FILTER if index == "nuxeo" else {"match_all": {}},
+            "aggs": {
+                "types": {
+                    "terms": {"field": "ecm:primaryType", "size": SAMPLE_TYPES},
+                    "aggs": {
+                        "docs": {
+                            "top_hits": {"size": SAMPLE_PER_TYPE, "_source": source}
+                        }
+                    },
+                }
+            },
         },
     )
 
+    hits = list(response.get("hits", {}).get("hits", []))
+    buckets = response.get("aggregations", {}).get("types", {}).get("buckets", [])
+    for bucket in buckets:
+        hits += bucket.get("docs", {}).get("hits", {}).get("hits", [])
+
     names: set = set()
-    for hit in response.get("hits", {}).get("hits", []):
+    for hit in hits:
         names.update((hit.get("_source") or {}).keys())
 
     discovered = sorted(names)
@@ -342,7 +450,7 @@ def reset_sample_cache() -> None:
 
 
 def _discovered_section(
-    discovered: Optional[List[str]], known: Dict[str, str]
+    discovered: Optional[List[str]], known: Dict[str, str], what: str = "documents"
 ) -> List[str]:
     """Render the fields found on this instance that the curated table misses."""
     if discovered is None:
@@ -359,10 +467,12 @@ def _discovered_section(
     # A curated key ending in * stands for a family of fields, like
     # ecm:path@level* for level1..level5. Listing the members again is noise.
     families = tuple(name[:-1] for name in known if name.endswith("*"))
+    # file:content is curated through its sub-fields, file:content.name etc.
+    parents = {name.split(".")[0] for name in known if "." in name}
     extra = [
         name
         for name in discovered
-        if name not in known and not name.startswith(families)
+        if name not in known and name not in parents and not name.startswith(families)
     ]
     if not extra:
         return []
@@ -370,9 +480,9 @@ def _discovered_section(
     return [
         "## Schema fields on this instance",
         "",
-        f"Observed by sampling {SAMPLE_SIZE} documents, so this lists what is in use",
-        "rather than everything the content model allows. Types are not shown;",
-        "use nuxeo_get_metadata_schema for those.",
+        f"Observed by sampling {what} on this instance, so this lists what is",
+        "in use rather than everything that could exist. Types are not shown; a",
+        "string property is a keyword unless the guide above says otherwise.",
         "",
         *(f"- `{name}`" for name in extra),
         "",
@@ -387,6 +497,20 @@ def field_guide(discovered: Optional[List[str]] = None) -> str:
         fields=CORE_FIELDS,
         schema_note=_discovered_section(discovered, CORE_FIELDS),
         examples=USAGE,
+        preamble=[
+            "## Start every query from the default filter",
+            "",
+            "System documents, versions, proxies and trashed documents are indexed",
+            "too, so without this filter they come back, and the same document",
+            "appears several times. Add your clauses to it; drop one only on purpose:",
+            "",
+            *DEFAULT_FILTER_LINES,
+            "",
+            "## How fields are indexed",
+            "",
+            *MAPPING_NOTES,
+            "",
+        ],
         acl_note=(
             "Results are already filtered to what the authenticated user may read.\n"
             "Do not filter on `ecm:acl` yourself."
@@ -400,13 +524,34 @@ def audit_field_guide(discovered: Optional[List[str]] = None) -> str:
         title="Nuxeo audit index - Query DSL field reference",
         tool="nuxeo_search_audit_with_query_dsl",
         fields=AUDIT_FIELDS,
-        schema_note=_discovered_section(discovered, AUDIT_FIELDS) if discovered else [],
+        schema_note=(
+            _discovered_section(discovered, AUDIT_FIELDS, what="entries")
+            if discovered
+            else []
+        ),
         examples=AUDIT_USAGE,
         acl_note=(
             "The audit index is restricted to administrators; Nuxeo answers HTTP 403\n"
             "for everyone else."
         ),
     )
+
+
+# Advice, not enforcement: the search cluster is shared with the application,
+# and the caps above only bound the worst case. Server-side limits are NXP-34107.
+EFFICIENCY_TIPS: List[str] = [
+    "Counting or grouping? Use `size: 0` with an aggregation; no hits are fetched.",
+    "Put exact conditions (term, range, prefix) in `bool.filter`, not "
+    "`bool.must`: filters skip scoring and are cached.",
+    "Pass a short `_source` list; never fetch whole documents to read one field.",
+    "Keep aggregations shallow and bucket `size` small; nesting multiplies cost.",
+    "Keep `top_hits` to a few documents per bucket, with a `_source` list.",
+    "Avoid leading wildcards (`*report`) and `regexp`; they scan every term. "
+    "Prefer `match` on text fields and `prefix` on keyword fields.",
+    "Narrow with filters on keyword and date fields (type, path, user, date "
+    "range) before full-text matching.",
+    "Do not page deeply with `from`; refine the query instead.",
+]
 
 
 def _render_guide(
@@ -417,7 +562,9 @@ def _render_guide(
     schema_note: List[str],
     examples: str,
     acl_note: str,
+    preamble: Optional[List[str]] = None,
 ) -> str:
+    preamble = preamble or []
     lines = [
         f"# {title}",
         "",
@@ -427,6 +574,7 @@ def _render_guide(
         "search returns zero hits. Check names here before concluding that no",
         "entry matches.",
         "",
+        *preamble,
         "## Fields",
         "",
     ]
@@ -443,6 +591,10 @@ def _render_guide(
         "- scripted queries are rejected: any key named `script` or ending in "
         "`_script`, at any depth -- including a field name such as "
         "`foo_script`, which therefore cannot be queried",
+        "",
+        "## Writing efficient queries",
+        "",
+        *[f"- {tip}" for tip in EFFICIENCY_TIPS],
         "",
         acl_note,
         "",

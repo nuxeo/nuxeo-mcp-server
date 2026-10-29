@@ -89,7 +89,7 @@ python -m nuxeo_mcp
 
 | Tool | Read-only | Destructive | Open-world | Description |
 |------|-----------|-------------|------------|-------------|
-| `nuxeo_create_document` | no | no | no | Create a new document in the Nuxeo repository with optional file attachment |
+| `nuxeo_create_document` | no | no | no | Create a new document in the Nuxeo repository with optional file attachment. To confirm the result, read it back with nuxeo_get_document; search may not see it yet. |
 | `nuxeo_delete_document` | no | yes | no | Delete a document from the Nuxeo repository |
 | `nuxeo_execute_operation` | no | yes | yes | Execute a Nuxeo Operation with the specified parameters and input |
 | `nuxeo_get_document` | yes | no | no | Get a document from the Nuxeo repository |
@@ -100,8 +100,8 @@ python -m nuxeo_mcp
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
 | `nuxeo_move_document` | no | yes | no | Move a document to a different location in the Nuxeo repository |
 | `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo audit log index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
-| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. Use mode='natural' for a plain-English query, mode='nxql' for an exact NXQL statement. Returns a normalized result envelope that is identical for every mode. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. |
-| `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo repository index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. |
+| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. Use mode='natural' for a plain-English query, mode='nxql' for an exact NXQL statement. Returns a normalized result envelope that is identical for every mode. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
+| `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo repository index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
 
 <!-- END GENERATED TOOLS -->
@@ -185,8 +185,9 @@ unknown field matches nothing rather than raising an error.
 from fastmcp import use_tool
 
 # Full-text search with highlighting. Query `all_field`, but highlight
-# source-backed fields: `all_field` is a copy_to catch-all, never stored, so
-# the highlighter has no text to fragment for it.
+# analysed fields: `all_field` is a copy_to catch-all, never stored, so the
+# highlighter has no text to fragment for it. String properties are keyword
+# fields with an analysed `.fulltext` subfield; highlight the subfield.
 result = use_tool("nuxeo", "nuxeo_search_documents_with_query_dsl", {
     "query": {
         "size": 10,
@@ -195,8 +196,8 @@ result = use_tool("nuxeo", "nuxeo_search_documents_with_query_dsl", {
         "highlight": {
             "require_field_match": False,
             "fields": {
-                "dc:title": {},
-                "dc:description": {},
+                "dc:title.fulltext": {},
+                "dc:description.fulltext": {},
                 "ecm:binarytext": {"fragment_size": 150, "number_of_fragments": 3},
             },
         },
@@ -230,12 +231,17 @@ Results are already filtered to what the authenticated user may read; Nuxeo
 applies the ACLs server-side. Do not filter on `ecm:acl` yourself.
 
 **Limits.** `size` defaults to 10 and is capped at 100, `from` is capped at
-1000, `top_hits` and `inner_hits` are capped at 10 each, responses are capped at
-256 KiB, `_source` defaults to a small
-projection, and scripted queries are rejected: any key named `script` or
-ending in `_script`, which also makes a field with such a name unqueryable.
-Without them an unqualified `match_all` with `size: 10000` returns several
-megabytes.
+1000, `top_hits` and `inner_hits` are capped at 10 each, responses are capped
+at 256 KiB, `_source` defaults to a small projection, and scripted queries are
+rejected: any key named `script` or ending in `_script`, which also makes a
+field with such a name unqueryable. Without them an unqualified `match_all`
+with `size: 10000` returns several megabytes.
+
+**Efficiency.** The limits bound the worst case only; the search cluster is
+shared with the application. Both field guides carry a "Writing efficient
+queries" section: `size: 0` for counts, exact conditions in `bool.filter`, a
+short `_source` list, shallow aggregations with small bucket sizes, no leading
+wildcards or `regexp` on text fields, and no deep paging.
 
 ### Audit Search (Admin Only)
 
