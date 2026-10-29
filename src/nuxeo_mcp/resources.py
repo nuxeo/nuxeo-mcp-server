@@ -113,7 +113,7 @@ def register_resources(mcp, nuxeo) -> None:
         if adapter_param:
             uri = f"{uri}/{adapter_param}"
 
-        print(f"CALLING adapter api on {uri}")
+        logger.debug(f"Calling adapter API on {uri}")
         r = nuxeo.client.request("GET", uri)
 
         disposition = r.headers.get("content-disposition", None)

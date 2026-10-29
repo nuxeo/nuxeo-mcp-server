@@ -234,7 +234,7 @@ Startup
             └─ If none: launch PKCE browser flow → callback server
 ```
 
-Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the authentication method. OAuth2 is for stdio from a desktop client; it does not work in a container.
+Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the authentication method. OAuth2 needs the server to run where the browser can reach its `localhost` callback (a desktop, or a remote host through an SSH tunnel), over stdio or HTTP; it does not work in a container. Sign-in messages go to stderr: over stdio, stdout is the MCP channel.
 
 ### Elasticsearch Passthrough
 
@@ -266,7 +266,7 @@ nuxeo-mcp                          # stdio (default, for MCP clients)
 nuxeo-mcp --http --port 8080       # Streamable-HTTP
 nuxeo-mcp --sse  --port 8080       # SSE (deprecated, use --http instead)
 nuxeo-mcp --oauth2                 # Enable OAuth2 auth (any transport)
-nuxeo-mcp --oauth2 --no-browser    # OAuth2 without browser popup
+nuxeo-mcp --oauth2 --no-browser    # OAuth2, sign-in URL printed on stderr
 ```
 
 A `/health` endpoint is always available in HTTP and SSE modes.

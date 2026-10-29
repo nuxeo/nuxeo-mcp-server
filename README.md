@@ -48,7 +48,7 @@ Local mode is single-tenant. It is safe on your own machine or a trusted network
 | Credential | Use it for | Notes |
 |---|---|---|
 | Basic (`NUXEO_USERNAME` / `NUXEO_PASSWORD`) | Any transport, including the Docker image | The supported configuration for containers. Both variables are required. |
-| OAuth2 (`--oauth2` or `NUXEO_AUTH_METHOD=oauth2`) | stdio, from a desktop MCP client | Not supported in containers: sign-in opens a browser and waits for the redirect on a callback server bound to `localhost`, and inside a container that listener is not reachable from the host's browser. |
+| OAuth2 (`--oauth2` or `NUXEO_AUTH_METHOD=oauth2`) | A server running where your browser can reach it: typically a desktop MCP client over stdio, or a remote host through an SSH tunnel | The transport does not matter, stdio or HTTP. Sign-in waits for the browser's redirect on `http://localhost:<port>/callback`, listening on the server's loopback interface. Not supported in containers: a published port does not reach that listener. |
 
 With OAuth2, the server keeps the tokens it obtains so you do not sign in on every start: in the operating system's keyring when one is available, otherwise in an encrypted `tokens.enc` file whose key sits beside it, both readable only by your user. The fallback directory is `nuxeo-mcp/tokens` under `~/Library/Application Support` on macOS, `$XDG_DATA_HOME` (default `~/.local/share`) on Linux, and `%APPDATA%` on Windows.
 
@@ -62,7 +62,7 @@ With OAuth2, the server keeps the tokens it obtains so you do not sign in on eve
 NUXEO_URL="http://mynuxeo.example.com/nuxeo" NUXEO_USERNAME="admin" NUXEO_PASSWORD="secret" nuxeo-mcp
 ```
 
-### OAuth2 Authentication (stdio, desktop only)
+### OAuth2 Authentication (where your browser can reach the server)
 
 ```bash
 # Configure OAuth2 credentials
@@ -75,6 +75,10 @@ nuxeo-mcp --oauth2
 
 # Or use environment variable
 NUXEO_AUTH_METHOD=oauth2 nuxeo-mcp
+
+# On a remote host: print the sign-in URL instead of opening a browser, and
+# forward the callback port from your machine (ssh -L 8888:localhost:8888 host)
+nuxeo-mcp --oauth2 --no-browser
 ```
 
 See the [Authentication Guide](specs/20_authentication.md) for registering the OAuth2 client in Nuxeo and the sign-in flow.
