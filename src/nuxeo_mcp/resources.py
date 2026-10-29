@@ -136,7 +136,10 @@ def register_resources(mcp, nuxeo) -> None:
     @mcp.resource(
         uri="nuxeo://nxql-guide",
         name="NXQL Query Language Guide",
-        description="Comprehensive documentation for NXQL (Nuxeo Query Language) syntax and usage",
+        description=(
+            "NXQL for nuxeo_search_documents: the default filter to start from, "
+            "syntax, full-text search, properties and examples"
+        ),
     )
     def get_nxql_guide() -> Dict[str, Any]:
         """Return the NXQL syntax reference.
@@ -167,7 +170,8 @@ def register_resources(mcp, nuxeo) -> None:
             "content": content,
             "format": "markdown",
             "title": "NXQL Query Language Guide",
-            "description": "Complete reference for NXQL syntax, operators, properties, and MongoDB limitations",
+            "description": "NXQL for nuxeo_search_documents: default filter, syntax, "
+            "full-text search, properties and examples",
         }
 
     # Resource: Query DSL field references
