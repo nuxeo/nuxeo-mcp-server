@@ -220,21 +220,6 @@ class OAuth2AuthHandler:
             f"Could not find available port in range {start_port}-{start_port + max_attempts}"
         )
 
-    def _generate_pkce_challenge(self) -> Tuple[str, str]:
-        """Generate PKCE code verifier and challenge."""
-        # Generate code verifier (43-128 characters)
-        code_verifier = (
-            base64.urlsafe_b64encode(secrets.token_bytes(32))
-            .decode("utf-8")
-            .rstrip("=")
-        )
-
-        # Generate code challenge (SHA256 of verifier)
-        challenge = hashlib.sha256(code_verifier.encode()).digest()
-        code_challenge = base64.urlsafe_b64encode(challenge).decode("utf-8").rstrip("=")
-
-        return code_verifier, code_challenge
-
     def _start_callback_server(self, port: int) -> HTTPServer:
         """Start the OAuth2 callback server."""
         server = HTTPServer(("localhost", port), OAuth2CallbackHandler)
@@ -258,6 +243,7 @@ class OAuth2AuthHandler:
         Returns:
             True if authentication successful, False otherwise
         """
+        callback_server: Optional[HTTPServer] = None
         try:
             # Check for existing valid token
             existing_token = self.token_manager.get_token(self.server_config.url)
@@ -277,9 +263,6 @@ class OAuth2AuthHandler:
             # Start callback server
             callback_server = self._start_callback_server(redirect_port)
 
-            # Generate PKCE parameters
-            code_verifier, code_challenge = self._generate_pkce_challenge()
-
             # Generate state for CSRF protection
             state = secrets.token_urlsafe(32)
 
@@ -296,11 +279,10 @@ class OAuth2AuthHandler:
             )
             self.nuxeo_client.client.auth = oauth2_auth
 
-            # Generate authorization URL with PKCE
-            auth_url, returned_state, _ = oauth2_auth.create_authorization_url(
-                code_challenge=code_challenge,
-                code_challenge_method="S256",
-                state=state,
+            # The Nuxeo client generates the PKCE pair itself and returns the
+            # verifier; passing our own challenge as well is a duplicate keyword.
+            auth_url, _, code_verifier = oauth2_auth.create_authorization_url(
+                state=state
             )
 
             logger.info(f"Authorization URL: {auth_url}")
@@ -339,18 +321,15 @@ class OAuth2AuthHandler:
                     if self._validate_token(token):
                         logger.info("Authentication successful")
                         print("✅ Authentication successful!")
-                        callback_server.shutdown()
                         return True
                     else:
                         logger.error("Token validation failed")
                         print("❌ Token validation failed")
-                        callback_server.shutdown()
                         return False
 
                 elif callback_server.auth_error:
                     logger.error(f"Authentication error: {callback_server.auth_error}")
                     print(f"❌ Authentication failed: {callback_server.auth_error}")
-                    callback_server.shutdown()
                     return False
 
                 time.sleep(0.5)
@@ -358,13 +337,18 @@ class OAuth2AuthHandler:
             # Timeout
             logger.error("Authentication timeout")
             print("❌ Authentication timeout - no response received")
-            callback_server.shutdown()
             return False
 
         except Exception as e:
             logger.error(f"Authentication failed: {e}")
             print(f"❌ Authentication failed: {e}")
             return False
+        finally:
+            # Every way out, including an exception mid-flow: shutdown() alone
+            # stops serving but keeps the port bound.
+            if callback_server is not None:
+                callback_server.shutdown()
+                callback_server.server_close()
 
     def _setup_nuxeo_client(self, token: Dict[str, Any]) -> None:
         """Setup Nuxeo client with OAuth2 token."""
