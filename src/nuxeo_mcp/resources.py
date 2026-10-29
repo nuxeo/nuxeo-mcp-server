@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from fastmcp.exceptions import ToolError
 
 from nuxeo_mcp import query_dsl
-from nuxeo_mcp.utility import format_doc, return_blob
+from nuxeo_mcp.utility import format_doc, is_uuid, return_blob
 
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.resources")
@@ -69,7 +69,11 @@ def register_resources(mcp, nuxeo) -> None:
         description="Get  Document using UUID",
     )
     def get_document(uid: str) -> Dict[str, Any]:
-
+        # nuxeo://<uid>@<adapter> without a parameter matches this template
+        # first: hand it to the adapter handling rather than read "<uid>@..."
+        # as an id.
+        if "@" in uid:
+            return get_document_by_path(uid)
         return format_doc(nuxeo.documents.get(uid=uid).as_dict())
 
     @mcp.resource(
@@ -83,17 +87,15 @@ def register_resources(mcp, nuxeo) -> None:
             path = f"/{path}"
 
         if "@" in path:
-            parts = path.split("@")
-            path = parts[0]
-            adapter_path = parts[1]
-            parts = adapter_path.split("/")
-            adapter = parts[0]
-            adapter_param = None
-            if len(parts) > 1:
-                adapter_param = adapter_path[len[adapter] :]
-
+            # nuxeo://<path or uid>@<adapter>[/<param>]. The adapter API is keyed
+            # by id, so resolve a path first. A uid lands here too: this template
+            # is matched before the uid@adapter one.
+            path, adapter_path = path.split("@", 1)
+            adapter, _, adapter_param = adapter_path.partition("/")
+            ref = path.lstrip("/")
+            uid = ref if is_uuid(ref) else nuxeo.documents.get(path=path).uid
             return get_document_with_dapater(
-                uid, adapter=adapter, adapter_param=adapter_param
+                uid, adapter=adapter, adapter_param=adapter_param or None
             )
 
         return format_doc(nuxeo.documents.get(path=path).as_dict())
@@ -107,13 +109,13 @@ def register_resources(mcp, nuxeo) -> None:
         uid: str, adapter: str, adapter_param: str | None
     ) -> Dict[str, Any]:
 
-        uid = uid.trim()
+        uid = uid.strip()
 
         uri: str = f"api/v1/repo/default/id/{uid}/@{adapter}"
         if adapter_param:
             uri = f"{uri}/{adapter_param}"
 
-        print(f"CALLING adapter api on {uri}")
+        logger.debug(f"Calling adapter API on {uri}")
         r = nuxeo.client.request("GET", uri)
 
         disposition = r.headers.get("content-disposition", None)
@@ -129,8 +131,11 @@ def register_resources(mcp, nuxeo) -> None:
             }
             return return_blob(blob_info)
 
-        else:
-            return r.content
+        # JSON adapters (children, acl, ...) as text, not base64 bytes.
+        content_type = r.headers.get("content-type", "")
+        if "json" in content_type or content_type.startswith("text/"):
+            return r.text
+        return r.content
 
     # Resource: NXQL Guide Documentation
     @mcp.resource(

@@ -137,6 +137,56 @@ def test_failed_conversion_raises_tool_error(mcp: FastMCP, nuxeo: MagicMock) -> 
         _call(mcp, "nuxeo_get_document", {"ref": "uid-1", "conversion_format": "pdf"})
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "args, message",
+    [
+        ({"rendition": "nope"}, "Rendition 'nope' failed"),
+        ({"fetch_blob": True}, "Could not fetch the main blob"),
+    ],
+)
+def test_failed_blob_or_rendition_raises_tool_error(
+    mcp: FastMCP, nuxeo: MagicMock, args: Dict[str, Any], message: str
+) -> None:
+    """Returned as text, the error would read as the content asked for."""
+    nuxeo.client.request.side_effect = RuntimeError("Rendition does not exist")
+
+    with pytest.raises(Exception, match=message):
+        _call(mcp, "nuxeo_get_document", {"ref": "uid-1", **args})
+
+
+@pytest.mark.unit
+def test_move_reports_the_document_where_it_landed(
+    mcp: FastMCP, nuxeo: MagicMock
+) -> None:
+    """Document.Move answers with a dict; a name conflict changes the path."""
+    renamed = "/default-domain/workspaces/archive/note.1793293947335"
+    nuxeo.operations.new.return_value.execute.return_value = {
+        "entity-type": "document",
+        "uid": "uid-1",
+        "path": renamed,
+        "title": "A Note",
+    }
+
+    result = _call(
+        mcp,
+        "nuxeo_move_document",
+        {"document_uid": "uid-1", "target_path": "/default-domain/workspaces/archive"},
+    )
+
+    assert result.data["uid"] == "uid-1"
+    assert result.data["path"] == renamed
+    assert result.data["title"] == "A Note"
+
+
+@pytest.mark.unit
+def test_move_without_a_document_is_an_error(mcp: FastMCP, nuxeo: MagicMock) -> None:
+    nuxeo.operations.new.return_value.execute.return_value = {"entity-type": "x"}
+
+    with pytest.raises(Exception, match="Move returned no document"):
+        _call(mcp, "nuxeo_move_document", {"document_uid": "u", "target_path": "/t"})
+
+
 # ---------------------------------------------------------------------------
 # Server-wide conventions
 #
