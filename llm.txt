@@ -78,7 +78,7 @@ The server will output a message indicating it's running and listening for conne
 
 3. `nuxeo_search_documents`
    - Description: Search documents. One envelope for every mode.
-   - Input: `{"query": "...", "mode": "nxql"|"natural"|"semantic", "page_size": 10, "page_index": 0}`
+   - Input: `{"query": "...", "mode": "nxql"|"natural", "page_size": 10, "page_index": 0}`
    - Example: `use_tool("nuxeo", "nuxeo_search_documents", {"query": "SELECT * FROM Document", "mode": "nxql", "page_size": 10})`
    - Returns: `documents[]` (id, documentType, title, path, createdAt, modifiedAt, createdBy, modifiedBy, metadata, score, snippets, extensions) plus totalCount, pageIndex, pageSize, hasMore, mode, interpretedQuery, degraded
    - `interpretedQuery` is the NXQL that actually ran. For counts or groupings use `nuxeo_search_documents_with_query_dsl`.
