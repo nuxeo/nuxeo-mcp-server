@@ -17,7 +17,6 @@ nuxeo-mcp-server/
 │   ├── tools.py            # All MCP tools
 │   ├── resources.py        # MCP resources (nuxeo:// URIs)
 │   ├── prompts.py          # MCP prompt templates
-│   ├── nl_parser.py        # Natural-language → NXQL parser
 │   ├── es_passthrough.py   # Search-engine passthrough
 │   ├── query_dsl.py        # Query DSL guardrails & field guides
 │   ├── search_models.py    # Normalized search envelope
@@ -119,7 +118,7 @@ Tools are registered via `register_tools(mcp, nuxeo, skip_server_selection=False
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
 | `nuxeo_move_document` | no | yes | no | Move a document to a different location in the Nuxeo repository |
 | `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo audit log index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
-| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. Use mode='natural' for a plain-English query, mode='nxql' for an exact NXQL statement. Returns a normalized result envelope that is identical for every mode. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
+| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository with a NXQL statement. Read nuxeo://nxql-guide first: it gives the default filter that keeps versions and system documents out. Returns a normalized result envelope. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo repository index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
 
@@ -202,7 +201,6 @@ def my_prompt(arg: str) -> str:
 | `auth.py` | `OAuth2AuthHandler` (PKCE flow), `BasicAuthHandler`; browser-based callback server |
 | `middleware.py` | `AuthenticationManager` wraps tool/resource callables to inject auth headers |
 | `token_store.py` | `TokenManager` — persists and refreshes OAuth2 tokens |
-| `nl_parser.py` | `NaturalLanguageParser` converts English queries to NXQL via `NXQLBuilder` |
 | `es_passthrough.py` | `ElasticsearchPassthrough` — forwards ES queries while enforcing Nuxeo ACLs |
 | `query_dsl.py` | Guardrails (size/from/response caps, script rejection) and field guides for the Query DSL tools |
 | `search_models.py` | `SearchResult`/`SearchHit` — the normalized envelope shared by every search mode |
@@ -236,10 +234,6 @@ Client request
 ```
 
 Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the authentication method.
-
-### Natural Language Search
-
-`NaturalLanguageParser` in `nl_parser.py` parses a free-text English query into a `ParsedQuery` dataclass (document type, properties, date ranges, full-text terms). `NXQLBuilder` then constructs a valid NXQL `SELECT` statement from the parsed result. The `nuxeo_search_documents` tool orchestrates these two steps.
 
 ### Elasticsearch Passthrough
 
@@ -370,7 +364,6 @@ All workflows use the composite action `.github/actions/setup-and-install-dep` f
 | Integration test runs in unit CI | Ensure the test is decorated with `@pytest.mark.integration` |
 | OAuth2 token not refreshed | Check `TokenManager.get_valid_token()` — it handles refresh automatically |
 | Tool not appearing in MCP client | Verify it is registered inside `register_tools()`, not at module level |
-| NXQL syntax error from nuxeo_search_documents | Test the query via `NaturalLanguageParser` directly before wiring to the tool |
 | `ImportError: cannot import name 'FastMCP' from 'fastmcp'` | `fastmcp`/`fastmcp-slim` share one namespace; in-place reinstalls can break it. Rebuild clean: `rm -rf .venv && uv sync --frozen --extra dev` |
 
 ### Dependency Management

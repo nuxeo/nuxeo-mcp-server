@@ -62,7 +62,7 @@ python -m pytest tests/ -m "not integration"
 python -m pytest tests/ -v
 
 # Run a specific test file
-python -m pytest tests/test_nl_parser.py
+python -m pytest tests/test_search_tools.py
 
 # Run a specific test
 python -m pytest tests/test_operations_fix.py::test_void_operation
