@@ -111,9 +111,11 @@ python -m nuxeo_mcp
 The Nuxeo MCP Server provides the following resources:
 
 - `nuxeo://info`: Basic information about the connected Nuxeo server
-- `nuxeo://document/{path}`: Get a document by path
-- `nuxeo://document/id/{uid}`: Get a document by ID
-- `nuxeo://nxql-guide`: Comprehensive NXQL query language documentation
+- `nuxeo://{uid}`: Get a document by UID, e.g. `nuxeo://12345678-1234-1234-1234-123456789012`
+- `nuxeo://{path}`: Get a document by path, e.g. `nuxeo://default-domain/workspaces/my-document`
+- `nuxeo://nxql-guide`: NXQL for `nuxeo_search_documents`, starting with the default filter
+- `nuxeo://query-dsl-guide`: Field reference for `nuxeo_search_documents_with_query_dsl`
+- `nuxeo://audit-query-dsl-guide`: Field reference for `nuxeo_search_audit_with_query_dsl`
 
 ## Examples
 
@@ -162,7 +164,9 @@ instead of an error.
 ### Query DSL Search
 
 `nuxeo_search_documents_with_query_dsl` takes a raw Elasticsearch/OpenSearch
-request body and returns the engine response unchanged. Use it for
+request body and returns the engine response, plus two server-added keys:
+`_nuxeo_executed_query` (the request after guardrails) and `_nuxeo_hint` (set
+when nothing matches). Use it for
 aggregations, highlighting, sorting and anything the normalized search cannot
 express.
 
@@ -275,21 +279,21 @@ server-side.
 ```python
 from fastmcp import use_tool
 
-# Get document metadata
+# Get document metadata; `ref` is a path or a UID
 result = use_tool("nuxeo", "nuxeo_get_document", {
-    "path": "/default-domain/workspaces/My Workspace/My Document"
+    "ref": "/default-domain/workspaces/My Workspace/My Document"
 })
 print(result)
 
 # Get document blob
 blob = use_tool("nuxeo", "nuxeo_get_document", {
-    "path": "/default-domain/workspaces/My Workspace/My Document",
-    "blob": True
+    "ref": "/default-domain/workspaces/My Workspace/My Document",
+    "fetch_blob": True
 })
 
 # Get document thumbnail
 thumbnail = use_tool("nuxeo", "nuxeo_get_document", {
-    "path": "/default-domain/workspaces/My Workspace/My Document",
+    "ref": "/default-domain/workspaces/My Workspace/My Document",
     "rendition": "thumbnail"
 })
 ```
@@ -331,8 +335,9 @@ print(result)
 ```python
 from fastmcp import use_tool
 
+# Deletion takes a UID only, not a path
 result = use_tool("nuxeo", "nuxeo_delete_document", {
-    "path": "/default-domain/workspaces/My Workspace/My Document"
+    "uid": "12345678-1234-1234-1234-123456789012"
 })
 print(result)
 ```
@@ -433,7 +438,7 @@ from fastmcp import use_tool
 
 try:
     result = use_tool("nuxeo", "nuxeo_get_document", {
-        "path": "/default-domain/workspaces/My Workspace/My Document"
+        "ref": "/default-domain/workspaces/My Workspace/My Document"
     })
     print(result)
 except Exception as e:

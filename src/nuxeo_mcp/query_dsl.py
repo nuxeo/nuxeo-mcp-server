@@ -287,36 +287,58 @@ def _cap_hit_size(spec: Dict[str, Any], where: str) -> int:
     return size
 
 
-def _cap_hit_collectors(
-    node: Any, default_source: Optional[List[str]], path: str = "", parent: str = ""
+def _cap_spec(
+    spec: Any, where: str, default_source: Optional[List[str]], project: bool
 ) -> None:
-    """Cap every ``top_hits`` and ``inner_hits`` in place, at any depth.
+    """Clamp one ``top_hits`` or ``inner_hits`` body and add the default projection."""
+    if not isinstance(spec, dict):
+        return
+    size = _cap_hit_size(spec, where)
+    if project and default_source and size > 0 and "_source" not in spec:
+        spec["_source"] = list(default_source)
+
+
+def _cap_aggregations(
+    aggs: Any, default_source: Optional[List[str]], path: str
+) -> None:
+    """Cap ``top_hits`` in an aggregation map, recursing into sub-aggregations.
+
+    Walked by structure, not by key name: under ``aggs`` the keys are names the
+    caller chose, so an aggregation called ``top_hits`` is a container, and only
+    the ``top_hits`` type inside it is a collector.
+    """
+    if not isinstance(aggs, dict):
+        return
+    for name, body in aggs.items():
+        if not isinstance(body, dict):
+            continue
+        where = f"{path}.{name}"
+        if "top_hits" in body:
+            _cap_spec(body["top_hits"], f"{where}.top_hits", default_source, True)
+        for sub in ("aggs", "aggregations"):
+            if sub in body:
+                _cap_aggregations(body[sub], default_source, f"{where}.{sub}")
+
+
+def _cap_inner_hits(
+    node: Any, default_source: Optional[List[str]], path: str, parent: str = ""
+) -> None:
+    """Cap every ``inner_hits`` in the query and ``collapse`` clauses, at any depth.
 
     inner_hits appears under nested, has_child and has_parent queries, and under
-    collapse, where it may be a list.
+    collapse, where it may be a list. Nested inner hits return the nested object,
+    not the document, so a document projection would empty them.
     """
     if isinstance(node, dict):
         for key, value in node.items():
             where = f"{path}.{key}" if path else key
-            if key in ("top_hits", "inner_hits"):
-                specs = value if isinstance(value, list) else [value]
-                for spec in specs:
-                    if not isinstance(spec, dict):
-                        continue
-                    size = _cap_hit_size(spec, where)
-                    # Nested inner hits return the nested object, not the
-                    # document, so a document projection would empty them.
-                    if (
-                        default_source
-                        and size > 0
-                        and "_source" not in spec
-                        and not (key == "inner_hits" and parent == "nested")
-                    ):
-                        spec["_source"] = list(default_source)
-            _cap_hit_collectors(value, default_source, where, key)
+            if key == "inner_hits":
+                for spec in value if isinstance(value, list) else [value]:
+                    _cap_spec(spec, where, default_source, parent != "nested")
+            _cap_inner_hits(value, default_source, where, key)
     elif isinstance(node, list):
         for index, value in enumerate(node):
-            _cap_hit_collectors(value, default_source, f"{path}[{index}]", parent)
+            _cap_inner_hits(value, default_source, f"{path}[{index}]", parent)
 
 
 def apply_guardrails(
@@ -365,7 +387,12 @@ def apply_guardrails(
     if default_source and "_source" not in guarded and guarded.get("size", 0) > 0:
         guarded["_source"] = list(default_source)
 
-    _cap_hit_collectors(guarded, default_source)
+    for key in ("aggs", "aggregations"):
+        if key in guarded:
+            _cap_aggregations(guarded[key], default_source, key)
+    for key in ("query", "post_filter", "collapse"):
+        if key in guarded:
+            _cap_inner_hits(guarded[key], default_source, key)
 
     return guarded
 
@@ -530,6 +557,8 @@ def audit_field_guide(discovered: Optional[List[str]] = None) -> str:
             else []
         ),
         examples=AUDIT_USAGE,
+        # The audit tool applies no _source default: entries are small.
+        projects_source=False,
         acl_note=(
             "The audit index is restricted to administrators; Nuxeo answers HTTP 403\n"
             "for everyone else."
@@ -563,6 +592,7 @@ def _render_guide(
     examples: str,
     acl_note: str,
     preamble: Optional[List[str]] = None,
+    projects_source: bool = True,
 ) -> str:
     preamble = preamble or []
     lines = [
@@ -587,7 +617,14 @@ def _render_guide(
         f"- `from` is capped at {MAX_FROM}",
         f"- `top_hits` and `inner_hits` are capped at {MAX_TOP_HITS_SIZE} each",
         f"- responses are capped at {MAX_RESPONSE_BYTES} bytes",
-        "- `_source` defaults to a small projection; pass your own list to override",
+        *(
+            [
+                "- `_source` defaults to a small projection; pass your own list "
+                "to override"
+            ]
+            if projects_source
+            else []
+        ),
         "- scripted queries are rejected: any key named `script` or ending in "
         "`_script`, at any depth -- including a field name such as "
         "`foo_script`, which therefore cannot be queried",

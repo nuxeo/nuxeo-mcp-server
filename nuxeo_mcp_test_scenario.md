@@ -53,7 +53,7 @@ Let's explore the repository by getting the children of the root document.
 
 ```python
 # Use the nuxeo_list_children tool to get the children of the root document
-root_children = use_tool("nuxeo", "nuxeo_list_children", {"path": "/"})
+root_children = use_tool("nuxeo", "nuxeo_list_children", {"ref": "/"})
 
 # Print the children
 print("Root Children:")
@@ -71,7 +71,7 @@ Now, let's navigate to the default domain and explore its contents.
 
 ```python
 # Use the nuxeo_list_children tool to get the children of the default domain
-domain_children = use_tool("nuxeo", "nuxeo_list_children", {"path": "/default-domain"})
+domain_children = use_tool("nuxeo", "nuxeo_list_children", {"ref": "/default-domain"})
 
 # Print the children
 print("Default Domain Children:")
@@ -89,7 +89,7 @@ Let's navigate to the Workspaces section and explore its contents.
 
 ```python
 # Use the nuxeo_list_children tool to get the children of the Workspaces section
-workspaces_children = use_tool("nuxeo", "nuxeo_list_children", {"path": "/default-domain/workspaces"})
+workspaces_children = use_tool("nuxeo", "nuxeo_list_children", {"ref": "/default-domain/workspaces"})
 
 # Print the children
 print("Workspaces Children:")
@@ -275,7 +275,7 @@ Let's retrieve detailed information about the file document we created.
 ```python
 # Use the nuxeo_get_document tool to get the file document details
 file_doc_details = use_tool("nuxeo", "nuxeo_get_document", {
-    "path": file_doc_path
+    "ref": file_doc_path
 })
 
 # Print the file document details
@@ -288,7 +288,7 @@ print(f"Creator: {file_doc_details.get('properties', {}).get('dc:creator', 'N/A'
 
 # Get the file content
 file_content = use_tool("nuxeo", "nuxeo_get_document", {
-    "path": file_doc_path,
+    "ref": file_doc_path,
     "fetch_blob": True
 })
 
@@ -329,13 +329,11 @@ Let's try accessing the note document using a resource instead of a tool.
 
 ```python
 # Access the document resource
-note_doc_resource = access_resource("nuxeo", f"nuxeo://document{note_doc_path}")
+note_doc_resource = access_resource("nuxeo", f"nuxeo:/{note_doc_path}")
 
-# Print the note document information
+# The resource is the document rendered as markdown
 print("Note Document from Resource:")
-print(f"Title: {note_doc_resource.get('title', 'N/A')}")
-print(f"Type: {note_doc_resource.get('type', 'N/A')}")
-print(f"Note Content: {note_doc_resource.get('properties', {}).get('note:note', 'N/A')}")
+print(note_doc_resource)
 ```
 
 Expected output: Information about the note document, including its title, type, and note content.
@@ -359,7 +357,7 @@ print(delete_result)
 # Try to get the deleted document to verify it's gone
 try:
     deleted_doc = use_tool("nuxeo", "nuxeo_get_document", {
-        "path": file_doc_path
+        "ref": file_doc_path
     })
     print("Document still exists!")
 except Exception as e:

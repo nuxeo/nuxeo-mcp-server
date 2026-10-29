@@ -66,57 +66,45 @@ The server will output a message indicating it's running and listening for conne
 
 ### Tools
 
-1. `nuxeo_get_repository_info`
-   - Description: Get information about the Nuxeo repository
-   - Input: `{}`
-   - Example: `use_tool("nuxeo", "nuxeo_get_repository_info", {})`
+Documents are referenced by `ref` (a path or a UID) on read tools, by `path` or
+`uid` on update, and by `uid` only on delete and move.
 
-2. `nuxeo_list_children`
-   - Description: Get the children of a document
-   - Input: `{"path": "/default-domain/workspaces"}`
-   - Example: `use_tool("nuxeo", "nuxeo_list_children", {"path": "/default-domain/workspaces"})`
+Read:
 
-3. `nuxeo_search_documents`
-   - Description: Search documents. One envelope for every mode.
-   - Input: `{"query": "...", "mode": "nxql", "page_size": 10, "page_index": 0}`
-   - Example: `use_tool("nuxeo", "nuxeo_search_documents", {"query": "SELECT * FROM Document", "mode": "nxql", "page_size": 10})`
+1. `nuxeo_get_repository_info` - `{}`
+2. `nuxeo_list_children` - `{"ref": "/default-domain/workspaces"}`
+3. `nuxeo_get_document` - `{"ref": "/default-domain/workspaces/My Document"}`
+   - Options: `fetch_blob: true` for the main blob, `rendition: "thumbnail"`, `conversion_format: "pdf"`, `as_resource: true`
+   - Returns the document as markdown text.
+4. `nuxeo_search_documents` - `{"query": "<NXQL>", "page_size": 10, "page_index": 0}`
+   - Read `nuxeo://nxql-guide` first and start from its default filter: `ecm:mixinType != 'HiddenInNavigation' AND ecm:isProxy = 0 AND ecm:isVersion = 0 AND ecm:isTrashed = 0`
    - Returns: `documents[]` (id, documentType, title, path, createdAt, modifiedAt, createdBy, modifiedBy, metadata, score, snippets, extensions) plus totalCount, pageIndex, pageSize, hasMore, mode, interpretedQuery, degraded
-   - `interpretedQuery` is the NXQL that actually ran. For counts or groupings use `nuxeo_search_documents_with_query_dsl`.
+   - For counts or groupings use `nuxeo_search_documents_with_query_dsl`.
+5. `nuxeo_search_documents_with_query_dsl` - `{"query": {<OpenSearch request body>}}`
+   - Read `nuxeo://query-dsl-guide` first. Returns the engine response plus `_nuxeo_executed_query` and, on empty results, `_nuxeo_hint`.
+6. `nuxeo_search_audit_with_query_dsl` - `{"query": {<OpenSearch request body>}}`
+   - Administrators only. Read `nuxeo://audit-query-dsl-guide` first.
+7. `nuxeo_list_document_types` - `{}`
+8. `nuxeo_get_metadata_schema` - `{}`
+9. `nuxeo_list_operations` - `{}`
 
-4. `nuxeo_get_document`
-   - Description: Get a document by path or ID
-   - Input: `{"path": "/default-domain/workspaces/My Document"}` or `{"uid": "document-uuid"}`
-   - Options: `blob: true` to get the document's blob, `rendition: "thumbnail"` to get a rendition
-   - Example: `use_tool("nuxeo", "nuxeo_get_document", {"path": "/default-domain/workspaces/My Document"})`
+Write:
 
-5. `nuxeo_create_document`
-   - Description: Create a new document
-   - Input: `{"parent_path": "/default-domain/workspaces", "name": "My Document", "type": "File", "properties": {"dc:title": "My Document"}}`
-   - Example: `use_tool("nuxeo", "nuxeo_create_document", {"parent_path": "/default-domain/workspaces", "name": "My Document", "type": "File", "properties": {"dc:title": "My Document"}})`
-
-6. `nuxeo_update_metadata`
-   - Description: Update an existing document
-   - Input: `{"path": "/default-domain/workspaces/My Document", "properties": {"dc:title": "Updated Title"}}`
-   - Example: `use_tool("nuxeo", "nuxeo_update_metadata", {"path": "/default-domain/workspaces/My Document", "properties": {"dc:title": "Updated Title"}})`
-
-7. `nuxeo_delete_document`
-   - Description: Delete a document
-   - Input: `{"path": "/default-domain/workspaces/My Document"}`
-   - Example: `use_tool("nuxeo", "nuxeo_delete_document", {"path": "/default-domain/workspaces/My Document"})`
+10. `nuxeo_create_document` - `{"parent_path": "/default-domain/workspaces", "name": "my-document", "type": "File", "properties": {"dc:title": "My Document"}}`
+    - Optional `file_path` to attach a local file. Returns `uid` and `path`; confirm with `nuxeo_get_document`, search may not see it yet.
+11. `nuxeo_update_metadata` - `{"path": "/default-domain/workspaces/my-document", "properties": {"dc:title": "Updated Title"}}` (or `uid` instead of `path`)
+12. `nuxeo_move_document` - `{"document_uid": "<uid>", "target_path": "/default-domain/workspaces/archive"}`, optional `new_name`
+13. `nuxeo_delete_document` - `{"uid": "<uid>"}`
+14. `nuxeo_execute_operation` - `{"operation_id": "Document.Lock", "input_type": "document_uid", "input_value": "<uid>"}`
 
 ### Resources
 
-1. `nuxeo://info`
-   - Description: Basic information about the connected Nuxeo server
-   - Example: `access_resource("nuxeo", "nuxeo://info")`
-
-2. `nuxeo://document/{path}`
-   - Description: Get a document by path
-   - Example: `access_resource("nuxeo", "nuxeo://document/default-domain/workspaces/My Document")`
-
-3. `nuxeo://document/id/{uid}`
-   - Description: Get a document by ID
-   - Example: `access_resource("nuxeo", "nuxeo://document/id/document-uuid")`
+1. `nuxeo://info` - basic information about the connected Nuxeo server
+2. `nuxeo://{uid}` - a document by UID, e.g. `nuxeo://12345678-1234-1234-1234-123456789012`
+3. `nuxeo://{path}` - a document by path, e.g. `nuxeo://default-domain/workspaces/my-document`
+4. `nuxeo://nxql-guide` - NXQL for `nuxeo_search_documents`
+5. `nuxeo://query-dsl-guide` - field reference for `nuxeo_search_documents_with_query_dsl`
+6. `nuxeo://audit-query-dsl-guide` - field reference for `nuxeo_search_audit_with_query_dsl`
 
 ### Discovering Tools and Resources
 Use the MCP Inspector to discover available tools and resources:
@@ -130,16 +118,6 @@ npx @modelcontextprotocol/inspector python -m nuxeo_mcp
 - `NUXEO_URL`: URL of the Nuxeo server (default: `http://localhost:8080/nuxeo`)
 - `NUXEO_USERNAME`: Username for Nuxeo authentication (default: `Administrator`)
 - `NUXEO_PASSWORD`: Password for Nuxeo authentication (default: `Administrator`)
-
-### Configuration File
-Create a file named `nuxeo_mcp_config.json` with the following content:
-```json
-{
-  "nuxeo_url": "http://localhost:8080/nuxeo",
-  "username": "Administrator",
-  "password": "Administrator"
-}
-```
 
 ### Cline Configuration
 Add to Cline MCP settings file:
@@ -190,12 +168,11 @@ from fastmcp import use_tool, access_resource
 
 # Get repository info
 repo_info = use_tool("nuxeo", "nuxeo_get_repository_info", {})
-print(f"Connected to repository: {repo_info['name']}")
+print(f"Connected to repository: {repo_info['repositoryName']}")
 
-# Search for documents
+# Search for live files
 search_results = use_tool("nuxeo", "nuxeo_search_documents", {
-    "query": "SELECT * FROM Document WHERE ecm:primaryType = 'File'",
-    "mode": "nxql",
+    "query": "SELECT * FROM File WHERE ecm:mixinType != 'HiddenInNavigation' AND ecm:isProxy = 0 AND ecm:isVersion = 0 AND ecm:isTrashed = 0",
     "page_size": 5
 })
 print(f"Found {search_results['totalCount']} documents")
@@ -203,32 +180,27 @@ print(f"Found {search_results['totalCount']} documents")
 # Create a new document
 new_doc = use_tool("nuxeo", "nuxeo_create_document", {
     "parent_path": "/default-domain/workspaces",
-    "name": "My New Document",
+    "name": "my-new-document",
     "type": "File",
     "properties": {
         "dc:title": "My New Document",
         "dc:description": "Created by MCP"
     }
 })
-print(f"Created document with ID: {new_doc['uid']}")
+uid = new_doc["uid"]
+print(f"Created document with ID: {uid}")
 
-# Get document details
-doc_details = use_tool("nuxeo", "nuxeo_get_document", {
-    "path": "/default-domain/workspaces/My New Document"
-})
-print(f"Document title: {doc_details['title']}")
+# Read it back by UID (returns markdown)
+print(use_tool("nuxeo", "nuxeo_get_document", {"ref": uid}))
 
 # Update document
-updated_doc = use_tool("nuxeo", "nuxeo_update_metadata", {
-    "path": "/default-domain/workspaces/My New Document",
+use_tool("nuxeo", "nuxeo_update_metadata", {
+    "uid": uid,
     "properties": {
         "dc:description": "Updated by MCP"
     }
 })
-print("Document updated successfully")
 
 # Delete document
-delete_result = use_tool("nuxeo", "nuxeo_delete_document", {
-    "path": "/default-domain/workspaces/My New Document"
-})
-print("Document deleted successfully")
+use_tool("nuxeo", "nuxeo_delete_document", {"uid": uid})
+```
