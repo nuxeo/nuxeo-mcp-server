@@ -233,8 +233,8 @@ def test_semantic_mode_reports_the_executed_nxql() -> None:
     assert params["queryParams"] == result.interpretedQuery
     assert result.interpretedQuery == (
         "SELECT * FROM Document WHERE ecm:fulltext = 'musty cork' "
-        "AND ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 "
-        "AND ecm:isVersion = 0"
+        "AND (ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 "
+        "AND ecm:isVersion = 0)"
     )
 
 
@@ -246,8 +246,8 @@ def test_semantic_mode_escapes_the_query_literal() -> None:
     assert (
         nuxeo.client.request.call_args.kwargs["params"]["queryParams"]
         == "SELECT * FROM Document WHERE ecm:fulltext = 'Alice\\'s report' "
-        "AND ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 "
-        "AND ecm:isVersion = 0"
+        "AND (ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 "
+        "AND ecm:isVersion = 0)"
     )
 
 
@@ -256,8 +256,55 @@ def test_semantic_mode_accepts_a_custom_filter() -> None:
     _search_tool(nuxeo)("cork", mode="semantic", nxql_filter="ecm:primaryType = 'File'")
 
     assert nuxeo.client.request.call_args.kwargs["params"]["queryParams"].endswith(
-        "AND ecm:primaryType = 'File'"
+        "AND (ecm:primaryType = 'File')"
     )
+
+
+def test_nxql_filter_is_refused_in_nxql_mode() -> None:
+    """A filter that would never run must not look applied."""
+    nuxeo = _make_nuxeo()
+    with pytest.raises(ToolError, match="only used by mode='semantic'"):
+        _search_tool(nuxeo)(
+            "SELECT * FROM Document", nxql_filter="ecm:primaryType = 'File'"
+        )
+    nuxeo.client.query.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "nxql_filter,operators",
+    [
+        ("ecm:primaryType = 'Note' OR ecm:primaryType = 'File'", "OR"),
+        ("NOT ecm:primaryType = 'File'", "NOT"),
+        ("dc:title LIKE 'x%'", "LIKE"),
+        ("dc:title ilike 'x%' or ecm:isProxy = 0", "ILIKE, OR"),
+    ],
+)
+def test_semantic_mode_refuses_operators_it_would_drop(
+    nxql_filter: str, operators: str
+) -> None:
+    """OR, NOT, LIKE and ILIKE are dropped by the vector client: refuse them."""
+    nuxeo = _semantic_nuxeo()
+    with pytest.raises(ToolError, match=f"nxql_filter uses {operators},"):
+        _search_tool(nuxeo)("cork", mode="semantic", nxql_filter=nxql_filter)
+    nuxeo.client.request.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "nxql_filter",
+    [
+        "ecm:primaryType NOT IN ('File') AND dc:modified NOT BETWEEN "
+        "DATE '2020-01-01' AND DATE '2021-01-01'",
+        "ecm:tag IS NOT NULL",
+        "ecm:path STARTSWITH '/default-domain/Notes or Reports'",
+        "ecm:primaryType = 'it\\'s not LIKE this'",
+        "ecm:primaryType = 'Ordered' AND ecm:uuid = 'notary'",
+    ],
+)
+def test_semantic_mode_accepts_supported_operators(nxql_filter: str) -> None:
+    """NOT inside NOT IN/BETWEEN/IS NOT, words in literals or names are fine."""
+    nuxeo = _semantic_nuxeo()
+    _search_tool(nuxeo)("cork", mode="semantic", nxql_filter=nxql_filter)
+    nuxeo.client.request.assert_called_once()
 
 
 def test_semantic_mode_can_omit_snippets() -> None:
@@ -282,10 +329,12 @@ def test_semantic_mode_requests_both_enrichers() -> None:
 def test_semantic_mode_says_the_server_has_no_vector_search() -> None:
     """Most servers have no vector index: say so, and name the exact-match tools."""
     nuxeo = _semantic_nuxeo(
+        # Verbatim str() of the client's HTTPError, observed on a 2025 server
+        # without a vector index: the detection depends on this wording.
         raise_exc=Exception(
-            'HTTPError(400), error: "Invalid page provider configuration '
-            "'search_check_nxql': Configured indexes [vector] not found for "
-            "repository 'default'\""
+            'HTTPError(400), error: "java.lang.IllegalArgumentException: Invalid '
+            "page provider configuration 'search_check_nxql': Configured indexes "
+            "[vector] not found for repository 'default'\", server trace: None"
         )
     )
 

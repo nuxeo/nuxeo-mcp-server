@@ -197,9 +197,11 @@ Notes:
   `ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 AND ecm:isVersion = 0`.
   `ecm:isTrashed` is not in the default vector mapping, so trashed documents
   cannot be filtered out here.
-  **A clause the vector client cannot translate is dropped, not refused**: the
-  filter is not applied, you get more documents than you asked for, and nothing
-  reports it.
+  `OR`, `NOT`, `LIKE` and `ILIKE`, which the vector client always drops, are
+  refused with an error. **A clause on an unmapped field is dropped, not
+  refused**: the filter is not applied, you get more documents than you asked
+  for, and nothing reports it. The filter is wrapped in parentheses, so its
+  precedence never leaks into the query term.
 
   Filterable fields come from the index mapping, not from NXQL. Defaults:
 
@@ -215,14 +217,14 @@ Notes:
 
   Operators: `=` `<>` `IN` `NOT IN` `IS [NOT] NULL` on any filterable field;
   `<` `<=` `>` `>=` `BETWEEN` `NOT BETWEEN` on range fields only; `STARTSWITH`
-  on `ecm:path` only. `OR` and `NOT` discard the whole sub-expression. `LIKE`
-  is never supported. `ORDER BY` is ignored; results are ranked by relevance.
+  on `ecm:path` only. `ORDER BY` is ignored; results are ranked by relevance.
 - `score` is filled only when the search client exposes it; otherwise it stays
   null.
 - **`totalCount` does not mean "total matches" in this mode.** k-NN has no
   exhaustive match count, so it reports how many candidates the retrieval
-  considered, and it grows with `page_size`. `hasMore` is true for the same
-  reason. Use it for "there is more to page through", never as a corpus total.
+  considered, and it grows with `page_size`. Never read it as a corpus total.
+  `hasMore` likewise means more candidates, each page less relevant than the
+  last: stop when scores or snippets stop being relevant.
 
 Calling the tool with an empty query returns usage help with a worked example
 instead of an error.

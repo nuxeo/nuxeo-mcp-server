@@ -8,6 +8,7 @@ This module defines the tools for the Nuxeo MCP Server.
 import json
 import logging
 import os
+import re
 from typing import Annotated, Any, Callable, Dict, List, Optional
 
 from fastmcp.exceptions import ToolError
@@ -48,6 +49,23 @@ def _escape_nxql_literal(value: str) -> str:
     themselves be escaped.
     """
     return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+# NOT is allowed where it is part of a supported operator.
+_NOT_PART_OF_OPERATOR = re.compile(r"\bNOT\s+(IN|BETWEEN)\b|\bIS\s+NOT\b", re.I)
+_UNSUPPORTED_FILTER_OPERATOR = re.compile(r"\b(OR|NOT|LIKE|ILIKE)\b", re.I)
+
+
+def _unsupported_filter_operators(nxql_filter: str) -> List[str]:
+    """Return the operators of ``nxql_filter`` that semantic search drops.
+
+    String literals are removed first, so a value such as 'black or white' is
+    not mistaken for an operator. NXQL escapes a quote with a backslash.
+    """
+    outside_literals = re.sub(r"'(?:\\.|[^'\\])*'", "''", nxql_filter)
+    outside_literals = _NOT_PART_OF_OPERATOR.sub(" ", outside_literals)
+    found = _UNSUPPORTED_FILTER_OPERATOR.findall(outside_literals)
+    return sorted({op.upper() for op in found})
 
 
 class DocRef(BaseModel):
@@ -870,7 +888,6 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         "    AND ecm:mixinType != 'HiddenInNavigation' AND ecm:isProxy = 0\n"
         "    AND ecm:isVersion = 0 AND ecm:isTrashed = 0\n"
         "\n"
-        "\n"
         'mode="semantic" -- a question or phrase matched on meaning, on servers\n'
         "with vector search:\n"
         '  "what causes musty cork taint from chlorine and mould"\n'
@@ -885,6 +902,13 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
     # page provider also keeps the embedding model id server-side -- it is
     # cluster-specific and the MCP server has no business knowing it -- and applies
     # the caller's ACLs natively.
+    #
+    # Interim: search_check_nxql is an internal management page provider, used
+    # because /search/execute ignores highlight (NXP-34160). Switch to
+    # /search/execute?index=vector once that ships on LTS (NXP-34161). Its
+    # configuration matters here: quoteParameters/escapeParameters are false, so
+    # the NXQL is sent as built and all escaping is ours; trackUsage is false, so
+    # agent searches stay out of page-provider usage statistics.
     _SEMANTIC_PAGE_PROVIDER = "search_check_nxql"
 
     # The guide's default filter minus ecm:isTrashed, which the default vector
@@ -906,6 +930,23 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         "nuxeo_search_documents_with_query_dsl with a match query on all_field "
         "(see nuxeo://query-dsl-guide)."
     )
+
+    def _check_semantic_filter(nxql_filter: str) -> None:
+        """Refuse the operators the vector client always drops.
+
+        The vector client silently discards OR, NOT, LIKE and ILIKE whatever the
+        index mapping, so the search would run unfiltered while the caller
+        believes it was narrowed. These are known up front, unlike unmapped
+        fields, which depend on the server's mapping and stay fail-open.
+        """
+        operators = _unsupported_filter_operators(nxql_filter)
+        if operators:
+            raise ToolError(
+                f"nxql_filter uses {', '.join(operators)}, which semantic search "
+                "ignores rather than applies: the results would not be filtered. "
+                "Supported: AND, =, <>, IN, NOT IN, IS [NOT] NULL, <, <=, >, >=, "
+                "[NOT] BETWEEN, STARTSWITH. For anything else use mode='nxql'."
+            )
 
     def _run_semantic(
         query: str,
@@ -932,7 +973,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         documents, and reports that count -- flagged ``totalAccurate(false)``
         server-side. So ``totalCount`` scales with ``page_size`` (measured: 7, 17,
         28, 46, 78 for page sizes 2, 5, 10, 20, 50 on one corpus) and is not the
-        number of documents that match. ``hasMore`` is true for the same reason.
+        number of documents that match. ``hasMore`` means more candidates, not more matches.
 
         Dropped filter clauses are recorded by the engine as SearchLimitation, but
         the page-provider REST response carries no ``limitations`` field, so they
@@ -941,7 +982,7 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         """
         nxql = (
             f"SELECT * FROM Document WHERE ecm:fulltext = "
-            f"'{_escape_nxql_literal(query)}' AND {nxql_filter}"
+            f"'{_escape_nxql_literal(query)}' AND ({nxql_filter})"
         )
 
         try:
@@ -1017,7 +1058,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
                 "ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 AND
                 ecm:isVersion = 0".
 
-                **An unsupported clause is dropped, not refused**: you get *more*
+                OR, NOT, LIKE and ILIKE are refused with an error. **A clause on
+                an unmapped field is dropped, not refused**: you get *more*
                 documents than you asked for, with no error. Check the results
                 rather than assuming the filter held.
 
@@ -1030,8 +1072,8 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
 
                 Operators: = <> IN "NOT IN" "IS NULL" "IS NOT NULL" on any
                 filterable field; < <= > >= BETWEEN "NOT BETWEEN" on range fields
-                only; STARTSWITH on ecm:path only. Never supported: OR, NOT (the
-                whole sub-expression is discarded), LIKE, ILIKE. ORDER BY is
+                only; STARTSWITH on ecm:path only. Refused: OR, NOT (except in
+                NOT IN, NOT BETWEEN, IS NOT NULL), LIKE, ILIKE. ORDER BY is
                 ignored; results are ranked by relevance.
             include_snippets: **mode="semantic" only.** Return the matching
                 passages of each document.
@@ -1054,7 +1096,16 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         page_size = max(1, min(page_size, 100))
         page_index = max(0, page_index)
 
+        if mode != MODE_SEMANTIC and nxql_filter.strip():
+            # Refused rather than ignored: a model would trust a filter that never
+            # ran.
+            raise ToolError(
+                "nxql_filter is only used by mode='semantic'. In mode='nxql', put "
+                "the conditions in the WHERE clause of the query."
+            )
+
         if mode == MODE_SEMANTIC:
+            _check_semantic_filter(nxql_filter)
             return _run_semantic(
                 query,
                 page_size=page_size,
