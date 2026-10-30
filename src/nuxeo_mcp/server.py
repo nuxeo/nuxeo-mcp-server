@@ -26,6 +26,7 @@ from .config import (
     MCPAuthConfig,
     NuxeoServerConfig,
     OAuth2Config,
+    read_only_from_env,
 )
 from .middleware import AuthenticationManager
 from .prompts import register_prompts
@@ -58,6 +59,7 @@ class NuxeoMCPServer:
         auth_config: Optional[MCPAuthConfig] = None,
         auth_mode: AuthMode = AuthMode.LOCAL,
         open_browser: bool = True,
+        read_only: bool = False,
     ):
         """
         Initialize the Nuxeo MCP Server.
@@ -72,12 +74,14 @@ class NuxeoMCPServer:
             auth_mode: Whose identity the server uses when calling Nuxeo
             open_browser: For OAuth2, open the sign-in page in a browser; when
                 False the URL is only printed, on stderr
+            read_only: Register only the read-only tools
         """
         self.nuxeo_url = nuxeo_url
         self.username = username
         self.password = password
         self.use_oauth2 = use_oauth2
         self.auth_mode = auth_mode
+        self.read_only = read_only
         self.auth_manager = AuthenticationManager()
         self.nuxeo = None
 
@@ -170,17 +174,18 @@ class NuxeoMCPServer:
         )
 
         # Add healthcheck with server configuration info
-        server_info = {
+        server_info: Dict[str, Any] = {
             "nuxeo_url": self.nuxeo_url,
             "username": self.username,
             "auth_method": "oauth2" if use_oauth2 else "basic",
             "auth_mode": auth_mode.value,
+            "read_only": read_only,
         }
         add_healthcheck(self.mcp, server_info)
 
         # Register tools and resources without authentication wrapper for basic auth
         # (The Nuxeo client already has the auth configured)
-        register_tools(self.mcp, self.nuxeo)
+        register_tools(self.mcp, self.nuxeo, read_only=read_only)
 
         # Register MCP resources.
         register_resources(self.mcp, self.nuxeo)
@@ -192,14 +197,14 @@ class NuxeoMCPServer:
         self.mcp.run()
 
 
-def add_healthcheck(mcp, server_info: Optional[Dict[str, Optional[str]]] = None):
+def add_healthcheck(mcp, server_info: Optional[Dict[str, Any]] = None):
     """Add health check endpoint with server configuration info."""
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> PlainTextResponse:
         import json
 
-        health_data: Dict[str, Optional[str]] = {
+        health_data: Dict[str, Any] = {
             "status": "OK",
             "server": "Nuxeo MCP Server",
         }
@@ -260,6 +265,7 @@ def main() -> None:
         sys.exit(1)
     try:
         auth_mode = AuthMode.from_env()
+        read_only = read_only_from_env()
     except ValueError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -280,6 +286,14 @@ def main() -> None:
         f"  Auth mode: {auth_mode.value} ({mode_source}); every caller acts as "
         "the same Nuxeo identity"
     )
+    logger.info(
+        "  Read-only: "
+        + (
+            "yes; write tools are not registered"
+            if read_only
+            else "no; write tools are registered"
+        )
+    )
 
     # Create the server
     try:
@@ -289,6 +303,7 @@ def main() -> None:
             password=password,
             use_oauth2=use_oauth2,
             auth_mode=auth_mode,
+            read_only=read_only,
             # The OAuth2 sign-in runs while the server is created, so the flag
             # has to reach it here, not after.
             open_browser=not args.no_browser,

@@ -98,7 +98,7 @@ All three must pass before merging.
 
 ### Tools (`src/nuxeo_mcp/tools.py`)
 
-Tools are registered via `register_tools(mcp, nuxeo)`.
+Tools are registered via `register_tools(mcp, nuxeo, read_only=False)`; with `read_only=True`, tools not annotated read-only are skipped.
 
 <!-- BEGIN GENERATED TOOLS -->
 
@@ -211,7 +211,7 @@ def my_prompt(arg: str) -> str:
 ```
 __main__.py  →  main()
   └─ server.py: NuxeoMCPServer.__init__()
-       ├─ server.py main(): read NUXEO_URL / NUXEO_AUTH_METHOD / NUXEO_MCP_AUTH_MODE / credentials from env
+       ├─ server.py main(): read NUXEO_URL / NUXEO_AUTH_METHOD / NUXEO_MCP_AUTH_MODE / NUXEO_MCP_READ_ONLY / credentials from env
        ├─ auth.py / middleware.py: build Nuxeo client (basic or OAuth2); basic refuses to start without credentials
        ├─ server.py: create FastMCP instance + /health endpoint
        ├─ tools.py: register_tools()
@@ -249,6 +249,7 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 | `NUXEO_PASSWORD` | Password for Basic auth (required, no default) |
 | `NUXEO_AUTH_METHOD` | `basic` or `oauth2`; any other value stops startup |
 | `NUXEO_MCP_AUTH_MODE` | `local` (default, only value): one Nuxeo identity for every caller |
+| `NUXEO_MCP_READ_ONLY` | `true` registers only the tools annotated read-only (default `false`); any other value stops startup |
 | `NUXEO_OAUTH_CLIENT_ID` | OAuth2 client ID |
 | `NUXEO_OAUTH_CLIENT_SECRET` | OAuth2 client secret |
 | `NUXEO_OAUTH_AUTH_ENDPOINT` | OAuth2 authorization endpoint |

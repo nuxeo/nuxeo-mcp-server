@@ -52,6 +52,11 @@ Local mode is single-tenant. It is safe on your own machine or a trusted network
 
 With OAuth2, the server keeps the tokens it obtains so you do not sign in on every start: in the operating system's keyring when one is available, otherwise in an encrypted `tokens.enc` file whose key sits beside it, both readable only by your user. The fallback directory is `nuxeo-mcp/tokens` under `~/Library/Application Support` on macOS, `$XDG_DATA_HOME` (default `~/.local/share`) on Linux, and `%APPDATA%` on Windows.
 
+## Read-Only Mode
+
+Set `NUXEO_MCP_READ_ONLY=true` to expose only the read tools. The tools that change the repository (`nuxeo_create_document`, `nuxeo_update_metadata`, `nuxeo_move_document`, `nuxeo_delete_document`, `nuxeo_execute_operation`) are not registered, so a client cannot list or call them. Accepted values: `true`/`false` (also `1`/`0`, `yes`/`no`, `on`/`off`); unset means `false`; any other value stops the server. `/health` reports `read_only`.
+
+This limits what the MCP server exposes, not what the Nuxeo account may do: the account's ACLs still apply, and over HTTP anyone who reaches the server reads as that account.
 
 ## Quick Start
 

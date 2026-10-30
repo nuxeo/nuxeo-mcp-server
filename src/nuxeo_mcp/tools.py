@@ -85,13 +85,14 @@ from typing import Union
 ES_PROBE_TIMEOUT = 10
 
 
-def register_tools(mcp, nuxeo) -> None:
+def register_tools(mcp, nuxeo, read_only: bool = False) -> None:
     """
     Register MCP tools with the FastMCP server.
 
     Args:
         mcp: The FastMCP server instance
         nuxeo: The Nuxeo client instance
+        read_only: Register only the tools annotated read-only
     """
 
     def tool(**kwargs):
@@ -109,6 +110,10 @@ def register_tools(mcp, nuxeo) -> None:
                 "safety hints in nuxeo_mcp.annotations before registering it."
             )
         kwargs.setdefault("annotations", annotations)
+        if read_only and not annotations.read_only_hint:
+            # Not registered at all, rather than registered and refused: a
+            # client cannot list or call it, whatever the model attempts.
+            return lambda fn: fn
         return mcp.tool(**kwargs)
 
     # Tool: Get repository info
