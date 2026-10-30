@@ -142,13 +142,12 @@ readable only by your user. The fallback directory is `nuxeo-mcp/tokens` under
 `~/Library/Application Support` on macOS, `$XDG_DATA_HOME` (default
 `~/.local/share`) on Linux, and `%APPDATA%` on Windows.
 
-To sign in again from scratch, clear the stored tokens:
+To sign in again from scratch, delete the stored token for the server:
 
 ```python
 from nuxeo_mcp.token_store import TokenManager
 
-TokenManager().delete_token("http://localhost:8080/nuxeo")  # one server
-TokenManager().clear_all_tokens()                           # all
+TokenManager().delete_token("http://localhost:8080/nuxeo")
 ```
 
 ## Troubleshooting

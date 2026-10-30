@@ -508,15 +508,6 @@ class OAuth2AuthHandler:
             logger.error(f"Token validation failed: {e}")
             return False
 
-    def refresh_token(self) -> bool:
-        """Refresh the stored token now. Returns True if a new token was saved."""
-        stored = self.token_manager.get_stored_token(self.server_config.url)
-        new_token = self._refresh_stored(stored) if stored else None
-        if not new_token:
-            return False
-        self._setup_nuxeo_client(new_token)
-        return True
-
     def get_nuxeo_client(self) -> Optional[Nuxeo]:
         """Get the authenticated Nuxeo client.
 

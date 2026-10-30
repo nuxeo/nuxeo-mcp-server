@@ -37,9 +37,9 @@ class AuthMode(Enum):
     @classmethod
     def from_env(cls) -> "AuthMode":
         """Read NUXEO_MCP_AUTH_MODE, defaulting to ``local`` when unset."""
-        value = os.environ.get("NUXEO_MCP_AUTH_MODE") or cls.LOCAL.value
+        value = os.environ.get("NUXEO_MCP_AUTH_MODE", "")
         try:
-            return cls(value.strip().lower())
+            return cls(value.strip().lower() or cls.LOCAL.value)
         except ValueError:
             supported = ", ".join(mode.value for mode in cls)
             raise ValueError(
@@ -245,7 +245,9 @@ class MCPAuthConfig:
             return
 
         if auth_method is None:
-            auth_method_str = os.environ.get("NUXEO_AUTH_METHOD", "basic").lower()
+            auth_method_str = (
+                os.environ.get("NUXEO_AUTH_METHOD", "").strip().lower() or "basic"
+            )
             try:
                 auth_method = AuthMethod(auth_method_str)
             except ValueError:

@@ -165,7 +165,7 @@ class TestMCPAuthConfig:
 class TestAuthMode:
     """Test the NUXEO_MCP_AUTH_MODE setting."""
 
-    @pytest.mark.parametrize("value", [None, "", "local", " Local "])
+    @pytest.mark.parametrize("value", [None, "", "  ", "local", " Local "])
     def test_local(self, monkeypatch, value):
         """Unset, empty, or any spelling of local means local."""
         if value is None:

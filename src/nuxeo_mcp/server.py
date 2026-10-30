@@ -249,7 +249,9 @@ def main() -> None:
     nuxeo_url = os.environ.get("NUXEO_URL", "http://localhost:8080/nuxeo")
     username = os.environ.get("NUXEO_USERNAME")
     password = os.environ.get("NUXEO_PASSWORD")
-    auth_method = os.environ.get("NUXEO_AUTH_METHOD", "basic").lower()
+    # Empty counts as unset, as for NUXEO_MCP_AUTH_MODE: a templated
+    # "NUXEO_AUTH_METHOD=" means the default, not an unknown method.
+    auth_method = os.environ.get("NUXEO_AUTH_METHOD", "").strip().lower() or "basic"
 
     if auth_method not in ("basic", "oauth2"):
         logger.error(
@@ -265,7 +267,9 @@ def main() -> None:
     # Check if OAuth2 should be used
     use_oauth2 = args.oauth2 or auth_method == "oauth2"
     mode_source = (
-        "NUXEO_MCP_AUTH_MODE" if os.environ.get("NUXEO_MCP_AUTH_MODE") else "default"
+        "NUXEO_MCP_AUTH_MODE"
+        if os.environ.get("NUXEO_MCP_AUTH_MODE", "").strip()
+        else "default"
     )
 
     logger.info(f"Starting Nuxeo MCP Server")

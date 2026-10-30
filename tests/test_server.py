@@ -428,3 +428,25 @@ def test_main_starts_in_local_mode_and_logs_it(
     run.assert_called_once()
     assert f"Auth mode: local ({source})" in caplog.text
     assert "s3cret-pw" not in caplog.text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["", "  "])
+def test_main_treats_an_empty_auth_method_as_basic(monkeypatch, caplog, value) -> None:
+    """A templated NUXEO_AUTH_METHOD= means the default, as for the auth mode."""
+    from nuxeo_mcp.server import main
+
+    _prepare_main(
+        monkeypatch,
+        {
+            "NUXEO_USERNAME": "user",
+            "NUXEO_PASSWORD": "pass",
+            "NUXEO_AUTH_METHOD": value,
+        },
+    )
+    caplog.set_level("INFO", logger="nuxeo_mcp")
+    with mock.patch("nuxeo_mcp.server.NuxeoMCPServer") as server_class:
+        main()
+
+    assert server_class.call_args.kwargs["use_oauth2"] is False
+    assert "Auth method: basic" in caplog.text
