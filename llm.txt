@@ -92,7 +92,7 @@ Read:
 Write:
 
 10. `nuxeo_create_document` - `{"parent_path": "/default-domain/workspaces", "name": "my-document", "type": "File", "properties": {"dc:title": "My Document"}}`
-    - Optional `file_path` to attach a local file. Returns `uid` and `path`; confirm with `nuxeo_get_document`, search may not see it yet.
+    - Optional `file_path` to attach a file from the MCP server's machine: refused over HTTP unless `NUXEO_MCP_UPLOAD_DIR` is set, then confined to it. Returns `uid` and `path`; confirm with `nuxeo_get_document`, search may not see it yet.
 11. `nuxeo_update_metadata` - `{"path": "/default-domain/workspaces/my-document", "properties": {"dc:title": "Updated Title"}}` (or `uid` instead of `path`)
 12. `nuxeo_move_document` - `{"document_uid": "<uid>", "target_path": "/default-domain/workspaces/archive"}`, optional `new_name`
 13. `nuxeo_delete_document` - `{"uid": "<uid>"}`
@@ -120,6 +120,7 @@ npx @modelcontextprotocol/inspector python -m nuxeo_mcp
 - `NUXEO_USERNAME`: Username for Nuxeo authentication (required for Basic auth, no default)
 - `NUXEO_PASSWORD`: Password for Nuxeo authentication (required for Basic auth, no default)
 - `NUXEO_MCP_AUTH_MODE`: `local` (default, only value): every caller acts as the one configured Nuxeo identity
+- `NUXEO_MCP_UPLOAD_DIR`: only folder `file_path` may read from; unset: any file over stdio, none over HTTP
 
 ### Cline Configuration
 Add to Cline MCP settings file:

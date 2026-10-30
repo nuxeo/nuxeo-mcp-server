@@ -21,6 +21,7 @@ nuxeo-mcp-server/
 │   ├── query_dsl.py        # Query DSL guardrails & field guides
 │   ├── search_models.py    # Normalized search envelope
 │   ├── annotations.py      # Tool safety annotations
+│   ├── file_access.py      # file_path policy (local files the tools may upload)
 │   ├── auth.py             # OAuth2 / Basic auth handlers
 │   ├── middleware.py       # Authentication middleware
 │   ├── config.py           # Configuration dataclasses & enums
@@ -204,6 +205,7 @@ def my_prompt(arg: str) -> str:
 | `query_dsl.py` | Guardrails (size/from/response caps, script rejection) and field guides for the Query DSL tools |
 | `search_models.py` | `SearchResult`/`SearchHit` — the normalized envelope shared by every search mode |
 | `annotations.py` | `TOOL_ANNOTATIONS` — declared safety hints, one entry per tool |
+| `file_access.py` | `FilePathPolicy` — which local files `file_path` may upload (stdio: any, HTTP: none, or only inside `NUXEO_MCP_UPLOAD_DIR`) |
 | `utility.py` | `format_document()`, UUID detection, blob helpers |
 
 ### Startup Sequence
@@ -211,7 +213,7 @@ def my_prompt(arg: str) -> str:
 ```
 __main__.py  →  main()
   └─ server.py: NuxeoMCPServer.__init__()
-       ├─ server.py main(): read NUXEO_URL / NUXEO_AUTH_METHOD / NUXEO_MCP_AUTH_MODE / credentials from env
+       ├─ server.py main(): read NUXEO_URL / NUXEO_AUTH_METHOD / NUXEO_MCP_AUTH_MODE / NUXEO_MCP_UPLOAD_DIR / credentials from env
        ├─ auth.py / middleware.py: build Nuxeo client (basic or OAuth2); basic refuses to start without credentials
        ├─ server.py: create FastMCP instance + /health endpoint
        ├─ tools.py: register_tools()
@@ -249,6 +251,7 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 | `NUXEO_PASSWORD` | Password for Basic auth (required, no default) |
 | `NUXEO_AUTH_METHOD` | `basic` or `oauth2`; any other value stops startup |
 | `NUXEO_MCP_AUTH_MODE` | `local` (default, only value): one Nuxeo identity for every caller |
+| `NUXEO_MCP_UPLOAD_DIR` | Only folder `file_path` may read from; unset: any file over stdio, none over HTTP |
 | `NUXEO_OAUTH_CLIENT_ID` | OAuth2 client ID |
 | `NUXEO_OAUTH_CLIENT_SECRET` | OAuth2 client secret |
 | `NUXEO_OAUTH_AUTH_ENDPOINT` | OAuth2 authorization endpoint |

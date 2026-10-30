@@ -26,7 +26,9 @@ from .config import (
     MCPAuthConfig,
     NuxeoServerConfig,
     OAuth2Config,
+    upload_dir_from_env,
 )
+from .file_access import FilePathPolicy
 from .middleware import AuthenticationManager
 from .prompts import register_prompts
 from .resources import register_resources
@@ -58,6 +60,7 @@ class NuxeoMCPServer:
         auth_config: Optional[MCPAuthConfig] = None,
         auth_mode: AuthMode = AuthMode.LOCAL,
         open_browser: bool = True,
+        file_path_policy: Optional[FilePathPolicy] = None,
     ):
         """
         Initialize the Nuxeo MCP Server.
@@ -72,12 +75,15 @@ class NuxeoMCPServer:
             auth_mode: Whose identity the server uses when calling Nuxeo
             open_browser: For OAuth2, open the sign-in page in a browser; when
                 False the URL is only printed, on stderr
+            file_path_policy: Which local files the upload tools may read;
+                None disables file_path
         """
         self.nuxeo_url = nuxeo_url
         self.username = username
         self.password = password
         self.use_oauth2 = use_oauth2
         self.auth_mode = auth_mode
+        self.file_path_policy = file_path_policy or FilePathPolicy()
         self.auth_manager = AuthenticationManager()
         self.nuxeo = None
 
@@ -175,12 +181,13 @@ class NuxeoMCPServer:
             "username": self.username,
             "auth_method": "oauth2" if use_oauth2 else "basic",
             "auth_mode": auth_mode.value,
+            "file_path": self.file_path_policy.mode,
         }
         add_healthcheck(self.mcp, server_info)
 
         # Register tools and resources without authentication wrapper for basic auth
         # (The Nuxeo client already has the auth configured)
-        register_tools(self.mcp, self.nuxeo)
+        register_tools(self.mcp, self.nuxeo, self.file_path_policy)
 
         # Register MCP resources.
         register_resources(self.mcp, self.nuxeo)
@@ -260,6 +267,7 @@ def main() -> None:
         sys.exit(1)
     try:
         auth_mode = AuthMode.from_env()
+        upload_dir = upload_dir_from_env()
     except ValueError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -280,6 +288,15 @@ def main() -> None:
         f"  Auth mode: {auth_mode.value} ({mode_source}); every caller acts as "
         "the same Nuxeo identity"
     )
+    file_path_policy = FilePathPolicy.for_transport(
+        upload_dir, stdio=not (args.http or args.sse)
+    )
+    file_path_logs = {
+        "upload_dir": f"only inside {upload_dir}",
+        "any": "any local file (stdio)",
+        "disabled": "disabled (HTTP without NUXEO_MCP_UPLOAD_DIR)",
+    }
+    logger.info(f"  file_path uploads: {file_path_logs[file_path_policy.mode]}")
 
     # Create the server
     try:
@@ -289,6 +306,7 @@ def main() -> None:
             password=password,
             use_oauth2=use_oauth2,
             auth_mode=auth_mode,
+            file_path_policy=file_path_policy,
             # The OAuth2 sign-in runs while the server is created, so the flag
             # has to reach it here, not after.
             open_browser=not args.no_browser,
