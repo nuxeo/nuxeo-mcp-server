@@ -820,3 +820,113 @@ def test_token_save_failure_keeps_the_live_token(caplog) -> None:
 
     assert "Bearer new" in request.headers.values()
     assert "Could not save the OAuth2 token" in caplog.text
+
+
+def _handler_with_expired_token(tmp_path: Path) -> Any:
+    url = "http://nuxeo.test/nuxeo"
+    manager = _file_token_manager(tmp_path)
+    manager.store_token(
+        url,
+        {"access_token": "old", "refresh_token": "rt1", "expires_at": time.time() - 5},
+    )
+    handler = _oauth2_handler(18785)
+    handler.token_manager = manager
+    return handler
+
+
+def test_refused_refresh_token_signs_in(tmp_path) -> None:
+    """invalid_grant: the stored refresh token is dead, sign in again."""
+    from unittest.mock import patch
+
+    from authlib.integrations.base_client.errors import OAuthError
+
+    handler = _handler_with_expired_token(tmp_path)
+    with (
+        patch(
+            "authlib.integrations.requests_client.OAuth2Session.refresh_token",
+            side_effect=OAuthError("invalid_grant"),
+        ),
+        patch.object(
+            handler, "_start_callback_server", side_effect=RuntimeError("sign-in")
+        ) as sign_in,
+    ):
+        assert handler.authenticate(open_browser=False) is False
+
+    sign_in.assert_called_once()
+
+
+def test_unreachable_nuxeo_keeps_the_expired_token(tmp_path) -> None:
+    """Nuxeo restarting is no reason to open a browser: keep the stored token."""
+    from unittest.mock import patch
+
+    handler = _handler_with_expired_token(tmp_path)
+    with (
+        patch(
+            "authlib.integrations.requests_client.OAuth2Session.refresh_token",
+            side_effect=requests.ConnectionError("connection refused"),
+        ),
+        patch(
+            "nuxeo.client.NuxeoClient.request",
+            side_effect=requests.ConnectionError("connection refused"),
+        ),
+        patch.object(handler, "_start_callback_server") as sign_in,
+    ):
+        assert handler.authenticate(open_browser=False) is True
+
+    sign_in.assert_not_called()
+    stored = handler.token_manager.get_stored_token("http://nuxeo.test/nuxeo")
+    assert stored["refresh_token"] == "rt1"
+
+
+def _callback(server: Any, query: str) -> Any:
+    """Send one request to a running callback server."""
+    return requests.get(
+        f"http://localhost:{server.server_address[1]}/callback?{query}", timeout=5
+    )
+
+
+@pytest.fixture
+def callback_server() -> Any:
+    handler = _oauth2_handler(0)
+    server = handler._start_callback_server(0)
+    server.expected_state = "good-state"
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "code=c1&state=stale",
+        "code=c1",
+        "error=access_denied&state=stale",
+    ],
+)
+def test_callback_ignores_requests_for_another_sign_in(
+    callback_server: Any, query: str
+) -> None:
+    """A stray request must not end the sign-in; it keeps waiting."""
+    response = _callback(callback_server, query)
+
+    assert response.status_code == 400
+    assert callback_server.auth_code is None
+    assert callback_server.auth_error is None
+
+    _callback(callback_server, "code=c2&state=good-state")
+    assert callback_server.auth_code == "c2"
+
+
+@pytest.mark.parametrize("state", ["&state=good-state", ""])
+def test_callback_error_page_escapes_the_description(
+    callback_server: Any, state: str
+) -> None:
+    """error_description comes from the URL: it must not inject markup."""
+    response = _callback(
+        callback_server,
+        f"error=access_denied&error_description=%3Cscript%3Ex()%3C/script%3E{state}",
+    )
+
+    assert "<script>x()" not in response.text
+    assert "&lt;script&gt;x()" in response.text
+    assert callback_server.auth_error == "access_denied"
