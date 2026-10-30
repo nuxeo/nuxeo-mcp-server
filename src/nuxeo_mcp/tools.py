@@ -87,7 +87,10 @@ ES_PROBE_TIMEOUT = 10
 
 
 def register_tools(
-    mcp, nuxeo, file_path_policy: Optional[FilePathPolicy] = None
+    mcp,
+    nuxeo,
+    file_path_policy: Optional[FilePathPolicy] = None,
+    read_only: bool = False,
 ) -> None:
     """
     Register MCP tools with the FastMCP server.
@@ -96,6 +99,7 @@ def register_tools(
         mcp: The FastMCP server instance
         nuxeo: The Nuxeo client instance
         file_path_policy: Which local files file_path may name; None disables it
+        read_only: Register only the tools annotated read-only
     """
     files = file_path_policy or FilePathPolicy()
 
@@ -114,6 +118,10 @@ def register_tools(
                 "safety hints in nuxeo_mcp.annotations before registering it."
             )
         kwargs.setdefault("annotations", annotations)
+        if read_only and not annotations.read_only_hint:
+            # Not registered at all, rather than registered and refused: a
+            # client cannot list or call it, whatever the model attempts.
+            return lambda fn: fn
         return mcp.tool(**kwargs)
 
     # Tool: Get repository info

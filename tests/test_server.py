@@ -318,6 +318,30 @@ def test_health_reports_auth_mode() -> None:
     assert body["auth_mode"] == "local"
     assert body["auth_method"] == "basic"
     assert body["file_path"] == "disabled"
+    assert body["read_only"] is False
+
+
+@pytest.mark.unit
+def test_read_only_server_hides_write_tools_and_reports_it() -> None:
+    """read_only reaches tool registration and /health."""
+    import asyncio
+    import json
+
+    with mock.patch("nuxeo_mcp.server.Nuxeo"):
+        server = NuxeoMCPServer(
+            username="user",
+            password="pass",
+            fastmcp_class=MockFastMCP,
+            read_only=True,
+        )
+
+    names = {t["name"] for t in server.mcp.tools}
+    assert "nuxeo_get_document" in names
+    assert "nuxeo_execute_operation" not in names
+    assert "nuxeo_create_document" not in names
+    health = server.mcp.custom_routes[0]
+    body = json.loads(asyncio.run(health["func"](MagicMock())).body)
+    assert body["read_only"] is True
 
 
 @pytest.mark.unit
@@ -354,6 +378,7 @@ def _prepare_main(monkeypatch, env: Dict[str, str]) -> None:
         "NUXEO_AUTH_METHOD",
         "NUXEO_MCP_AUTH_MODE",
         "NUXEO_MCP_UPLOAD_DIR",
+        "NUXEO_MCP_READ_ONLY",
     ):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
@@ -384,6 +409,7 @@ def test_main_refuses_to_start_without_credentials(monkeypatch, caplog) -> None:
         ("NUXEO_MCP_AUTH_MODE", "delegated", "supported: local"),
         ("NUXEO_AUTH_METHOD", "jwt", "supported: basic, oauth2"),
         ("NUXEO_MCP_UPLOAD_DIR", "/no/such/dir", "is not a directory"),
+        ("NUXEO_MCP_READ_ONLY", "ture", "supported: true, false"),
     ],
 )
 def test_main_rejects_unsupported_settings(
@@ -483,3 +509,23 @@ def test_main_sets_the_file_path_policy_from_the_transport(
 
     assert server_class.call_args.kwargs["file_path_policy"].mode == mode
     assert "file_path uploads:" in caplog.text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value,expected", [(None, False), ("true", True)])
+def test_main_passes_read_only_and_logs_it(
+    monkeypatch, caplog, value, expected
+) -> None:
+    """main() reads NUXEO_MCP_READ_ONLY, passes it on and logs it."""
+    from nuxeo_mcp.server import main
+
+    env = {"NUXEO_USERNAME": "user", "NUXEO_PASSWORD": "pass"}
+    if value:
+        env["NUXEO_MCP_READ_ONLY"] = value
+    _prepare_main(monkeypatch, env)
+    caplog.set_level("INFO", logger="nuxeo_mcp")
+    with mock.patch("nuxeo_mcp.server.NuxeoMCPServer") as server_class:
+        main()
+
+    assert server_class.call_args.kwargs["read_only"] is expected
+    assert f"Read-only: {'yes' if expected else 'no'}" in caplog.text

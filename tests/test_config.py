@@ -73,3 +73,39 @@ def test_upload_dir_from_env_rejects_a_missing_folder(monkeypatch, tmp_path) -> 
     monkeypatch.setenv("NUXEO_MCP_UPLOAD_DIR", str(tmp_path / "nope"))
     with pytest.raises(ValueError, match="is not a directory"):
         upload_dir_from_env()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, False),
+        ("", False),
+        ("false", False),
+        ("0", False),
+        ("off", False),
+        ("true", True),
+        (" TRUE ", True),
+        ("1", True),
+        ("yes", True),
+        ("on", True),
+    ],
+)
+def test_read_only_from_env(monkeypatch, value, expected) -> None:
+    """NUXEO_MCP_READ_ONLY accepts the usual boolean spellings; unset is off."""
+    from nuxeo_mcp.config import read_only_from_env
+
+    monkeypatch.delenv("NUXEO_MCP_READ_ONLY", raising=False)
+    if value is not None:
+        monkeypatch.setenv("NUXEO_MCP_READ_ONLY", value)
+    assert read_only_from_env() is expected
+
+
+@pytest.mark.unit
+def test_read_only_from_env_rejects_a_typo(monkeypatch) -> None:
+    """A typo stops startup rather than silently exposing the write tools."""
+    from nuxeo_mcp.config import read_only_from_env
+
+    monkeypatch.setenv("NUXEO_MCP_READ_ONLY", "ture")
+    with pytest.raises(ValueError, match="supported: true, false"):
+        read_only_from_env()
