@@ -230,7 +230,7 @@ Startup
   └─ oauth2 (--oauth2 or NUXEO_AUTH_METHOD=oauth2)
        └─ AuthenticationManager → OAuth2AuthHandler
             ├─ TokenManager: check stored token
-            ├─ If expired: refresh_token()
+            ├─ If expired: refresh it, save the rotated token (Nuxeo unreachable: keep it)
             └─ If none: launch PKCE browser flow → callback server
 ```
 

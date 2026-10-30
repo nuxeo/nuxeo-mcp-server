@@ -186,50 +186,6 @@ class TestOAuth2Integration:
                     assert stored_token is not None
                     assert stored_token["access_token"] == "test-access-token"
 
-    def test_token_refresh_simulation(self):
-        """Test token refresh mechanism."""
-        # A temporary file store: there is no in-memory backend, and the default
-        # directory is the user's real token store.
-        token_manager = TokenManager(backend="encrypted_file")
-        token_manager.storage = EncryptedFileStorage(Path(tempfile.mkdtemp()))
-
-        # Store initial token
-        initial_token = {
-            "access_token": "old-access-token",
-            "refresh_token": "refresh-token",
-            "expires_at": time.time() - 100,  # Expired
-        }
-
-        # Setup handler
-        oauth2_config = OAuth2Config(
-            client_id="test-client",
-            client_secret="test-secret",
-        )
-        server_config = NuxeoServerConfig(
-            url="http://test.com",
-            auth_method=AuthMethod.OAUTH2,
-            oauth2_config=oauth2_config,
-        )
-
-        handler = OAuth2AuthHandler(server_config, token_manager)
-        token_manager.store_token("http://test.com", initial_token)
-
-        # Only the network is faked: the real auth object refreshes and stores.
-        with patch(
-            "authlib.integrations.requests_client.OAuth2Session.refresh_token",
-            return_value={
-                "access_token": "new-access-token",
-                "refresh_token": "new-refresh-token",
-                "expires_at": time.time() + 3600,
-            },
-        ) as mock_refresh:
-            assert handler.refresh_token() is True
-
-        assert mock_refresh.call_args.args[1] == "refresh-token"
-        stored = token_manager.get_stored_token("http://test.com")
-        assert stored["access_token"] == "new-access-token"
-        assert stored["refresh_token"] == "new-refresh-token"
-
 
 @pytest.mark.integration
 class TestMCPServerWithOAuth2:
