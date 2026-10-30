@@ -56,6 +56,8 @@ class TestOAuth2Integration:
         server.auth_code = None
         server.state = None
         server.auth_error = None
+        # The sign-in in progress: callbacks with another state are ignored.
+        server.expected_state = "test-state"
         port = server.server_address[1]
 
         # Start server in thread
