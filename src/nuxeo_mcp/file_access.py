@@ -48,6 +48,11 @@ class FilePathPolicy:
         leave the folder, and before existence, so a refusal says nothing about
         files outside it. The real path is returned so the upload opens the file
         that was checked.
+
+        The file is reopened by path for the upload, so whoever can write into
+        the folder could swap it for a symlink in between. No tool writes to the
+        server's disk, so a caller cannot; the folder must be writable only by
+        trusted parties.
         """
         if self.upload_dir:
             joined = os.path.join(self.upload_dir, os.path.expanduser(file_path))

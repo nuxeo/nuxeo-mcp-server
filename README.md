@@ -64,7 +64,7 @@ With OAuth2, the server keeps the tokens it obtains so you do not sign in on eve
 
 Paths are checked after resolving `..` and symlinks; a relative path is taken from the folder. A folder that does not exist stops the server at startup. `/health` reports `file_path` as `any`, `upload_dir` or `disabled`.
 
-Over HTTP, an unrestricted `file_path` would let any caller read the server's own files through Nuxeo: its environment (including `NUXEO_PASSWORD`), the OAuth2 token store, credentials and mounted secrets. Only point `NUXEO_MCP_UPLOAD_DIR` at a folder holding files meant to be shared.
+Over HTTP, an unrestricted `file_path` would let any caller read the server's own files through Nuxeo: its environment (including `NUXEO_PASSWORD`), the OAuth2 token store, credentials and mounted secrets. Only point `NUXEO_MCP_UPLOAD_DIR` at a folder holding files meant to be shared, and writable only by trusted parties: the path is checked, then the file is opened again for the upload, so a local process able to write there could swap it in between.
 
 ## Quick Start
 
