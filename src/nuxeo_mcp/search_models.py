@@ -95,7 +95,13 @@ class SearchResult(BaseModel):
         default=0, description="Number of documents requested per page."
     )
     hasMore: bool = Field(
-        default=False, description="True when further pages are available."
+        default=False,
+        description=(
+            "True when further pages are available. Exception: in semantic mode "
+            "it means more candidates, not more matches -- each page is less "
+            "relevant than the last. Stop when the scores or snippets stop being "
+            "relevant, not when hasMore turns false."
+        ),
     )
     mode: str = Field(description="Query mode that produced this result.")
     interpretedQuery: Optional[str] = Field(
