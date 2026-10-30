@@ -54,14 +54,15 @@ def format_doc(
         A dictionary with content and content_type keys or the uri of the Document
     """
 
-    if as_resource:
-        return f"nuxeo://{doc.uid}"
-
     if doc is None:
         return {"content": "No document provided", "content_type": "text/plain"}
 
-    if type(doc) == Document:
+    if isinstance(doc, Document):
+        if as_resource:
+            return f"nuxeo://{doc.uid}"
         doc = doc.as_dict()
+    elif as_resource:
+        return f"nuxeo://{doc.get('uid')}"
 
     # Extract basic document information
     uid = doc.get("uid", "Unknown")
@@ -166,7 +167,8 @@ def format_property_value(value: Any) -> str:
         return str(value)
 
 
-def return_blob(blob_info: dict):
+def return_blob(blob_info: Dict[str, Any]) -> Any:
+    """Return image blobs as ImageContent, anything else as its raw content."""
 
     if "image/" in blob_info["mime_type"]:
         content = blob_info["content"]

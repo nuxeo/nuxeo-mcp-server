@@ -22,7 +22,7 @@ from nuxeo.auth import OAuth2
 from nuxeo.client import Nuxeo
 from nuxeo.exceptions import Forbidden, OAuth2Error, Unauthorized
 
-from .config import NuxeoServerConfig
+from .config import NuxeoServerConfig, OAuth2Config
 from .token_store import TokenManager
 
 logger = logging.getLogger(__name__)
@@ -82,11 +82,13 @@ class _CallbackServer(HTTPServer):
 class OAuth2CallbackHandler(BaseHTTPRequestHandler):
     """HTTP request handler for OAuth2 callback."""
 
-    def log_message(self, format, *args):
+    server: _CallbackServer
+
+    def log_message(self, format: str, *args: Any) -> None:
         """Override to suppress default HTTP server logs."""
         pass
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         """Handle GET request for OAuth2 callback."""
         query_components = parse_qs(urlparse(self.path).query)
 
@@ -95,7 +97,7 @@ class OAuth2CallbackHandler(BaseHTTPRequestHandler):
         # sign-in keeps waiting. An error without state is accepted: it cannot
         # be matched, and only ends the sign-in.
         state = query_components.get("state", [None])[0]
-        expected = getattr(self.server, "expected_state", None)
+        expected = self.server.expected_state
         answers_this_sign_in = state is not None and secrets.compare_digest(
             state, expected or ""
         )
@@ -268,15 +270,14 @@ class OAuth2AuthHandler:
             server_config: Nuxeo server configuration
             token_manager: Token storage manager
         """
+        if not server_config.oauth2_config:
+            raise ValueError("OAuth2 configuration required")
         self.server_config = server_config
         self.token_manager = token_manager or TokenManager()
-        self.oauth2_config = server_config.oauth2_config
+        self.oauth2_config: OAuth2Config = server_config.oauth2_config
         self.nuxeo_client: Optional[Nuxeo] = None
         # The Nuxeo user the token belongs to, as /api/v1/me reports it
         self.username: Optional[str] = None
-
-        if not self.oauth2_config:
-            raise ValueError("OAuth2 configuration required")
 
     def _find_available_port(
         self, start_port: int = 8080, max_attempts: int = 100
@@ -471,7 +472,7 @@ class OAuth2AuthHandler:
         expires_at = token.get("expires_at")
         if not expires_at:
             return False
-        return datetime.now().timestamp() >= expires_at - 60  # 60 second buffer
+        return datetime.now().timestamp() >= float(expires_at) - 60  # 60 s buffer
 
     def _stored_token_rejected(self, client: Nuxeo) -> bool:
         """Check a stored token with Nuxeo, learning its user when it is accepted.
@@ -495,6 +496,8 @@ class OAuth2AuthHandler:
 
     def _validate_token(self, token: Dict[str, Any]) -> bool:
         """Validate token by making a test API request."""
+        if self.nuxeo_client is None:
+            return False
         try:
             # Try to get current user info
             response = self.nuxeo_client.client.request("GET", "/api/v1/me")

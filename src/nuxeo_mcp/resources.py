@@ -20,7 +20,7 @@ from nuxeo_mcp.utility import format_doc, is_uuid
 logger = logging.getLogger("nuxeo_mcp.resources")
 
 
-def register_resources(mcp, nuxeo) -> None:
+def register_resources(mcp: Any, nuxeo: Any) -> None:
     """
     Register MCP resources with the FastMCP server.
 

@@ -27,7 +27,7 @@ class AuthMiddleware:
         """
         self.auth_handler = auth_handler
         self._authenticated = False
-        self._last_auth_check = None
+        self._last_auth_check: Optional[datetime] = None
 
     def ensure_authenticated(self, open_browser: bool = True) -> bool:
         """
@@ -68,7 +68,7 @@ class AuthMiddleware:
         elapsed = (datetime.now() - self._last_auth_check).total_seconds()
         return elapsed > 1800  # 30 minutes
 
-    def get_nuxeo_client(self):
+    def get_nuxeo_client(self) -> Any:
         """
         Get authenticated Nuxeo client.
 
@@ -91,12 +91,12 @@ class AuthMiddleware:
 class AuthenticationManager:
     """Manages authentication for the MCP server."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize authentication manager."""
         self.middleware: Optional[AuthMiddleware] = None
         self.auth_handler: Optional[Any] = None
 
-    def setup(self, server_config) -> bool:
+    def setup(self, server_config: Any) -> bool:
         """
         Setup authentication based on server configuration.
 
@@ -145,7 +145,7 @@ class AuthenticationManager:
         """Return the Nuxeo user the handler authenticated as, if known."""
         return getattr(self.auth_handler, "username", None)
 
-    def get_nuxeo_client(self):
+    def get_nuxeo_client(self) -> Any:
         """
         Get authenticated Nuxeo client.
 
