@@ -183,7 +183,9 @@ def test_move_reports_the_document_where_it_landed(
 def test_move_without_a_document_is_an_error(mcp: FastMCP, nuxeo: MagicMock) -> None:
     nuxeo.operations.new.return_value.execute.return_value = {"entity-type": "x"}
 
-    with pytest.raises(Exception, match="Move returned no document"):
+    with pytest.raises(
+        Exception, match="Move returned no document.*may have been applied"
+    ):
         _call(mcp, "nuxeo_move_document", {"document_uid": "u", "target_path": "/t"})
 
 

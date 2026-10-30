@@ -68,7 +68,7 @@ def register_resources(mcp, nuxeo) -> None:
         name="Get  Document using UUID",
         description="Get  Document using UUID",
     )
-    def get_document(uid: str) -> Dict[str, Any]:
+    def get_document(uid: str) -> Any:
         # nuxeo://<uid>@<adapter> without a parameter matches this template
         # first: hand it to the adapter handling rather than read "<uid>@..."
         # as an id.
@@ -79,9 +79,12 @@ def register_resources(mcp, nuxeo) -> None:
     @mcp.resource(
         uri="nuxeo://{path*}",
         name="Get  Document using the path",
-        description="Get  Document using the path",
+        description=(
+            "Get  Document using the path. '@' starts an adapter: to read a "
+            "document whose name contains '@', use its UID."
+        ),
     )
-    def get_document_by_path(path: str) -> Dict[str, Any]:
+    def get_document_by_path(path: str) -> Any:
 
         if not path.startswith("/"):
             path = f"/{path}"
@@ -107,7 +110,7 @@ def register_resources(mcp, nuxeo) -> None:
     )
     def get_document_with_dapater(
         uid: str, adapter: str, adapter_param: str | None
-    ) -> Dict[str, Any]:
+    ) -> Any:
 
         uid = uid.strip()
 
@@ -131,9 +134,14 @@ def register_resources(mcp, nuxeo) -> None:
             }
             return return_blob(blob_info)
 
-        # JSON adapters (children, acl, ...) as text, not base64 bytes.
+        # JSON or XML adapter answers (children, acl, ...) as text, not base64
+        # bytes.
         content_type = r.headers.get("content-type", "")
-        if "json" in content_type or content_type.startswith("text/"):
+        if (
+            "json" in content_type
+            or "xml" in content_type
+            or content_type.startswith("text/")
+        ):
             return r.text
         return r.content
 

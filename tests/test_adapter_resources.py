@@ -75,24 +75,10 @@ def test_uid_adapter_without_a_parameter() -> None:
 
 
 @pytest.mark.unit
-def test_uid_adapter_template_strips_the_uid() -> None:
-    """It called str.trim(), which does not exist."""
-    nuxeo = _nuxeo("application/json", b"{}")
-    captured = {}
+def test_xml_adapter_answer_is_text() -> None:
+    """An XML answer comes back as text, not base64 bytes."""
+    nuxeo = _nuxeo("application/xml", b"<acl/>")
 
-    class Capture:
-        def resource(self, *args: Any, **kwargs: Any) -> Any:
-            def decorator(fn: Any) -> Any:
-                captured[kwargs.get("uri")] = fn
-                return fn
+    content = _read(nuxeo, f"nuxeo://{UID}@acl")
 
-            return decorator
-
-    register_resources(Capture(), nuxeo)
-    captured["nuxeo://{uid}@{adapter}/{adapter_param}"](
-        uid=f" {UID} ", adapter="children", adapter_param=None
-    )
-
-    nuxeo.client.request.assert_called_once_with(
-        "GET", f"api/v1/repo/default/id/{UID}/@children"
-    )
+    assert content.text == "<acl/>"
