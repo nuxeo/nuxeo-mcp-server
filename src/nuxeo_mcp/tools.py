@@ -936,6 +936,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         index mapping, so the search would run unfiltered while the caller
         believes it was narrowed. These are known up front, unlike unmapped
         fields, which depend on the server's mapping and stay fail-open.
+
+        This list mirrors the current, experimental Nuxeo vector client
+        (VectorQueryTransformer, 2025). Revisit it when that client gains
+        operators, or a supported filter would be refused.
         """
         operators = _unsupported_filter_operators(nxql_filter)
         if operators:
@@ -954,6 +958,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         include_snippets: bool,
     ) -> SearchResult:
         """Execute a semantic search and map it onto the shared envelope.
+
+        Vector search is experimental in Nuxeo: the filter support described
+        here follows its vector client and may change between releases.
 
         **This mode is a fulltext search by meaning, with basic filtering.** It is
         not a general NXQL engine: the query text is the whole point, and the
@@ -1054,7 +1061,9 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
             nxql_filter: **mode="semantic" only.** NXQL WHERE conditions ANDed
                 after the query term, replacing the default
                 "ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 AND
-                ecm:isVersion = 0".
+                ecm:isVersion = 0". The supported fields and operators below are
+                those of the current Nuxeo vector search, which is experimental
+                and may change.
 
                 OR, NOT, LIKE and ILIKE are refused with an error. **A clause on
                 an unmapped field is dropped, not refused**: you get *more*
