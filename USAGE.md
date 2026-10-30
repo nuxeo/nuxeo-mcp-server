@@ -159,6 +159,11 @@ for doc in result["documents"]:
 
 #### `mode="semantic"`
 
+> **Experimental.** Vector search is still experimental in Nuxeo. What
+> `nxql_filter` supports (fields, operators) follows the Nuxeo vector client
+> and may change between Nuxeo releases; the limits below describe the current
+> 2025 behaviour.
+
 Matches a question or phrase on meaning rather than keywords, against the Nuxeo
 vector index. **Most Nuxeo servers have no vector index**: there the call fails
 with an error saying semantic search is not available and naming the
