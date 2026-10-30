@@ -10,13 +10,17 @@ import os
 import tempfile
 import threading
 import time
-from http.server import HTTPServer
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nuxeo_mcp.auth import OAuth2AuthHandler, OAuth2CallbackHandler, _PersistingOAuth2
+from nuxeo_mcp.auth import (
+    OAuth2AuthHandler,
+    OAuth2CallbackHandler,
+    _CallbackServer,
+    _PersistingOAuth2,
+)
 from nuxeo_mcp.config import AuthMethod, NuxeoServerConfig, OAuth2Config
 from nuxeo_mcp.server import NuxeoMCPServer
 from nuxeo_mcp.token_store import EncryptedFileStorage, TokenManager
@@ -51,7 +55,7 @@ class TestOAuth2Integration:
     def test_oauth2_callback_server(self):
         """Test OAuth2 callback server handling."""
         # Start callback server
-        server = HTTPServer(("localhost", 0), OAuth2CallbackHandler)
+        server = _CallbackServer(("localhost", 0), OAuth2CallbackHandler)
         # Initialize required attributes
         server.auth_code = None
         server.state = None
@@ -82,7 +86,7 @@ class TestOAuth2Integration:
     def test_oauth2_error_callback(self):
         """Test OAuth2 callback server error handling."""
         # Start callback server
-        server = HTTPServer(("localhost", 0), OAuth2CallbackHandler)
+        server = _CallbackServer(("localhost", 0), OAuth2CallbackHandler)
         # Initialize required attributes
         server.auth_code = None
         server.state = None

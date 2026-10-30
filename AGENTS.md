@@ -80,14 +80,14 @@ uv run pytest -s --log-cli-level=INFO
 ```bash
 uv run black src/ tests/     # Format (88 char line length)
 uv run isort src/ tests/     # Sort imports (black-compatible)
-uv run mypy src/             # Type-check (strict mode)
+uv run mypy src/             # Type-check (settings in pyproject.toml)
 ```
 
 All three must pass before merging.
 
 ## Key Conventions
 
-- **Type hints everywhere** — mypy strict mode is enforced.
+- **Type hints everywhere** — mypy disallows untyped and partly typed functions (`[tool.mypy]` in `pyproject.toml`).
 - **snake_case** for functions and variables; **PascalCase** for classes; **UPPER_SNAKE_CASE** for constants.
 - **Decorator-based registration** — tools, resources, and prompts use `@mcp.tool()`, `@mcp.resource()`, `@mcp.prompt()`.
 - **Single Responsibility** — each module has one clear purpose; do not mix concerns.
@@ -358,7 +358,7 @@ All workflows use the composite action `.github/actions/setup-and-install-dep` f
 
 - Don't add business logic to `server.py` — it is wiring only.
 - Don't store credentials in source code or tests; use environment variables.
-- Don't merge without passing `uv run mypy src/` in strict mode.
+- Don't merge without passing `uv run mypy src/`.
 - Don't build a Nuxeo client inside a tool; use the one `register_tools()` receives, so every call runs as the configured identity.
 
 ### Common Pitfalls

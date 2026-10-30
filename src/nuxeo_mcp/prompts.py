@@ -6,12 +6,13 @@ This module defines the prompts for the Nuxeo MCP Server.
 """
 
 import logging
+from typing import Any
 
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.prompts")
 
 
-def register_prompts(mcp, nuxeo) -> None:
+def register_prompts(mcp: Any, nuxeo: Any) -> None:
     """
     Register MCP prompts with the FastMCP server.
 

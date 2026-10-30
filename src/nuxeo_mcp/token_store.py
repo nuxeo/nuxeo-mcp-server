@@ -37,7 +37,7 @@ class OAuth2Token:
     expires_at: Optional[float] = None
     scope: Optional[str] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Calculate expiration time if not provided."""
         if self.expires_in and not self.expires_at:
             self.expires_at = datetime.now().timestamp() + self.expires_in
@@ -87,7 +87,7 @@ class KeyringStorage(TokenStorage):
 
     SERVICE_NAME = "nuxeo-mcp"
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize keyring storage."""
         if not KEYRING_AVAILABLE:
             raise ImportError("keyring package not available")
@@ -200,7 +200,8 @@ class EncryptedFileStorage(TokenStorage):
             cipher = self._get_cipher()
             encrypted_data = self.storage_file.read_bytes()
             decrypted_data = cipher.decrypt(encrypted_data)
-            return json.loads(decrypted_data.decode())
+            tokens: Dict[str, Dict[str, Any]] = json.loads(decrypted_data.decode())
+            return tokens
         except Exception as e:
             logger.error(f"Failed to load tokens: {e}")
             return {}
