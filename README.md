@@ -53,6 +53,19 @@ Local mode is single-tenant. It is safe on your own machine or a trusted network
 With OAuth2, the server keeps the tokens it obtains so you do not sign in on every start: in the operating system's keyring when one is available, otherwise in an encrypted `tokens.enc` file whose key sits beside it, both readable only by your user. The fallback directory is `nuxeo-mcp/tokens` under `~/Library/Application Support` on macOS, `$XDG_DATA_HOME` (default `~/.local/share`) on Linux, and `%APPDATA%` on Windows.
 
 
+## Local Files (`file_path`)
+
+`nuxeo_create_document` and `nuxeo_execute_operation` accept a `file_path`: a file on the machine running the MCP server, not the caller's. The server uploads it to Nuxeo, where any caller can read it back.
+
+| Transport | `NUXEO_MCP_UPLOAD_DIR` unset | `NUXEO_MCP_UPLOAD_DIR` set |
+|---|---|---|
+| stdio | Any file the server can read | Only regular files inside the folder |
+| HTTP / SSE | Refused | Only regular files inside the folder |
+
+Paths are checked after resolving `..` and symlinks; a relative path is taken from the folder. A folder that does not exist stops the server at startup. `/health` reports `file_path` as `any`, `upload_dir` or `disabled`.
+
+Over HTTP, an unrestricted `file_path` would let any caller read the server's own files through Nuxeo: its environment (including `NUXEO_PASSWORD`), the OAuth2 token store, credentials and mounted secrets. Only point `NUXEO_MCP_UPLOAD_DIR` at a folder holding files meant to be shared.
+
 ## Quick Start
 
 ### Basic Authentication (Default)

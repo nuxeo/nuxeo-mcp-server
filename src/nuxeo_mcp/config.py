@@ -47,6 +47,21 @@ class AuthMode(Enum):
             ) from None
 
 
+def upload_dir_from_env() -> Optional[str]:
+    """Read NUXEO_MCP_UPLOAD_DIR as a real path, or None when unset.
+
+    A folder that does not exist stops startup: a typo must not silently
+    leave file_path disabled, or enabled anywhere over stdio.
+    """
+    value = os.environ.get("NUXEO_MCP_UPLOAD_DIR", "").strip()
+    if not value:
+        return None
+    real = os.path.realpath(os.path.expanduser(value))
+    if not os.path.isdir(real):
+        raise ValueError(f"NUXEO_MCP_UPLOAD_DIR {value!r} is not a directory")
+    return real
+
+
 @dataclass
 class OAuth2Config:
     """OAuth2 configuration settings."""

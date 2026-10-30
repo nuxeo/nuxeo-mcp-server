@@ -317,6 +317,7 @@ def test_health_reports_auth_mode() -> None:
     assert health["path"] == "/health"
     assert body["auth_mode"] == "local"
     assert body["auth_method"] == "basic"
+    assert body["file_path"] == "disabled"
 
 
 @pytest.mark.unit
@@ -352,6 +353,7 @@ def _prepare_main(monkeypatch, env: Dict[str, str]) -> None:
         "NUXEO_PASSWORD",
         "NUXEO_AUTH_METHOD",
         "NUXEO_MCP_AUTH_MODE",
+        "NUXEO_MCP_UPLOAD_DIR",
     ):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
@@ -381,6 +383,7 @@ def test_main_refuses_to_start_without_credentials(monkeypatch, caplog) -> None:
     [
         ("NUXEO_MCP_AUTH_MODE", "delegated", "supported: local"),
         ("NUXEO_AUTH_METHOD", "jwt", "supported: basic, oauth2"),
+        ("NUXEO_MCP_UPLOAD_DIR", "/no/such/dir", "is not a directory"),
     ],
 )
 def test_main_rejects_unsupported_settings(
@@ -450,3 +453,33 @@ def test_main_treats_an_empty_auth_method_as_basic(monkeypatch, caplog, value) -
 
     assert server_class.call_args.kwargs["use_oauth2"] is False
     assert "Auth method: basic" in caplog.text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "argv,upload_dir,mode",
+    [
+        ([], False, "any"),
+        (["--http"], False, "disabled"),
+        (["--sse"], False, "disabled"),
+        (["--http"], True, "upload_dir"),
+        ([], True, "upload_dir"),
+    ],
+)
+def test_main_sets_the_file_path_policy_from_the_transport(
+    monkeypatch, caplog, tmp_path, argv, upload_dir, mode
+) -> None:
+    """file_path is open over stdio, off over HTTP, and confined by the folder."""
+    from nuxeo_mcp.server import main
+
+    env = {"NUXEO_USERNAME": "user", "NUXEO_PASSWORD": "pass"}
+    if upload_dir:
+        env["NUXEO_MCP_UPLOAD_DIR"] = str(tmp_path)
+    _prepare_main(monkeypatch, env)
+    monkeypatch.setattr(sys, "argv", ["nuxeo-mcp", *argv])
+    caplog.set_level("INFO", logger="nuxeo_mcp")
+    with mock.patch("nuxeo_mcp.server.NuxeoMCPServer") as server_class:
+        main()
+
+    assert server_class.call_args.kwargs["file_path_policy"].mode == mode
+    assert "file_path uploads:" in caplog.text
