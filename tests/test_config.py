@@ -48,3 +48,28 @@ def test_empty_auth_method_loads_as_basic(monkeypatch, tmp_path) -> None:
     config = MCPAuthConfig.load(config_path=tmp_path / "none.json")
 
     assert config.servers["default"].auth_method == AuthMethod.BASIC
+
+
+@pytest.mark.unit
+def test_upload_dir_from_env(monkeypatch, tmp_path) -> None:
+    """Unset is None; a folder is returned as its real path."""
+    import os
+
+    from nuxeo_mcp.config import upload_dir_from_env
+
+    monkeypatch.delenv("NUXEO_MCP_UPLOAD_DIR", raising=False)
+    assert upload_dir_from_env() is None
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    monkeypatch.setenv("NUXEO_MCP_UPLOAD_DIR", str(tmp_path / "link"))
+    assert upload_dir_from_env() == os.path.realpath(tmp_path / "real")
+
+
+@pytest.mark.unit
+def test_upload_dir_from_env_rejects_a_missing_folder(monkeypatch, tmp_path) -> None:
+    """A missing folder stops startup rather than changing what file_path reads."""
+    from nuxeo_mcp.config import upload_dir_from_env
+
+    monkeypatch.setenv("NUXEO_MCP_UPLOAD_DIR", str(tmp_path / "nope"))
+    with pytest.raises(ValueError, match="is not a directory"):
+        upload_dir_from_env()

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from nuxeo_mcp import query_dsl
 from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
+from nuxeo_mcp.file_access import FilePathPolicy
 from nuxeo_mcp.query_dsl import QueryDslRejected, apply_guardrails
 from nuxeo_mcp.search_models import (
     MODE_NXQL,
@@ -85,14 +86,18 @@ from typing import Union
 ES_PROBE_TIMEOUT = 10
 
 
-def register_tools(mcp, nuxeo) -> None:
+def register_tools(
+    mcp, nuxeo, file_path_policy: Optional[FilePathPolicy] = None
+) -> None:
     """
     Register MCP tools with the FastMCP server.
 
     Args:
         mcp: The FastMCP server instance
         nuxeo: The Nuxeo client instance
+        file_path_policy: Which local files file_path may name; None disables it
     """
+    files = file_path_policy or FilePathPolicy()
 
     def tool(**kwargs):
         """Register a tool, attaching its declared safety annotations by name.
@@ -295,7 +300,9 @@ def register_tools(mcp, nuxeo) -> None:
             params: Dictionary of parameters to pass to the operation
             input_type: Type of input ('document_path', 'document_uid', 'documents', 'file', 'none')
             input_value: Value of the input (document path, document UID, comma-separated list, or None)
-            file_path: Path to a file to upload as input (only used when input_type is 'file')
+            file_path: Path to a file on the MCP server's machine to upload as input
+                (only used when input_type is 'file'); refused over HTTP unless
+                NUXEO_MCP_UPLOAD_DIR is set, and then must be inside it
 
         Returns:
             The result of the operation execution, formatted if it's a document or list of documents
@@ -329,14 +336,15 @@ def register_tools(mcp, nuxeo) -> None:
                 else:
                     operation.input_obj = input_value
         elif input_type == "file" and file_path:
-            # Check if file exists
-            if not os.path.exists(file_path):
-                raise ValueError(f"File not found: {file_path}")
+            local_path = files.resolve(file_path)
 
             # Upload the file and use it as input
             from nuxeo.models import FileBlob
 
-            blob = FileBlob(file_path)
+            blob = FileBlob(local_path)
+            # Read the checked real path, but keep the caller's name: a symlink
+            # such as latest.pdf -> report-v3.pdf is uploaded as latest.pdf.
+            blob.name = os.path.basename(file_path)
             uploaded = nuxeo.uploads.batch().upload(blob, chunked=True)
             operation.input_obj = uploaded
 
@@ -435,20 +443,24 @@ def register_tools(mcp, nuxeo) -> None:
             type: The document type (e.g., 'File', 'Folder', 'Note', 'Picture')
             properties: Dictionary of document properties (e.g., {"dc:title": "My Document"})
             parent_path: Path of the parent document where this document will be created
-            file_path: Optional path to a file to attach to the document
+            file_path: Optional path to a file on the MCP server's machine to
+                attach; refused over HTTP unless NUXEO_MCP_UPLOAD_DIR is set, and
+                then must be inside it
 
         Returns:
             The created document formatted as markdown
         """
         # Handle file upload if provided
         if file_path:
-            if not os.path.exists(file_path):
-                raise ValueError(f"File not found: {file_path}")
+            local_path = files.resolve(file_path)
 
             # Upload file to batch
             from nuxeo.models import FileBlob
 
-            blob = FileBlob(file_path)
+            blob = FileBlob(local_path)
+            # Read the checked real path, but keep the caller's name: a symlink
+            # such as latest.pdf -> report-v3.pdf is uploaded as latest.pdf.
+            blob.name = os.path.basename(file_path)
             batch = nuxeo.uploads.batch().upload(blob, chunked=True)
 
             # Add batch reference to properties
