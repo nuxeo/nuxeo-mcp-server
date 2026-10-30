@@ -342,6 +342,9 @@ def register_tools(
             from nuxeo.models import FileBlob
 
             blob = FileBlob(local_path)
+            # Read the checked real path, but keep the caller's name: a symlink
+            # such as latest.pdf -> report-v3.pdf is uploaded as latest.pdf.
+            blob.name = os.path.basename(file_path)
             uploaded = nuxeo.uploads.batch().upload(blob, chunked=True)
             operation.input_obj = uploaded
 
@@ -455,6 +458,9 @@ def register_tools(
             from nuxeo.models import FileBlob
 
             blob = FileBlob(local_path)
+            # Read the checked real path, but keep the caller's name: a symlink
+            # such as latest.pdf -> report-v3.pdf is uploaded as latest.pdf.
+            blob.name = os.path.basename(file_path)
             batch = nuxeo.uploads.batch().upload(blob, chunked=True)
 
             # Add batch reference to properties

@@ -155,3 +155,20 @@ def test_create_document_uploads_the_resolved_path(upload_dir: Path) -> None:
             file_path="report.pdf",
         )
     blob.assert_called_once_with(os.path.realpath(upload_dir / "report.pdf"))
+
+
+@pytest.mark.unit
+def test_upload_keeps_the_callers_file_name(upload_dir: Path) -> None:
+    """A symlink is read through its target but uploaded under its own name."""
+    (upload_dir / "latest.pdf").symlink_to(upload_dir / "report.pdf")
+    tools, nuxeo = _tools(FilePathPolicy.for_transport(None, stdio=True))
+    with patch("nuxeo.models.FileBlob") as blob, patch("nuxeo_mcp.tools.Document"):
+        tools["nuxeo_create_document"](
+            name="n",
+            type="File",
+            properties={},
+            parent_path="/",
+            file_path=str(upload_dir / "latest.pdf"),
+        )
+    blob.assert_called_once_with(os.path.realpath(upload_dir / "report.pdf"))
+    assert blob.return_value.name == "latest.pdf"
