@@ -47,6 +47,27 @@ class AuthMode(Enum):
             ) from None
 
 
+_TRUE = ("true", "1", "yes", "on")
+_FALSE = ("false", "0", "no", "off", "")
+
+
+def read_only_from_env() -> bool:
+    """Read NUXEO_MCP_READ_ONLY, defaulting to False when unset.
+
+    An unrecognized value raises rather than defaulting: a typo must not
+    silently expose the write tools.
+    """
+    value = os.environ.get("NUXEO_MCP_READ_ONLY", "")
+    normalized = value.strip().lower()
+    if normalized in _TRUE:
+        return True
+    if normalized in _FALSE:
+        return False
+    raise ValueError(
+        f"Unsupported NUXEO_MCP_READ_ONLY {value!r}; supported: true, false"
+    )
+
+
 @dataclass
 class OAuth2Config:
     """OAuth2 configuration settings."""

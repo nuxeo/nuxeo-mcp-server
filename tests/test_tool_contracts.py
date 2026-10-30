@@ -274,3 +274,49 @@ def test_move_is_not_declared_idempotent() -> None:
     from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
 
     assert TOOL_ANNOTATIONS["nuxeo_move_document"].idempotent_hint is False
+
+
+# ---------------------------------------------------------------------------
+# Read-only mode
+# ---------------------------------------------------------------------------
+
+
+def _tool_names(mcp: FastMCP) -> set:
+    async def run() -> set:
+        async with Client(mcp) as client:
+            return {t.name for t in await client.list_tools()}
+
+    return asyncio.run(run())
+
+
+@pytest.mark.unit
+def test_read_only_registers_only_read_tools(nuxeo: MagicMock) -> None:
+    """Read-only mode exposes exactly the tools annotated read-only."""
+    from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
+
+    server = FastMCP("test")
+    register_tools(server, nuxeo, read_only=True)
+
+    reads = {n for n, a in TOOL_ANNOTATIONS.items() if a.read_only_hint}
+    assert _tool_names(server) == reads
+    assert "nuxeo_execute_operation" not in reads
+    assert "nuxeo_delete_document" not in reads
+
+
+@pytest.mark.unit
+def test_read_only_write_tool_cannot_be_called(nuxeo: MagicMock) -> None:
+    """A hidden write tool is refused by the server and never reaches Nuxeo."""
+    server = FastMCP("test")
+    register_tools(server, nuxeo, read_only=True)
+
+    with pytest.raises(Exception, match="nuxeo_delete_document"):
+        _call(server, "nuxeo_delete_document", {"uid": "uid-1"})
+    nuxeo.documents.delete.assert_not_called()
+
+
+@pytest.mark.unit
+def test_default_registers_every_annotated_tool(mcp: FastMCP) -> None:
+    """Without read-only mode, every annotated tool is exposed."""
+    from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
+
+    assert _tool_names(mcp) == set(TOOL_ANNOTATIONS)
