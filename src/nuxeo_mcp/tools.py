@@ -827,7 +827,10 @@ def register_tools(mcp, nuxeo, auth_middleware=None) -> None:
         # document (name.<timestamp>), so the caller cannot guess it.
         moved = result.as_dict() if hasattr(result, "as_dict") else result
         if not isinstance(moved, dict) or not moved.get("uid"):
-            raise ToolError(f"Move returned no document: {result!r}")
+            raise ToolError(
+                f"Move returned no document: {result!r}. The move may have been "
+                "applied; check the document with nuxeo_get_document."
+            )
         properties = moved.get("properties") or {}
         path = moved.get("path")
         return {
