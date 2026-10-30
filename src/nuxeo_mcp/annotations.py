@@ -6,6 +6,10 @@ not enforcement -- the repository's ACLs remain the authority -- but without the
 every tool looks equally dangerous and a cautious client has to prompt for all
 of them.
 
+One exception: ``read_only_hint`` also decides registration. With
+NUXEO_MCP_READ_ONLY, a tool whose hint is False is not registered at all, so a
+write tool wrongly declared with ``_read`` would stay exposed in read-only mode.
+
 ``open_world_hint`` is the one worth reasoning about rather than copying. It is
 False for tools that reach one fixed, tenant-scoped Nuxeo API with a closed set
 of operations, and True for the two that accept caller-supplied payloads the
@@ -24,7 +28,11 @@ from mcp.types import ToolAnnotations
 
 
 def _read(title: str, *, open_world: bool = False) -> ToolAnnotations:
-    """A read-only call: no state changes, safe to repeat."""
+    """A read-only call: no state changes, safe to repeat.
+
+    Only for tools that cannot change repository state: these stay registered
+    in read-only mode.
+    """
     return ToolAnnotations(
         title=title,
         read_only_hint=True,
