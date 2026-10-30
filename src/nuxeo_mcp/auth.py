@@ -5,8 +5,7 @@ This module implements the OAuth2 authorization code flow with PKCE,
 including browser-based authentication and token management.
 """
 
-import base64
-import hashlib
+import html
 import logging
 import secrets
 import socket
@@ -16,13 +15,12 @@ import time
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
-import aiohttp
 from nuxeo.auth import OAuth2
 from nuxeo.client import Nuxeo
-from nuxeo.exceptions import Forbidden, Unauthorized
+from nuxeo.exceptions import Forbidden, OAuth2Error, Unauthorized
 
 from .config import AuthMethod, NuxeoServerConfig
 from .token_store import TokenManager
@@ -65,14 +63,20 @@ class _PersistingOAuth2(OAuth2):
             self._on_token(dict(token))
 
     def __call__(self, r: Any) -> Any:
+        # The parent checks expiry and refreshes; under the lock, a call that
+        # waited finds the token already refreshed.
         with self._refresh_lock:
-            if self.token_is_expired():
-                if self.verify is not None:
-                    self.refresh_token(verify=self.verify)
-                else:
-                    self.refresh_token()
-        r.headers[self.AUTHORIZATION] = self._token_header
-        return r
+            return super().__call__(r)
+
+
+class _CallbackServer(HTTPServer):
+    """The sign-in callback listener and what its handler has received."""
+
+    auth_code: Optional[str] = None
+    auth_error: Optional[str] = None
+    state: Optional[str] = None
+    # The state of the sign-in in progress; callbacks with another are ignored.
+    expected_state: Optional[str] = None
 
 
 class OAuth2CallbackHandler(BaseHTTPRequestHandler):
@@ -86,9 +90,30 @@ class OAuth2CallbackHandler(BaseHTTPRequestHandler):
         """Handle GET request for OAuth2 callback."""
         query_components = parse_qs(urlparse(self.path).query)
 
+        # A request that is not the answer to this sign-in -- a stale tab from an
+        # earlier attempt, a local port scan -- is answered and ignored, so the
+        # sign-in keeps waiting. An error without state is accepted: it cannot
+        # be matched, and only ends the sign-in.
+        state = query_components.get("state", [None])[0]
+        expected = getattr(self.server, "expected_state", None)
+        answers_this_sign_in = state is not None and secrets.compare_digest(
+            state, expected or ""
+        )
+        if ("code" in query_components and not answers_this_sign_in) or (
+            "error" in query_components
+            and state is not None
+            and not answers_this_sign_in
+        ):
+            logger.warning("Ignored a callback that does not answer this sign-in")
+            self.send_response(400)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"This sign-in request is unknown or has expired.")
+            return
+
         if "code" in query_components:
             self.server.auth_code = query_components["code"][0]
-            self.server.state = query_components.get("state", [None])[0]
+            self.server.state = state
 
             # Send success response
             self.send_response(200)
@@ -156,9 +181,11 @@ class OAuth2CallbackHandler(BaseHTTPRequestHandler):
 
         elif "error" in query_components:
             self.server.auth_error = query_components["error"][0]
-            error_description = query_components.get(
-                "error_description", ["Unknown error"]
-            )[0]
+            # Comes from the query string: escaped, or a crafted link injects
+            # script into this page.
+            error_description = html.escape(
+                query_components.get("error_description", ["Unknown error"])[0]
+            )
 
             # Send error response
             self.send_response(400)
@@ -266,12 +293,9 @@ class OAuth2AuthHandler:
             f"Could not find available port in range {start_port}-{start_port + max_attempts}"
         )
 
-    def _start_callback_server(self, port: int) -> HTTPServer:
+    def _start_callback_server(self, port: int) -> _CallbackServer:
         """Start the OAuth2 callback server."""
-        server = HTTPServer(("localhost", port), OAuth2CallbackHandler)
-        server.auth_code = None
-        server.auth_error = None
-        server.state = None
+        server = _CallbackServer(("localhost", port), OAuth2CallbackHandler)
 
         # Start server in a separate thread
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -289,7 +313,7 @@ class OAuth2AuthHandler:
         Returns:
             True if authentication successful, False otherwise
         """
-        callback_server: Optional[HTTPServer] = None
+        callback_server: Optional[_CallbackServer] = None
         try:
             # Reuse a stored token, refreshing it first if its hour is up: only
             # a token Nuxeo refuses, or no token at all, needs the browser.
@@ -314,6 +338,7 @@ class OAuth2AuthHandler:
 
             # Generate state for CSRF protection
             state = secrets.token_urlsafe(32)
+            callback_server.expected_state = state
 
             # Create Nuxeo client with OAuth2
             self.nuxeo_client = Nuxeo(host=self.server_config.url)
@@ -426,9 +451,18 @@ class OAuth2AuthHandler:
             return None
         try:
             new_token = dict(self._new_auth(token=token).refresh_token())
-        except Exception as e:
+        except OAuth2Error as e:
+            # The token endpoint answered and refused it (invalid_grant, ...).
             logger.info(f"Could not refresh the stored token ({e}); signing in again")
             return None
+        except Exception as e:
+            # Nuxeo did not answer: the refresh token may still be good. Keep it;
+            # the first request once Nuxeo is back refreshes it.
+            logger.warning(
+                f"Could not reach Nuxeo to refresh the stored token ({e}); "
+                "keeping it"
+            )
+            return token
         logger.info("Refreshed the stored token")
         return new_token
 
@@ -448,7 +482,8 @@ class OAuth2AuthHandler:
         """
         try:
             response = client.client.request("GET", "/api/v1/me")
-        except (Unauthorized, Forbidden):
+        except (Unauthorized, Forbidden, OAuth2Error):
+            # OAuth2Error: the token endpoint refused the refresh token.
             return True
         except Exception as e:
             logger.warning(f"Could not check the stored token with Nuxeo: {e}")
