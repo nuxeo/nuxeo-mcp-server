@@ -765,8 +765,8 @@ def register_tools(
             for key, value in properties.items():
                 doc.properties[key] = value
 
-        doc.save()
-        return format_doc(doc)
+        # Format the server's answer: the local copy keeps its stale title.
+        return format_doc(nuxeo.documents.put(doc))
 
     @tool(
         name="nuxeo_delete_document",
