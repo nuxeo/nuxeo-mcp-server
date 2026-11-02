@@ -83,7 +83,7 @@ uv run isort src/ tests/     # Sort imports (black-compatible)
 uv run mypy src/             # Type-check (settings in pyproject.toml)
 ```
 
-All three must pass before merging.
+All three must pass before merging; CI runs them, plus `scripts/generate_tool_reference.py --check`.
 
 ## Key Conventions
 

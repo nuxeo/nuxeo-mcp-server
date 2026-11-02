@@ -18,6 +18,13 @@ jobs:
     - name: Build
       run: |
         uv build
+
+    - name: Static checks
+      run: |
+        uv run black --check src/ tests/
+        uv run isort --check-only src/ tests/
+        uv run mypy src/
+        uv run python scripts/generate_tool_reference.py --check
         
     - name: Run unit tests
       run: |
