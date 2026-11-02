@@ -289,10 +289,13 @@ def test_search_tool(
 
     assert search_tool is not None, "nuxeo_search_documents tool not found"
 
-    result = search_tool(query="SELECT * FROM Folder", mode="nxql")
+    # Targeted: the demo image ships showcase content, so the seeded folder is
+    # not on the first page of all folders.
+    query = "SELECT * FROM Folder WHERE dc:title LIKE 'MCP Test Folder%'"
+    result = search_tool(query=query, mode="nxql")
 
     assert result.mode == "nxql"
-    assert result.interpretedQuery == "SELECT * FROM Folder"
+    assert result.interpretedQuery == query
     assert isinstance(result.totalCount, int)
     assert result.documents, "Expected at least the seeded folder"
 
@@ -309,7 +312,7 @@ def test_search_tool(
     assert first.snippets == []
     assert result.mode == "nxql"
 
-    print(f"Search results for 'SELECT * FROM Folder': {titles}")
+    print(f"Search results for {query!r}: {titles}")
 
 
 @pytest.mark.integration
