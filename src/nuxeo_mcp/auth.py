@@ -22,7 +22,7 @@ from nuxeo.auth import OAuth2
 from nuxeo.client import Nuxeo
 from nuxeo.exceptions import Forbidden, OAuth2Error, Unauthorized
 
-from .config import AuthMethod, NuxeoServerConfig
+from .config import NuxeoServerConfig
 from .token_store import TokenManager
 
 logger = logging.getLogger(__name__)
@@ -558,21 +558,3 @@ class BasicAuthHandler:
         if not self.nuxeo_client:
             self.authenticate()
         return self.nuxeo_client
-
-
-def create_auth_handler(server_config: NuxeoServerConfig) -> Any:
-    """
-    Create appropriate authentication handler based on config.
-
-    Args:
-        server_config: Server configuration
-
-    Returns:
-        Authentication handler instance
-    """
-    if server_config.auth_method == AuthMethod.OAUTH2:
-        return OAuth2AuthHandler(server_config)
-    elif server_config.auth_method == AuthMethod.BASIC:
-        return BasicAuthHandler(server_config)
-    else:
-        raise ValueError(f"Unsupported auth method: {server_config.auth_method}")

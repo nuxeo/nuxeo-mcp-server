@@ -7,12 +7,10 @@ common tasks.
 """
 
 import base64
-import re
-from typing import Any, Dict, List, Set, Tuple, Union
+from typing import Any, Dict, List, Tuple
 from uuid import UUID
 
 from mcp.types import ImageContent as Image
-from mcp.types import TextContent as File
 from nuxeo.models import Document
 
 
@@ -26,76 +24,11 @@ def is_uuid(v: str) -> bool:
     return str(uuid_obj) == v
 
 
-def format_as_markdown_file(md_data):
-    result = File(
-        data="\n".join(md_data).encode(),
-        #    name=f"doc_list_{id(docs)}.md",
-        format="text",
-    )
-    result._mime_type = "text/markdown"
-
-    return result
-
-
-def format_result(result: Any) -> str | Image:
-
-    if hasattr(result, "is_document") and result.is_document:
-        return format_doc(result)
-    elif (
-        isinstance(result, list)
-        and len(result) > 0
-        and hasattr(result[0], "is_document")
-        and result[0].is_document
-    ):
-        return format_docs(result)
-
-    return None
-
-
-def format(result: dict[str, Any], content_type="application/json") -> dict[str, Any]:
-    match content_type:
-        case "text/markdown":
-            return format_page(result)
-        case "application/json":
-            return format_json(result)
-
-
-def format_page(result: Dict[str, Any]) -> dict[str, Any]:
-    md_output: list[str] = []
-    md_output.append(f" resultsCount: {result['resultsCount']}")
-    md_output.append(f" pageIndex: {result['pageIndex']}")
-    md_output.append(f" pageCount: {result['pageCount']}")
-
-    return {
-        "content_type": "text/markdown",
-        "content": format_docs(result["entries"], md_output),
-    }
-
-
-def format_json(result: dict[str, Any]) -> dict[str, Any]:
-    json_output: dict[str, Any] = {
-        "resultsCount": result["resultsCount"],
-        "pageIndex": result["pageIndex"],
-        "pageCount": result["pageCount"],
-    }
-
-    documents: list[tuple[Any, ...]] = []
-    for doc in result["entries"]:
-        documents.append((doc.uid, doc.path.split("/")[-1], doc.title, doc.type))
-
-    json_output["documents"] = documents
-    return {"content_type": "application/json", "content": json_output}
-
-
-def format_docs(
-    docs: list[Document], md_output: list[str] | None = None, as_resource: bool = False
-) -> str:
+def format_docs(docs: list[Document], as_resource: bool = False) -> str:
     if as_resource:
         return "\n".join(f"nuxeo://{doc.uid}" for doc in docs)
 
-    if md_output is None:
-        md_output = []
-
+    md_output: list[str] = []
     md_output.append("| uuid | name | title | type |")
     md_output.append("| ---- | ---- | ----- | ---- |")
 

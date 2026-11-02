@@ -402,7 +402,6 @@ def apply_guardrails(
 # on a fresh instance, workflow and admin documents rather than content.
 SAMPLE_TYPES = 20
 SAMPLE_PER_TYPE = 3
-SAMPLE_SIZE = SAMPLE_TYPES * SAMPLE_PER_TYPE
 
 # Excluded from the sample: discovery needs key names, and this one carries the
 # entire extracted text of every binary. Already documented in the curated table.

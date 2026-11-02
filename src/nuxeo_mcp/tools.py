@@ -9,12 +9,12 @@ import json
 import logging
 import os
 import re
-from typing import Annotated, Any, Callable, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastmcp.exceptions import ToolError
 from mcp.types import ImageContent as Image
 from nuxeo.models import Document
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field
 
 from nuxeo_mcp import query_dsl
 from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
@@ -28,7 +28,6 @@ from nuxeo_mcp.search_models import (
     to_search_result,
 )
 from nuxeo_mcp.utility import (
-    format,
     format_doc,
     format_docs,
     is_uuid,
@@ -37,9 +36,6 @@ from nuxeo_mcp.utility import (
 
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.tools")
-
-# Type aliases
-ToolFunction = Callable[[Dict[str, Any]], Dict[str, Any]]
 
 
 def _escape_nxql_literal(value: str) -> str:
@@ -67,23 +63,6 @@ def _unsupported_filter_operators(nxql_filter: str) -> List[str]:
     outside_literals = _NOT_PART_OF_OPERATOR.sub(" ", outside_literals)
     found = _UNSUPPORTED_FILTER_OPERATOR.findall(outside_literals)
     return sorted({op.upper() for op in found})
-
-
-class DocRef(BaseModel):
-    path: Annotated[str | None, Field(description="Repository path")] = None
-    uid: Annotated[str | None, Field(description="Nuxeo UID")] = None
-
-    @model_validator(mode="after")
-    def one_of_path_or_uid(self) -> "DocRef":
-        if bool(self.path) == bool(self.uid):  # both or neither
-            raise ValueError("Provide *exactly* one of 'path' or 'uid'")
-        return self
-
-
-from typing import Union
-
-# Timeout in seconds for search engine connectivity probes
-ES_PROBE_TIMEOUT = 10
 
 
 def register_tools(
@@ -364,22 +343,9 @@ def register_tools(
             uploaded = nuxeo.uploads.batch().upload(blob, chunked=True)
             operation.input_obj = uploaded
 
-        # Execute the operation
-        result = operation.execute()
-
-        # Format the result if it's a document or list of documents
-        if hasattr(result, "is_document") and result.is_document:
-            return format_doc(result)
-        elif (
-            isinstance(result, list)
-            and len(result) > 0
-            and hasattr(result[0], "is_document")
-            and result[0].is_document
-        ):
-            return format_docs(result)
-
-        # Return the raw result for other types
-        return result
+        # The client returns the decoded JSON (or raw body), never Document
+        # objects, so it is passed through as is.
+        return operation.execute()
 
     @tool(
         name="nuxeo_create_document",
@@ -688,7 +654,9 @@ def register_tools(
         description="Update an existing document in the Nuxeo repository",
     )
     def nuxeo_update_metadata(
-        path: str = None, uid: str = None, properties: Union[Dict[str, Any], str] = None
+        path: Optional[str] = None,
+        uid: Optional[str] = None,
+        properties: Dict[str, Any] | str | None = None,
     ) -> Dict[str, str] | str:
         """
         Update an existing document in the Nuxeo repository.
@@ -803,8 +771,8 @@ def register_tools(
         if not uid:
             raise ValueError("uid must be provided")
 
-        result = nuxeo.documents.delete(uid)
-        return {"status": "success", "message": f"Document deleted successfully"}
+        nuxeo.documents.delete(uid)
+        return {"status": "success", "message": "Document deleted successfully"}
 
     @tool(
         name="nuxeo_move_document",
@@ -876,7 +844,7 @@ def register_tools(
         # Document.Move answers with the document as a JSON dict, not a Document.
         # Its path is the one to report: on a name conflict Nuxeo renames the
         # document (name.<timestamp>), so the caller cannot guess it.
-        moved = result.as_dict() if hasattr(result, "as_dict") else result
+        moved = result
         if not isinstance(moved, dict) or not moved.get("uid"):
             raise ToolError(
                 f"Move returned no document: {result!r}. The move may have been "
