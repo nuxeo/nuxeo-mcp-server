@@ -1,423 +1,245 @@
 # Nuxeo MCP Server Test Scenario
 
-This document provides step-by-step instructions to test the Nuxeo MCP Server. Follow these instructions to verify that the server is working correctly and to learn how to use its various tools and resources.
+End-to-end check of every MCP tool and resource against a live Nuxeo server. Give
+this file as a prompt to an agent connected to the Nuxeo MCP server.
+
+The server may hold real content. The run must leave it exactly as it found it.
+
+## Safety rules
+
+- Only create documents inside the run workspace `WS` (defined below). The only
+  document created outside it is `WS` itself.
+- Never update, move or delete a document you did not create in this run. Every
+  write tool call (`nuxeo_update_metadata`, `nuxeo_move_document`,
+  `nuxeo_delete_document`, `nuxeo_execute_operation`) must target a uid noted
+  in this run or a path starting with `WS/`. Before each call, check it; if it
+  does not, record FAIL and skip the call.
+- Do not call `nuxeo_execute_operation` with any operation other than the one in
+  step 4.6.
+- If `WS` already exists at step 4.1, stop the run: pick another `RUN` and start
+  over. Never reuse or delete an existing workspace.
+- Leave nothing behind: cleanup deletes `WS` permanently (not to the trash), and
+  step 10.5 checks it is gone. Audit entries for the run remain; that is
+  expected.
+
+## Instructions for the agent
+
+- Run every step in order, without asking for confirmation.
+- Call the MCP tools and read the MCP resources directly. Do not write code.
+- Check each step against its **Pass if** condition. Record PASS, FAIL (with the
+  error) or SKIP (with the reason), then continue: a failure does not stop the run.
+- Steps marked *retry* depend on the search index, `nuxeo_list_children`
+  included: new, changed or moved documents can take a few seconds to show up. Retry up to 5 times, 2 seconds apart, before
+  recording FAIL.
+- Always run the Cleanup step, even after failures.
+- End with the report table described in [Report](#report).
 
 ## Prerequisites
 
-Before starting this test scenario, ensure that:
-1. The Nuxeo MCP Server is installed and running
-2. A Nuxeo server is accessible (either locally or remotely)
-3. You have valid credentials for the Nuxeo server
+- The MCP server is connected to a Nuxeo server, as a user who can create
+  documents under `/default-domain/workspaces`.
+- Query DSL steps need the Nuxeo search passthrough (`/site/es`) with OpenSearch
+  or Elasticsearch, for example `nuxeo-opensearch2-embed-package`.
+- The audit step needs an administrator. Otherwise record SKIP.
+- The upload step needs the agent and the MCP server to share a filesystem:
+  `file_path` is read by the MCP server. Otherwise record SKIP.
 
-## Step 1: Verify Connection to the Nuxeo Server
+Pick a random 8-character suffix `RUN`, for example `a1b2c3d4`. Below, `WS` is
+`/default-domain/workspaces/mcp-test-RUN`.
 
-Let's start by checking if we can connect to the Nuxeo server and retrieve basic information.
+## 1. Server
 
-```python
-# Use the nuxeo_get_repository_info tool to check the connection
-repository_info = use_tool("nuxeo", "nuxeo_get_repository_info", {})
+**1.1** `nuxeo_get_repository_info` with no arguments.
+Pass if: the result has a `productVersion`.
 
-# Print the repository information
-print("Repository Information:")
-print(f"Name: {repository_info.get('name', 'N/A')}")
-print(f"Version: {repository_info.get('version', 'N/A')}")
-print(f"Root ID: {repository_info.get('rootId', 'N/A')}")
-```
+**1.2** Read resource `nuxeo://info`.
+Pass if: `connected` is `true` and `version` matches 1.1.
 
-Expected output: Information about the Nuxeo repository, including its name, version, and root ID.
+**1.3** Read resources `nuxeo://nxql-guide`, `nuxeo://query-dsl-guide`,
+`nuxeo://audit-query-dsl-guide`.
+Pass if: each returns non-empty text.
 
-**Please confirm that you can connect to the Nuxeo server before proceeding to the next step.**
+## 2. Introspection
 
-## Step 2: Access Server Information via Resource
+**2.1** `nuxeo_list_document_types`.
+Pass if: the types include `File`, `Note` and `Workspace`.
 
-Now, let's try accessing the server information using a resource instead of a tool.
+**2.2** `nuxeo_get_metadata_schema`.
+Pass if: the schemas include `dublincore` and `file`.
 
-```python
-# Access the nuxeo://info resource
-server_info = access_resource("nuxeo", "nuxeo://info")
+**2.3** `nuxeo_list_operations`.
+Pass if: the operations include `Document.Move` and `Blob.AttachOnDocument`.
 
-# Print the server information
-print("Server Information:")
-print(f"URL: {server_info.get('url', 'N/A')}")
-print(f"Username: {server_info.get('username', 'N/A')}")
-print(f"Connected: {server_info.get('connected', False)}")
-```
+## 3. Browse
 
-Expected output: Information about the Nuxeo server, including the URL, username, and connection status.
+**3.1** `nuxeo_list_children` with `ref` = `/default-domain`.
+Pass if: the table lists `workspaces`. Note its uuid as `WORKSPACES_UID`.
 
-**Please confirm that you can access the server information before proceeding to the next step.**
+**3.2** `nuxeo_list_children` with `ref` = `WORKSPACES_UID`.
+Pass if: it returns a table (possibly empty).
 
-## Step 3: Browse the Repository Root
+**3.3** `nuxeo_list_children` with `ref` = `/default-domain`, `as_resource` = `true`.
+Pass if: it returns `nuxeo://<uuid>` lines.
 
-Let's explore the repository by getting the children of the root document.
+## 4. Create
 
-```python
-# Use the nuxeo_list_children tool to get the children of the root document
-root_children = use_tool("nuxeo", "nuxeo_list_children", {"ref": "/"})
+**4.1** `nuxeo_create_document`: `parent_path` = `/default-domain/workspaces`,
+`name` = `mcp-test-RUN`, `type` = `Workspace`,
+`properties` = `{"dc:title": "MCP Test RUN"}`.
+First check with `nuxeo_get_document` that `WS` does not exist (see Safety rules).
+Pass if: `status` is `success` and `path` is `WS`. Note `uid` as `WS_UID`.
 
-# Print the children
-print("Root Children:")
-for child in root_children:
-    print(f"- {child.get('title', 'N/A')} ({child.get('type', 'N/A')}) at {child.get('path', 'N/A')}")
-```
+**4.2** `nuxeo_create_document`: `parent_path` = `WS`, `name` = `target`,
+`type` = `Folder`, `properties` = `{"dc:title": "Target"}`.
+Pass if: `status` is `success`.
 
-Expected output: A list of documents at the root of the repository, typically including "Domain" documents.
+**4.3** `nuxeo_create_document`: `parent_path` = `WS`, `name` = `note`,
+`type` = `Note`, `properties` =
+`{"dc:title": "Note RUN", "note:note": "<p>The quick brown fox jumps over the lazy dog RUN</p>"}`.
+Pass if: `status` is `success`. Note `uid` as `NOTE_UID`.
 
-**Please confirm that you can browse the repository root before proceeding to the next step.**
+**4.4** `nuxeo_create_document`: `parent_path` = `WS`, `name` = `file`,
+`type` = `File`, `properties` = `{"dc:title": "File RUN"}`.
+Pass if: `status` is `success`. Note `uid` as `FILE_UID`.
 
-## Step 4: Navigate to the Default Domain
+**4.5** Upload (needs a shared filesystem). Write `/tmp/mcp-test-RUN.txt`
+containing `Hello from RUN`. Then `nuxeo_create_document`: `parent_path` = `WS`,
+`name` = `upload`, `type` = `File`, `properties` = `{"dc:title": "Upload RUN"}`,
+`file_path` = `/tmp/mcp-test-RUN.txt`.
+Pass if: `status` is `success`. Note `uid` as `UPLOAD_UID`.
 
-Now, let's navigate to the default domain and explore its contents.
+**4.6** Upload through an operation (needs a shared filesystem).
+`nuxeo_execute_operation`: `operation_id` = `Blob.AttachOnDocument`,
+`params` = `{"document": "WS/file", "xpath": "file:content"}`,
+`input_type` = `file`, `file_path` = `/tmp/mcp-test-RUN.txt`.
+Pass if: no error.
 
-```python
-# Use the nuxeo_list_children tool to get the children of the default domain
-domain_children = use_tool("nuxeo", "nuxeo_list_children", {"ref": "/default-domain"})
+## 5. Read
 
-# Print the children
-print("Default Domain Children:")
-for child in domain_children:
-    print(f"- {child.get('title', 'N/A')} ({child.get('type', 'N/A')}) at {child.get('path', 'N/A')}")
-```
+**5.1** `nuxeo_get_document` with `ref` = `WS/note`.
+Pass if: the markdown starts with `# Document: Note RUN` and shows `**Type**: Note`.
 
-Expected output: A list of documents in the default domain, typically including "Workspaces", "Templates", and "Sections".
+**5.2** `nuxeo_get_document` with `ref` = `NOTE_UID`.
+Pass if: same document as 5.1.
 
-**Please confirm that you can navigate to the default domain before proceeding to the next step.**
+**5.3** `nuxeo_get_document` with `ref` = `UPLOAD_UID`, `fetch_blob` = `true`
+(SKIP if 4.5 was skipped).
+Pass if: the content is `Hello from RUN`.
 
-## Step 5: Navigate to the Workspaces
+**5.4** `nuxeo_get_document` with `ref` = `UPLOAD_UID`, `conversion_format` = `pdf`
+(SKIP if 4.5 was skipped).
+Pass if: a PDF blob is returned. If the error names a missing converter, record
+SKIP.
 
-Let's navigate to the Workspaces section and explore its contents.
+**5.5** `nuxeo_get_document` with `ref` = `NOTE_UID`, `rendition` = `xmlExport`.
+Pass if: an XML export of the note is returned.
 
-```python
-# Use the nuxeo_list_children tool to get the children of the Workspaces section
-workspaces_children = use_tool("nuxeo", "nuxeo_list_children", {"ref": "/default-domain/workspaces"})
+**5.6** `nuxeo_get_document` with `ref` = `NOTE_UID`, `as_resource` = `true`.
+Pass if: the result is `nuxeo://NOTE_UID`.
 
-# Print the children
-print("Workspaces Children:")
-for child in workspaces_children:
-    print(f"- {child.get('title', 'N/A')} ({child.get('type', 'N/A')}) at {child.get('path', 'N/A')}")
-```
+**5.7** Read resources `nuxeo://NOTE_UID` and `nuxeo://WS/note` (path without
+the leading slash).
+Pass if: both return the markdown of 5.1.
 
-Expected output: A list of workspaces in the Workspaces section.
+**5.8** Read resource `nuxeo://NOTE_UID@rendition/xmlExport`.
+Pass if: an XML export of the note is returned.
 
-**Please confirm that you can navigate to the Workspaces section before proceeding to the next step.**
+## 6. Update and move
 
-## Step 6: Create a Test Workspace
+**6.1** `nuxeo_update_metadata`: `path` = `WS/file`,
+`properties` = `{"dc:description": "Updated RUN"}`.
+Pass if: the markdown shows `Updated RUN`.
 
-Let's create a new workspace for our tests.
+**6.2** `nuxeo_update_metadata`: `uid` = `FILE_UID`,
+`properties` = `{"dc:title": "File RUN v2"}`.
+Pass if: the markdown starts with `# Document: File RUN v2`.
 
-```python
-import uuid
-
-# Generate a unique name for the workspace
-workspace_name = f"MCP Test Workspace {uuid.uuid4().hex[:8]}"
-
-# Use the nuxeo_create_document tool to create a new workspace
-workspace = use_tool("nuxeo", "nuxeo_create_document", {
-    "parent_path": "/default-domain/workspaces",
-    "name": workspace_name.replace(" ", "_").lower(),
-    "type": "Workspace",
-    "properties": {
-        "dc:title": workspace_name,
-        "dc:description": "A workspace created for testing the Nuxeo MCP Server"
-    }
-})
-
-# Print the workspace information
-print("Created Workspace:")
-print(f"Title: {workspace.get('title', 'N/A')}")
-print(f"Path: {workspace.get('path', 'N/A')}")
-print(f"ID: {workspace.get('uid', 'N/A')}")
-
-# Store the workspace path and uid for later use
-workspace_path = workspace.get('path')
-workspace_uid = workspace.get('uid')
-```
-
-Expected output: Information about the newly created workspace, including its title, path, and ID.
-
-**Please confirm that you can create a test workspace before proceeding to the next step.**
-
-## Step 7: Create a File Document with Attachment
-
-Now, let's create a file document in our test workspace and attach a file to it.
-
-```python
-# First, create a simple text file to attach
-with open("test_attachment.txt", "w") as f:
-    f.write("This is a test file for the Nuxeo MCP Server.")
-
-# Use the nuxeo_create_document tool to create a new file document
-file_doc = use_tool("nuxeo", "nuxeo_create_document", {
-    "parent_path": workspace_path,
-    "name": "test_file",
-    "type": "File",
-    "properties": {
-        "dc:title": "Test File",
-        "dc:description": "A file created for testing the Nuxeo MCP Server"
-    }
-})
-
-# Print the file document information
-print("Created File Document:")
-print(f"Title: {file_doc.get('title', 'N/A')}")
-print(f"Path: {file_doc.get('path', 'N/A')}")
-print(f"ID: {file_doc.get('uid', 'N/A')}")
-
-# Store the file document path and uid for later use
-file_doc_path = file_doc.get('path')
-file_doc_uid = file_doc.get('uid')
-
-# Now attach the file to the document using the Blob.AttachOnDocument operation
-attachment_result = use_tool("nuxeo", "nuxeo_execute_operation", {
-    "operation_id": "Blob.AttachOnDocument",
-    "params": {
-        "document": file_doc_path,
-        "xpath": "file:content"
-    },
-    "input_type": "file",
-    "file_path": "test_attachment.txt"
-})
-
-print("Attachment Result:")
-print(attachment_result)
-```
-
-Expected output: Information about the newly created file document, including its title, path, and ID, followed by the result of attaching a file to it.
-
-**Please confirm that you can create a file document with an attachment before proceeding to the next step.**
-
-## Step 8: Create a Note Document with Rich Text Content
-
-Let's also create a note document in our test workspace with rich text content.
-
-```python
-# Use the nuxeo_create_document tool to create a new note document
-note_doc = use_tool("nuxeo", "nuxeo_create_document", {
-    "parent_path": workspace_path,
-    "name": "test_note",
-    "type": "Note",
-    "properties": {
-        "dc:title": "Test Note",
-        "dc:description": "A note created for testing the Nuxeo MCP Server",
-        "note:note": "<h1>Test Note Content</h1><p>This is a <strong>rich text</strong> note with <em>formatting</em>.</p><ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul><p>It contains various HTML elements to test full-text search capabilities.</p>"
-    }
-})
-
-# Print the note document information
-print("Created Note Document:")
-print(f"Title: {note_doc.get('title', 'N/A')}")
-print(f"Path: {note_doc.get('path', 'N/A')}")
-print(f"ID: {note_doc.get('uid', 'N/A')}")
-
-# Store the note document path and uid for later use
-note_doc_path = note_doc.get('path')
-note_doc_uid = note_doc.get('uid')
-```
-
-Expected output: Information about the newly created note document, including its title, path, and ID.
-
-**Please confirm that you can create a note document with rich text content before proceeding to the next step.**
-
-## Step 9: Search for Documents by Type
-
-Now that we have created some content, let's search for documents in the repository using a NXQL query.
-
-```python
-# Use the search tool to search for documents by type
-search_results = use_tool("nuxeo", "nuxeo_search_documents", {
-    "query": "SELECT * FROM Document WHERE ecm:primaryType = 'File'",
-    "mode": "nxql",
-    "page_size": 10,
-    "page_index": 0
-})
-
-# Print the search results
-print("Search Results by Type:")
-print(f"Total Results: {search_results['totalCount']}")
-print("Documents:")
-for doc in search_results['documents']:
-    print(f"- {doc['title']} ({doc['documentType']}) at {doc['path']}")
-```
-
-Expected output: A list of File documents in the repository, including our newly created file document.
-
-**Please confirm that you can search for documents by type before proceeding to the next step.**
-
-## Step 10: Search for Documents with Full-Text Search
-
-Let's search for documents using full-text search capabilities.
-
-```python
-# Use the search tool to search for documents using full-text search
-fulltext_search_results = use_tool("nuxeo", "nuxeo_search_documents", {
-    "query": "SELECT * FROM Document WHERE ecm:fulltext = 'rich text formatting'",
-    "mode": "nxql",
-    "page_size": 10,
-    "page_index": 0
-})
-
-# Print the search results
-print("Full-Text Search Results:")
-print(f"Total Results: {fulltext_search_results['totalCount']}")
-print("Documents:")
-for doc in fulltext_search_results['documents']:
-    print(f"- {doc['title']} ({doc['documentType']}) at {doc['path']}")
-```
-
-Expected output: A list of documents containing the text "rich text formatting", which should include our note document.
-
-**Please confirm that you can search for documents using full-text search before proceeding to the next step.**
-
-## Step 11: Get Document Details
-
-Let's retrieve detailed information about the file document we created.
-
-```python
-# Use the nuxeo_get_document tool to get the file document details
-file_doc_details = use_tool("nuxeo", "nuxeo_get_document", {
-    "ref": file_doc_path
-})
-
-# Print the file document details
-print("File Document Details:")
-print(f"Title: {file_doc_details.get('title', 'N/A')}")
-print(f"Type: {file_doc_details.get('type', 'N/A')}")
-print(f"State: {file_doc_details.get('state', 'N/A')}")
-print(f"Last Modified: {file_doc_details.get('lastModified', 'N/A')}")
-print(f"Creator: {file_doc_details.get('properties', {}).get('dc:creator', 'N/A')}")
-
-# Get the file content
-file_content = use_tool("nuxeo", "nuxeo_get_document", {
-    "ref": file_doc_path,
-    "fetch_blob": True
-})
+**6.3** `nuxeo_update_metadata` with both `path` and `uid`.
+Pass if: it fails with an error asking for only one of them.
 
-print("File Content Available:", file_content is not None)
-```
-
-Expected output: Detailed information about the file document, including its title, type, state, last modified date, and creator, followed by confirmation that the file content is available.
-
-**Please confirm that you can get document details and content before proceeding to the next step.**
-
-## Step 12: Update the File Document
-
-Let's update the file document by changing its title and description.
-
-```python
-# Use the nuxeo_update_metadata tool to update the file document
-updated_file_doc = use_tool("nuxeo", "nuxeo_update_metadata", {
-    "path": file_doc_path,
-    "properties": {
-        "dc:title": "Updated Test File",
-        "dc:description": "This file has been updated"
-    }
-})
+**6.4** `nuxeo_move_document`: `document_uid` = `FILE_UID`, `target_path` = `WS/target`.
+Pass if: `status` is `success` and `path` is `WS/target/file`.
 
-# Print the updated file document information
-print("Updated File Document:")
-print(f"Title: {updated_file_doc.get('title', 'N/A')}")
-print(f"Description: {updated_file_doc.get('properties', {}).get('dc:description', 'N/A')}")
-```
-
-Expected output: Information about the updated file document, including its new title and description.
+**6.5** *retry* `nuxeo_list_children` with `ref` = `WS/target`.
+Pass if: the table lists `file` with title `File RUN v2`.
 
-**Please confirm that you can update a document before proceeding to the next step.**
-
-## Step 13: Get Document via Resource
-
-Let's try accessing the note document using a resource instead of a tool.
-
-```python
-# Access the document resource
-note_doc_resource = access_resource("nuxeo", f"nuxeo:/{note_doc_path}")
-
-# The resource is the document rendered as markdown
-print("Note Document from Resource:")
-print(note_doc_resource)
-```
-
-Expected output: Information about the note document, including its title, type, and note content.
-
-**Please confirm that you can access a document via resource before proceeding to the next step.**
-
-## Step 14: Delete the File Document
-
-Now, let's delete the file document using its UID.
-
-```python
-# Use the nuxeo_delete_document tool to delete the file document
-delete_result = use_tool("nuxeo", "nuxeo_delete_document", {
-    "uid": file_doc_uid
-})
-
-# Print the delete result
-print("Delete Result:")
-print(delete_result)
-
-# Try to get the deleted document to verify it's gone
-try:
-    deleted_doc = use_tool("nuxeo", "nuxeo_get_document", {
-        "ref": file_doc_path
-    })
-    print("Document still exists!")
-except Exception as e:
-    print(f"Document was successfully deleted: {e}")
-```
-
-Expected output: Confirmation that the document was deleted, and an error when trying to retrieve it.
-
-**Please confirm that you can delete a document before proceeding to the next step.**
-
-## Step 15: Delete the Note Document
-
-Let's also delete the note document using its UID.
-
-```python
-# Use the nuxeo_delete_document tool to delete the note document
-delete_result = use_tool("nuxeo", "nuxeo_delete_document", {
-    "uid": note_doc_uid
-})
-
-# Print the delete result
-print("Delete Result:")
-print(delete_result)
-```
-
-Expected output: Confirmation that the document was deleted.
-
-**Please confirm that you can delete the note document before proceeding to the next step.**
-
-## Step 16: Delete the Test Workspace
-
-Finally, let's clean up by deleting the test workspace using its UID.
-
-```python
-# Use the nuxeo_delete_document tool to delete the test workspace
-delete_result = use_tool("nuxeo", "nuxeo_delete_document", {
-    "uid": workspace_uid
-})
-
-# Print the delete result
-print("Delete Result:")
-print(delete_result)
-```
-
-Expected output: Confirmation that the workspace was deleted.
-
-**Please confirm that you can delete the test workspace.**
-
-## Conclusion
-
-Congratulations! You have successfully completed the Nuxeo MCP Server test scenario. This scenario has demonstrated the following capabilities:
-
-1. Connecting to the Nuxeo server
-2. Retrieving repository and server information
-3. Browsing the repository structure
-4. Creating documents (workspace, file with attachment, note with rich text)
-5. Searching for documents by type and using full-text search
-6. Retrieving document details and content
-7. Updating documents
-8. Accessing documents via resources
-9. Deleting documents
-
-If all steps were completed successfully, the Nuxeo MCP Server is working correctly.
+## 7. NXQL search
+
+**7.1** *retry* `nuxeo_search_documents`: `query` =
+`SELECT * FROM Document WHERE ecm:ancestorId = 'WS_UID' AND ecm:isVersion = 0 AND ecm:isTrashed = 0`.
+Pass if: `totalCount` is 4 (target, note, file, upload) or 3 if 4.5 was skipped.
+
+**7.2** *retry* `nuxeo_search_documents`: `query` =
+`SELECT * FROM Note WHERE ecm:fulltext = 'fox' AND ecm:ancestorId = 'WS_UID'`.
+Pass if: `documents` contains `NOTE_UID`.
+
+**7.3** `nuxeo_search_documents`: `query` = the query of 7.1, `page_size` = 1,
+`page_index` = 1.
+Pass if: one document is returned and `hasMore` is `true`.
+
+**7.4** `nuxeo_search_documents`: `query` = `fox`, `mode` = `semantic`.
+Pass if: it fails with `Semantic search is not available on this Nuxeo server`.
+Semantic search is not covered yet: on a server with vector search, record SKIP.
+
+**7.5** `nuxeo_search_documents`: `query` = the query of 7.1, `nxql_filter` = `ecm:isProxy = 0`.
+Pass if: it fails with an error saying `nxql_filter` is only for semantic mode.
+
+## 8. Query DSL search
+
+**8.1** *retry* `nuxeo_search_documents_with_query_dsl`: `query` =
+`{"size": 10, "_source": ["dc:title", "ecm:path"], "query": {"bool": {"must": {"match": {"all_field": "fox"}}, "filter": [{"term": {"ecm:ancestorId": "WS_UID"}}, {"term": {"ecm:isVersion": false}}]}}}`.
+Pass if: the hits contain `NOTE_UID` and the result has `_nuxeo_executed_query`.
+
+**8.2** `nuxeo_search_documents_with_query_dsl`: `query` =
+`{"size": 0, "query": {"bool": {"filter": [{"term": {"ecm:ancestorId": "WS_UID"}}, {"term": {"ecm:isVersion": false}}]}}, "aggs": {"types": {"terms": {"field": "ecm:primaryType"}}}}`.
+Pass if: the `types` buckets are `File` (2, or 1 if 4.5 was skipped), `Folder` (1)
+and `Note` (1).
+
+**8.3** `nuxeo_search_documents_with_query_dsl`: `query` =
+`{"query": {"term": {"no_such_field": "x"}}}`.
+Pass if: no hits, and `_nuxeo_hint` is set.
+
+**8.4** `nuxeo_search_documents_with_query_dsl`: `query` =
+`{"query": {"script": {"script": "true"}}}`.
+Pass if: it fails with an error refusing scripts.
+
+## 9. Audit search (administrator only)
+
+**9.1** *retry* `nuxeo_search_audit_with_query_dsl`: `query` =
+`{"size": 20, "query": {"term": {"docUUID": "FILE_UID"}}}`.
+Pass if: the hits include the `eventId` values `documentCreated` and
+`documentModified`. If the error says administrators only, record SKIP.
+
+## 10. Cleanup (always run)
+
+**10.1** `nuxeo_delete_document` with `uid` = `NOTE_UID`.
+Pass if: `status` is `success`.
+
+**10.2** `nuxeo_get_document` with `ref` = `NOTE_UID`.
+Pass if: it fails with not found. A trashed document counts as FAIL.
+
+**10.3** `nuxeo_delete_document` with `uid` = `WS_UID`. This deletes everything
+created in the run. If `WS_UID` is unknown because 4.1 failed after creating
+it, read `WS` with `nuxeo_get_document` first, and delete it only if its title
+is `MCP Test RUN`.
+Pass if: `status` is `success`.
+
+**10.4** Delete `/tmp/mcp-test-RUN.txt` if it was created.
+
+**10.5** `nuxeo_get_document` with `ref` = `WS`, then with `ref` = `FILE_UID`
+and `UPLOAD_UID`.
+Pass if: every call fails with not found. Otherwise report the leftover
+documents by path and uid.
+
+## Report
+
+Print one table, one row per step: step number, tool or resource, PASS / FAIL /
+SKIP, and the error or reason. Then a coverage line listing any of the 14 tools
+below that has no PASS:
+
+`nuxeo_get_repository_info`, `nuxeo_list_document_types`,
+`nuxeo_get_metadata_schema`, `nuxeo_list_operations`, `nuxeo_list_children`,
+`nuxeo_create_document`, `nuxeo_execute_operation`, `nuxeo_get_document`,
+`nuxeo_update_metadata`, `nuxeo_move_document`, `nuxeo_search_documents`,
+`nuxeo_search_documents_with_query_dsl`, `nuxeo_search_audit_with_query_dsl`,
+`nuxeo_delete_document`.
