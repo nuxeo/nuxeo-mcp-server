@@ -11,7 +11,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Dict, Literal, Optional
 
 logger = logging.getLogger(__name__)
 

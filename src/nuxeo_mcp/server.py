@@ -10,14 +10,12 @@ import argparse
 import logging
 import os
 import sys
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union, cast
+from typing import Any, Dict, Optional, Type
 
 from fastmcp import FastMCP
 from nuxeo.client import Nuxeo
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
-
-from .auth import create_auth_handler
 
 # Import authentication modules
 from .config import (
@@ -209,7 +207,6 @@ def add_healthcheck(mcp, server_info: Optional[Dict[str, Any]] = None):
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> PlainTextResponse:
-        import json
 
         health_data: Dict[str, Any] = {
             "status": "OK",
@@ -286,7 +283,7 @@ def main() -> None:
         else "default"
     )
 
-    logger.info(f"Starting Nuxeo MCP Server")
+    logger.info("Starting Nuxeo MCP Server")
     logger.info(f"  NUXEO_URL from env: {os.environ.get('NUXEO_URL', 'NOT SET')}")
     logger.info(f"  Using URL: {nuxeo_url}")
     logger.info(f"  Auth method: {'oauth2' if use_oauth2 else 'basic'}")

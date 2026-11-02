@@ -8,7 +8,7 @@ This module defines the resources for the Nuxeo MCP Server.
 import logging
 import os
 from importlib import resources
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from fastmcp.exceptions import ToolError
 from fastmcp.resources import ResourceContent
@@ -18,9 +18,6 @@ from nuxeo_mcp.utility import format_doc, is_uuid
 
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.resources")
-
-# Type aliases
-ResourceFunction = Callable[[], Dict[str, Any]]
 
 
 def register_resources(mcp, nuxeo) -> None:
