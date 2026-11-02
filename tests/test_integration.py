@@ -224,7 +224,6 @@ def test_get_children_tool(
     nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
-    seeded_folder_info: Dict[str, str],
 ) -> None:
     """Test the nuxeo_list_children tool."""
     print("\nTesting nuxeo_list_children tool...")

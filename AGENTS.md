@@ -302,9 +302,10 @@ uv run pytest -s --log-cli-level=INFO
 
 ### Test Fixtures (`tests/conftest.py`)
 
-- `nuxeo_client` — provides a connected `Nuxeo` client pointed at the Docker container.
-- The Docker container is started once per session; credentials come from `tests/test_credentials.py`.
+- `nuxeo_container` — starts the `nuxeo-mcp-demo` image once per session and seeds it; skipped when `NUXEO_URL` points at an existing server.
+- `nuxeo_url`, `nuxeo_credentials` — from `NUXEO_URL` / `NUXEO_USERNAME` / `NUXEO_PASSWORD`, defaulting to the container's `Administrator`.
 - `@pytest.mark.integration` gates tests that require a live server.
+- `test_all_tools_integration.py` calls every tool and fails when a registered tool is not called.
 
 ### Seeding Test Data
 
@@ -320,9 +321,8 @@ Creates a sample folder, `File` document (with PDF), and `Note` document.
 ### Writing New Tests
 
 - **Unit tests** mock the Nuxeo client — never make real HTTP calls.
-- **Integration tests** must be decorated with `@pytest.mark.integration` and use the `nuxeo_client` fixture.
+- **Integration tests** must be decorated with `@pytest.mark.integration` and use the `nuxeo_container`, `nuxeo_url` and `nuxeo_credentials` fixtures.
 - Test files live in `tests/`, named `test_<feature>.py`.
-- `standalone_test_*.py` files are debugging utilities — not part of the CI suite.
 
 ### CI/CD Pipelines (`.github/workflows/`)
 
@@ -357,9 +357,8 @@ All workflows use the composite action `.github/actions/setup-and-install-dep` f
 ### Don't
 
 - Don't add business logic to `server.py` — it is wiring only.
-- Don't store credentials in source code or tests; use environment variables or `tests/test_credentials.py`.
+- Don't store credentials in source code or tests; use environment variables.
 - Don't merge without passing `uv run mypy src/` in strict mode.
-- Don't add `standalone_test_*.py` files to the CI test suite — they are development-only debugging utilities.
 - Don't build a Nuxeo client inside a tool; use the one `register_tools()` receives, so every call runs as the configured identity.
 
 ### Common Pitfalls

@@ -243,32 +243,3 @@ class TestMCPServerWithOAuth2:
                     host="http://test.com",
                     auth=("admin", "admin"),
                 )
-
-
-@pytest.mark.integration
-class TestEndToEndOAuth2:
-    """End-to-end OAuth2 tests (requires real Nuxeo with OAuth2)."""
-
-    @pytest.mark.skipif(
-        not os.environ.get("NUXEO_OAUTH_CLIENT_ID"),
-        reason="OAuth2 credentials not configured",
-    )
-    def test_real_oauth2_flow(self):
-        """Test real OAuth2 flow with actual Nuxeo server."""
-        # This test requires manual interaction for browser authentication
-        # It's meant to be run manually during development
-        pytest.skip("Manual test - requires browser interaction")
-
-        # Uncomment to run manually:
-        # oauth2_config = OAuth2Config.from_env()
-        # server_config = NuxeoServerConfig(
-        #     url=os.environ["NUXEO_URL"],
-        #     auth_method=AuthMethod.OAUTH2,
-        #     oauth2_config=oauth2_config,
-        # )
-        #
-        # handler = OAuth2AuthHandler(server_config)
-        # result = handler.authenticate()
-        #
-        # assert result is True
-        # assert handler.get_nuxeo_client() is not None
