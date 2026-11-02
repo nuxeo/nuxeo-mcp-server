@@ -83,7 +83,7 @@ python -m nuxeo_mcp
 | `nuxeo_get_document` | yes | no | no | Get a document from the Nuxeo repository |
 | `nuxeo_get_metadata_schema` | yes | no | no | Get detailed information about schemas defined in the Nuxeo server |
 | `nuxeo_get_repository_info` | yes | no | no | Get information about the Nuxeo repository |
-| `nuxeo_list_children` | yes | no | no | list children of a folder document |
+| `nuxeo_list_children` | yes | no | no | List the children of a folder document. The list comes from the search index: recently created, modified or moved documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_list_document_types` | yes | no | no | Get information about document types and schemas defined in the Nuxeo server |
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
 | `nuxeo_move_document` | no | yes | no | Move a document, identified by UID, under the folder at target_path. Not idempotent: repeating the call renames the document. To move by path, read the UID with nuxeo_get_document first. |
