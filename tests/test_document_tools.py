@@ -29,7 +29,6 @@ def test_get_picture_document(
     nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
-    seeded_folder_info: Dict[str, str],
 ) -> None:
     """Test retrieving a Picture document's metadata."""
     print("\nTesting get_document tool with Picture document metadata...")
@@ -111,7 +110,6 @@ def test_get_picture_document_blob(
     nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
-    seeded_folder_info: Dict[str, str],
 ) -> None:
     """Test retrieving a Picture document's blob."""
     print("\nTesting get_document tool with Picture document blob...")
@@ -188,7 +186,6 @@ def test_get_picture_document_conversion(
     nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
-    seeded_folder_info: Dict[str, str],
 ) -> None:
     """Test converting a Picture document to JPEG format."""
     print("\nTesting get_document tool with Picture document conversion...")
@@ -276,7 +273,6 @@ def test_get_picture_document_thumbnail(
     nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
-    seeded_folder_info: Dict[str, str],
 ) -> None:
     """Test retrieving a Picture document's thumbnail rendition."""
     print("\nTesting get_document tool with Picture document thumbnail rendition...")

@@ -17,7 +17,6 @@ import requests
 from _pytest.config import Config
 from _pytest.config.argparsing import Parser
 from _pytest.nodes import Item
-from test_credentials import get_test_credentials
 
 
 # Add command line options for integration tests and Docker configuration
@@ -74,9 +73,10 @@ def docker_client(request: pytest.FixtureRequest) -> docker.DockerClient:
     if use_rancher:
         # Use the Docker socket location for Rancher Desktop
         print("Using Rancher Desktop Docker socket", flush=True)
-        return docker.DockerClient(
-            base_url="unix:///Users/thierry.delprat/.rd/docker.sock"
+        socket = os.environ.get(
+            "RANCHER_DOCKER_SOCKET", os.path.expanduser("~/.rd/docker.sock")
         )
+        return docker.DockerClient(base_url=f"unix://{socket}")
     else:
         # Use the default Docker socket location
         print("Using default Docker socket", flush=True)
@@ -254,32 +254,3 @@ def nuxeo_credentials() -> Tuple[str, str]:
     username = os.environ.get("NUXEO_USERNAME", "Administrator")
     password = os.environ.get("NUXEO_PASSWORD", "Administrator")
     return username, password
-
-
-@pytest.fixture(scope="session")
-def live_nuxeo_credentials() -> Tuple[str, str]:
-    """
-    Get credentials for the live Nuxeo test server.
-    This will prompt the user for credentials if not set in environment variables.
-    """
-    username, password = get_test_credentials(
-        prompt_prefix="These tests connect to the live Nuxeo server at https://nightly-2023.nuxeocloud.com/nuxeo"
-    )
-    return username, password
-
-
-@pytest.fixture(scope="session")
-def seeded_folder_info() -> Dict[str, str]:
-    """
-    Get information about the folder created by the seed script.
-
-    This is a placeholder that would normally extract information from the seed script output.
-    In a real implementation, you might want to have the seed script write this information
-    to a file that this fixture could then read.
-    """
-    # This is a placeholder. In a real implementation, you would get this information
-    # from the seed script output or from a file written by the seed script.
-    return {
-        "folder_name": "MCP Test Folder",  # The actual name will include a random number
-        "folder_path": "/default-domain/workspaces/MCP Test Folder",  # The actual path will include the random folder name
-    }
