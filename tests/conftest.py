@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 import time
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, Union, cast
+from typing import Generator, List, Optional, Tuple
 
 import docker
 import pytest

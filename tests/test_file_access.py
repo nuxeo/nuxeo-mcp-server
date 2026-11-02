@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nuxeo_mcp.file_access import FilePathPolicy
-from nuxeo_mcp.tools import register_tools
+from tests.helpers import capture_tools
 
 
 @pytest.fixture
@@ -105,20 +105,9 @@ def test_stdio_with_upload_dir_is_restricted(upload_dir: Path) -> None:
 
 
 def _tools(policy: FilePathPolicy) -> tuple:
-    """Register the tools on a capturing fake; return them and the Nuxeo mock."""
-    captured = {}
-
-    class FakeMCP:
-        def tool(self, **kwargs):
-            def decorator(fn):
-                captured[kwargs["name"]] = fn
-                return fn
-
-            return decorator
-
+    """Register the tools; return them and the Nuxeo mock."""
     nuxeo = MagicMock()
-    register_tools(FakeMCP(), nuxeo, policy)
-    return captured, nuxeo
+    return capture_tools(nuxeo, policy), nuxeo
 
 
 @pytest.mark.unit

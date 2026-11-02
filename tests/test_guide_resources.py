@@ -6,12 +6,12 @@ worked from a source checkout. These tests pin it to the package.
 """
 
 from importlib import resources
-from typing import Any, Callable, Dict
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nuxeo_mcp.resources import register_resources
+from tests.helpers import Captured, capture_resources, mock_nuxeo
 
 
 @pytest.fixture(autouse=True)
@@ -34,19 +34,8 @@ def _no_live_sampling() -> Any:
     query_dsl.reset_sample_cache()
 
 
-def _register() -> Dict[str, Callable[..., Any]]:
-    captured: Dict[str, Callable[..., Any]] = {}
-
-    class FakeMCP:
-        def resource(self, *args: Any, **kwargs: Any) -> Callable[[Callable], Callable]:
-            def decorator(fn: Callable) -> Callable:
-                captured[kwargs.get("uri", "")] = fn
-                return fn
-
-            return decorator
-
-    register_resources(FakeMCP(), MagicMock())
-    return captured
+def _register() -> Captured:
+    return capture_resources(MagicMock())
 
 
 @pytest.mark.parametrize(
@@ -193,21 +182,9 @@ def test_curated_field_families_are_not_listed_again() -> None:
 
 def test_guide_degrades_to_curated_fields_when_sampling_fails() -> None:
     """A slightly less complete guide beats a guide that errors."""
-    nuxeo = MagicMock()
+    nuxeo = mock_nuxeo()
     nuxeo.client.host = "http://unreachable:8080/nuxeo"
-    nuxeo.client.auth = ("user", "pass")
-
-    captured: Dict[str, Callable[..., Any]] = {}
-
-    class FakeMCP:
-        def resource(self, *args: Any, **kwargs: Any) -> Callable[[Callable], Callable]:
-            def decorator(fn: Callable) -> Callable:
-                captured[kwargs.get("uri", "")] = fn
-                return fn
-
-            return decorator
-
-    register_resources(FakeMCP(), nuxeo)
+    captured = capture_resources(nuxeo)
 
     from nuxeo_mcp import query_dsl
 

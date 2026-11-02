@@ -6,20 +6,15 @@ different document types and blob operations.
 """
 
 import base64
-import json
 import logging
-import os
-import re
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Tuple
 
 import pytest
 from mcp.types import ImageContent
 from nuxeo.client import Nuxeo
 
 from nuxeo_mcp.server import NuxeoMCPServer
-
-# Import the MockFastMCP class from test_integration.py
-from tests.test_integration import MockFastMCP
+from tests.helpers import MockFastMCP
 
 logging.basicConfig(level=logging.INFO)
 

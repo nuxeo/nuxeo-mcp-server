@@ -12,12 +12,12 @@ import threading
 import time
 from http.server import HTTPServer
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from nuxeo_mcp.auth import OAuth2AuthHandler, OAuth2CallbackHandler, _PersistingOAuth2
-from nuxeo_mcp.config import AuthMethod, MCPAuthConfig, NuxeoServerConfig, OAuth2Config
+from nuxeo_mcp.config import AuthMethod, NuxeoServerConfig, OAuth2Config
 from nuxeo_mcp.server import NuxeoMCPServer
 from nuxeo_mcp.token_store import EncryptedFileStorage, TokenManager
 

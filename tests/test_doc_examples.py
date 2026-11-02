@@ -7,12 +7,12 @@ into a validation error, and nothing else catches the drift.
 import inspect
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Set, Tuple
+from typing import List, Set, Tuple
 from unittest.mock import MagicMock
 
 import pytest
 
-from nuxeo_mcp.tools import register_tools
+from tests.helpers import Captured, capture_tools
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = [
@@ -27,19 +27,8 @@ DOCS = [
 _CALL = re.compile(r'use_tool\(\s*"nuxeo",\s*"(\w+)",\s*(\{.*?\})\s*\)', re.S)
 
 
-def _tools() -> Dict[str, Callable[..., Any]]:
-    captured: Dict[str, Callable[..., Any]] = {}
-
-    class FakeMCP:
-        def tool(self, *args: Any, **kwargs: Any) -> Callable[[Callable], Callable]:
-            def decorator(fn: Callable) -> Callable:
-                captured[kwargs["name"]] = fn
-                return fn
-
-            return decorator
-
-    register_tools(FakeMCP(), MagicMock())
-    return captured
+def _tools() -> Captured:
+    return capture_tools(MagicMock())
 
 
 def _top_level_keys(body: str) -> Set[str]:
