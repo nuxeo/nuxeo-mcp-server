@@ -41,8 +41,14 @@ The server may hold real content. The run must leave it exactly as it found it.
 - Query DSL steps need the Nuxeo search passthrough (`/site/es`) with OpenSearch
   or Elasticsearch, for example `nuxeo-opensearch2-embed-package`.
 - The audit step needs an administrator. Otherwise record SKIP.
-- The upload step needs the agent and the MCP server to share a filesystem:
-  `file_path` is read by the MCP server. Otherwise record SKIP.
+- The server must not run with `NUXEO_MCP_READ_ONLY=true`: that hides the write
+  tools, so the run cannot create its workspace. If `nuxeo_create_document` is
+  missing from the tool list, stop and report it.
+- The upload steps need the agent and the MCP server to share a filesystem:
+  `file_path` is read by the MCP server. Below, `DIR` is the server's
+  `NUXEO_MCP_UPLOAD_DIR` if set, else `/tmp` (over stdio only). If the server
+  runs over HTTP without `NUXEO_MCP_UPLOAD_DIR`, or you cannot write to `DIR`,
+  record SKIP for 4.5, 4.6 and the steps reading `UPLOAD_UID`.
 
 Pick a random 8-character suffix `RUN`, for example `a1b2c3d4`. Below, `WS` is
 `/default-domain/workspaces/mcp-test-RUN`.
@@ -102,16 +108,16 @@ Pass if: `status` is `success`. Note `uid` as `NOTE_UID`.
 `type` = `File`, `properties` = `{"dc:title": "File RUN"}`.
 Pass if: `status` is `success`. Note `uid` as `FILE_UID`.
 
-**4.5** Upload (needs a shared filesystem). Write `/tmp/mcp-test-RUN.txt`
+**4.5** Upload (needs a shared filesystem). Write `DIR/mcp-test-RUN.txt`
 containing `Hello from RUN`. Then `nuxeo_create_document`: `parent_path` = `WS`,
 `name` = `upload`, `type` = `File`, `properties` = `{"dc:title": "Upload RUN"}`,
-`file_path` = `/tmp/mcp-test-RUN.txt`.
+`file_path` = `DIR/mcp-test-RUN.txt`.
 Pass if: `status` is `success`. Note `uid` as `UPLOAD_UID`.
 
 **4.6** Upload through an operation (needs a shared filesystem).
 `nuxeo_execute_operation`: `operation_id` = `Blob.AttachOnDocument`,
 `params` = `{"document": "WS/file", "xpath": "file:content"}`,
-`input_type` = `file`, `file_path` = `/tmp/mcp-test-RUN.txt`.
+`input_type` = `file`, `file_path` = `DIR/mcp-test-RUN.txt`.
 Pass if: no error.
 
 ## 5. Read
@@ -224,7 +230,7 @@ it, read `WS` with `nuxeo_get_document` first, and delete it only if its title
 is `MCP Test RUN`.
 Pass if: `status` is `success`.
 
-**10.4** Delete `/tmp/mcp-test-RUN.txt` if it was created.
+**10.4** Delete `DIR/mcp-test-RUN.txt` if it was created.
 
 **10.5** `nuxeo_get_document` with `ref` = `WS`, then with `ref` = `FILE_UID`
 and `UPLOAD_UID`.

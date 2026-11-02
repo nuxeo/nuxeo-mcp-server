@@ -20,6 +20,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.client.client import CallToolResult
 
+from nuxeo_mcp.file_access import FilePathPolicy
 from nuxeo_mcp.server import NuxeoMCPServer
 
 pytestmark = pytest.mark.integration
@@ -94,17 +95,31 @@ def eventually(fn: Callable[[], Any], what: str) -> Any:
 
 
 @pytest.fixture(scope="module")
+def upload_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The only folder file_path may read from, as with NUXEO_MCP_UPLOAD_DIR."""
+    return tmp_path_factory.mktemp("upload").resolve()
+
+
+@pytest.fixture(scope="module")
 def mcp(
-    nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
+    nuxeo_container: Any,
+    nuxeo_url: str,
+    nuxeo_credentials: Tuple[str, str],
+    upload_dir: Path,
 ) -> Mcp:
     username, password = nuxeo_credentials
     return Mcp(
-        NuxeoMCPServer(nuxeo_url=nuxeo_url, username=username, password=password)
+        NuxeoMCPServer(
+            nuxeo_url=nuxeo_url,
+            username=username,
+            password=password,
+            file_path_policy=FilePathPolicy(upload_dir=str(upload_dir)),
+        )
     )
 
 
 @pytest.fixture(scope="module")
-def ws(mcp: Mcp, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dict[str, str]]:
+def ws(mcp: Mcp, upload_dir: Path) -> Iterator[Dict[str, str]]:
     """The run workspace and its documents; deleted on teardown."""
     run = uuid.uuid4().hex[:8]
     path = f"{WORKSPACES}/mcp-test-{run}"
@@ -122,7 +137,7 @@ def ws(mcp: Mcp, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dict[str,
     assert created["path"] == path
     ids = {"run": run, "path": path, "uid": created["uid"]}
     try:
-        upload = tmp_path_factory.mktemp("upload") / f"mcp-test-{run}.txt"
+        upload = upload_dir / f"mcp-test-{run}.txt"
         upload.write_text(f"Hello from {run}")
         ids["upload_file"] = str(upload)
 
@@ -367,6 +382,22 @@ def test_delete(mcp: Mcp, ws: Dict[str, str]) -> None:
     )
     assert mcp.ok("nuxeo_delete_document", {"uid": doc["uid"]})["status"] == "success"
     mcp.fails("nuxeo_get_document", {"ref": doc["uid"]})
+
+
+def test_file_path_outside_the_upload_dir_is_refused(
+    mcp: Mcp, ws: Dict[str, str]
+) -> None:
+    error = mcp.fails(
+        "nuxeo_create_document",
+        {
+            "parent_path": ws["path"],
+            "name": "outside",
+            "type": "File",
+            "properties": {"dc:title": "Outside"},
+            "file_path": "/etc/hostname",
+        },
+    )
+    assert "NUXEO_MCP_UPLOAD_DIR" in error
 
 
 def test_every_tool_was_called(mcp: Mcp) -> None:
