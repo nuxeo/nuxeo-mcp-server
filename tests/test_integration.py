@@ -7,95 +7,15 @@ with the Nuxeo Content Repository.
 
 import json
 import logging
-import os
-import re
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Tuple
 
 import pytest
 from nuxeo.client import Nuxeo
 
 from nuxeo_mcp.server import NuxeoMCPServer
+from tests.helpers import MockFastMCP
 
 logging.basicConfig(level=logging.INFO)
-
-
-# Create a mock FastMCP class for integration tests
-class MockFastMCP:
-    def __init__(self, name: str):
-        self.name: str = name
-        self.tools: List[Dict[str, Any]] = []
-        self.resources: List[Dict[str, Any]] = []
-        self.prompts: List[Dict[str, Any]] = []
-        self.custom_routes: List[Dict[str, Any]] = []
-
-    def tool(
-        self,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        input_schema: Optional[Dict[str, Any]] = None,
-        annotations: Any = None,
-    ):
-        def decorator(func):
-            # Support both @mcp.tool() and @mcp.tool(name="...", description="...")
-            tool_name = name if name else func.__name__
-            tool_desc = description if description else (func.__doc__ or "").strip()
-            self.tools.append(
-                {
-                    "name": tool_name,
-                    "description": tool_desc,
-                    "input_schema": input_schema,
-                    "annotations": annotations,
-                    "func": func,
-                }
-            )
-            return func
-
-        return decorator
-
-    def resource(self, uri: str, name: str, description: str):
-        def decorator(func):
-            self.resources.append(
-                {"uri": uri, "name": name, "description": description, "func": func}
-            )
-            return func
-
-        return decorator
-
-    def prompt(self, func=None):
-        if func is None:
-
-            def decorator(f):
-                self.prompts.append(
-                    {"name": f.__name__, "description": f.__doc__ or "", "func": f}
-                )
-                return f
-
-            return decorator
-        else:
-            self.prompts.append(
-                {"name": func.__name__, "description": func.__doc__ or "", "func": func}
-            )
-            return func
-
-    def custom_route(self, path: str, methods: Optional[List[str]] = None):
-        """Mock custom_route decorator for health check endpoint."""
-
-        def decorator(func):
-            self.custom_routes.append(
-                {"path": path, "methods": methods or ["GET"], "func": func}
-            )
-            return func
-
-        return decorator
-
-    def list_tools(self) -> List[Any]:
-        return [type("Tool", (), {"name": t["name"]}) for t in self.tools]
-
-    def list_resources(self) -> List[Any]:
-        return [type("Resource", (), {"uri": r["uri"]}) for r in self.resources]
-
-    def run(self) -> None:
-        pass
 
 
 @pytest.mark.integration

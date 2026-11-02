@@ -18,7 +18,7 @@ from nuxeo_mcp.query_dsl import (
     apply_guardrails,
     field_guide,
 )
-from nuxeo_mcp.tools import register_tools
+from tests.helpers import Captured, capture_tools, mock_nuxeo
 
 QUERY_RESULT = {
     "resultsCount": 2,
@@ -55,25 +55,12 @@ QUERY_RESULT = {
 }
 
 
-def _register_and_capture(nuxeo: Any) -> Dict[str, Callable[..., Any]]:
-    captured: Dict[str, Callable[..., Any]] = {}
-
-    class FakeMCP:
-        def tool(self, *args: Any, **kwargs: Any) -> Callable[[Callable], Callable]:
-            def decorator(fn: Callable) -> Callable:
-                captured[kwargs.get("name", fn.__name__)] = fn
-                return fn
-
-            return decorator
-
-    register_tools(FakeMCP(), nuxeo)
-    return captured
+def _register_and_capture(nuxeo: Any) -> Captured:
+    return capture_tools(nuxeo)
 
 
 def _make_nuxeo(query_result: Any = None) -> MagicMock:
-    nuxeo = MagicMock()
-    nuxeo.client.host = "http://nuxeo:8080/nuxeo"
-    nuxeo.client.auth = ("user", "pass")
+    nuxeo = mock_nuxeo()
     nuxeo.client.query.return_value = (
         QUERY_RESULT if query_result is None else query_result
     )

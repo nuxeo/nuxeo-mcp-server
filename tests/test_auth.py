@@ -2,13 +2,12 @@
 Unit tests for authentication components.
 """
 
-import json
 import os
 import tempfile
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, Mock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
