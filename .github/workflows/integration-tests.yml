@@ -24,10 +24,10 @@ jobs:
         
     - name: Pull Nuxeo Docker Image
       run: |
-        docker pull docker-private.packages.nuxeo.com/nuxeo/nuxeo:2025
+        docker pull docker-private.packages.nuxeo.com/nuxeo/nuxeo-mcp-demo:2025
         
     - name: Run integration tests
       env:
-        NUXEO_DOCKER_IMAGE: docker-private.packages.nuxeo.com/nuxeo/nuxeo:2025
+        NUXEO_DOCKER_IMAGE: docker-private.packages.nuxeo.com/nuxeo/nuxeo-mcp-demo:2025
       run: |
         uv run pytest tests/ -v --integration

@@ -122,7 +122,11 @@ def nuxeo_container(
         NUXEO_DOCKER,
         detach=True,
         ports={"8080/tcp": 8080},
-        environment={"NUXEO_DEV_MODE": "false"},
+        environment={
+            "NUXEO_DEV_MODE": "false",
+            # The nuxeo-mcp-demo image reads it in nuxeo.conf; unused by the tests.
+            "NUXEO_JWT_SECRET": "integration-tests",
+        },
         name="nuxeo-mcp-test",
         remove=True,
     )
@@ -132,7 +136,8 @@ def nuxeo_container(
     time.sleep(2)
 
     # Wait for Nuxeo to be ready
-    max_retries = 10  # Increase max retries
+    # Embedded OpenSearch makes the startup much slower than plain Nuxeo.
+    max_retries = 36
     retry_interval = 5
     nuxeo_ready = False
 
