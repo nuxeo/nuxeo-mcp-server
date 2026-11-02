@@ -106,6 +106,7 @@ See the [Authentication Guide](specs/20_authentication.md) for registering the O
 - [Authentication Guide](specs/20_authentication.md) - OAuth2 and authentication setup
 - [Developer Guide](DEVELOPER.md) - How to build, run tests, and extend the project
 - [Usage Guide](USAGE.md) - How to use the MCP Server
+- [Test Scenario](nuxeo_mcp_test_scenario.md) - Agent-run check of every tool against a live Nuxeo server
 
 ## Docker
 
