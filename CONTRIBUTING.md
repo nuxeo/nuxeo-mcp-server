@@ -9,9 +9,11 @@ you must sign Hyland's Contributor License Agreement (CLA), modeled on the
 Apache Software Foundation's CLA. This grants Hyland the rights needed to
 distribute your contribution while you retain ownership of your work.
 
-> **TODO:** link to the finalized Individual/Corporate CLA and signing
-> process once published. Do not submit a pull request containing
-> substantial contributions until the CLA process is available.
+Hyland offers an Individual CLA, and a Corporate CLA for work done for an
+employer. You do not need to sign anything before opening a pull request:
+if the maintainers want to merge it, they will contact you with the CLA that
+applies. A pull request is merged only after the signed CLA is on file, and
+signing does not oblige Hyland to accept the contribution.
 
 ## Getting Started
 
