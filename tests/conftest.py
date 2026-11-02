@@ -105,6 +105,11 @@ def nuxeo_container(
         yield None
         return
 
+    # NUXEO_URL targets an existing server: no container, no seeding.
+    if os.environ.get("NUXEO_URL"):
+        yield None
+        return
+
     # Pull the Nuxeo image if needed
     try:
         docker_client.images.get(NUXEO_DOCKER)
