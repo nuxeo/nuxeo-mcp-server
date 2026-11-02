@@ -164,4 +164,8 @@ See [Client Configuration](nuxeo_mcp_config.md) for stdio and HTTP examples.
 
 ## License
 
-This project is licensed under the MIT License.
+Licensed under the [Apache License, Version 2.0](LICENSE). Copyright Hyland and
+others; see [NOTICE](NOTICE).
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Report
+vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).

@@ -26,6 +26,8 @@ RUN --mount=from=ghcr.io/astral-sh/uv,source=/uv,target=/usr/local/bin/uv \
 # jwt 1.4.0 (python-jwt) and pyjwt both install to the jwt/ namespace;
 # nuxeo[oauth2] needs jwt 1.4.0's JWT/jwk_from_dict; force it to win.
 COPY --chown=$NUXEO_USER:0 src ./src/
+# Declared in pyproject.toml license-files: the build fails without them.
+COPY --chown=$NUXEO_USER:0 LICENSE NOTICE ./
 RUN --mount=from=ghcr.io/astral-sh/uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=cache,target=/app/.cache/uv,uid=1200 \
     uv sync --locked --no-dev && \
