@@ -11,9 +11,10 @@ from importlib import resources
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from fastmcp.exceptions import ToolError
+from fastmcp.resources import ResourceContent
 
 from nuxeo_mcp import query_dsl
-from nuxeo_mcp.utility import format_doc, is_uuid, return_blob
+from nuxeo_mcp.utility import format_doc, is_uuid
 
 # Configure logging
 logger = logging.getLogger("nuxeo_mcp.resources")
@@ -121,18 +122,11 @@ def register_resources(mcp, nuxeo) -> None:
         logger.debug(f"Calling adapter API on {uri}")
         r = nuxeo.client.request("GET", uri)
 
-        disposition = r.headers.get("content-disposition", None)
-        if disposition:
-            filename = disposition.split(";")[-1].split("=")[-1]
-            content_length = int(r.headers["content-length"])
-            mime = r.headers["content-type"]
-            blob_info = {
-                "name": filename,
-                "mime_type": mime,
-                "size": content_length,
-                "content": r.content,
-            }
-            return return_blob(blob_info)
+        if r.headers.get("content-disposition"):
+            # A file (blob, rendition): binary with its own MIME type. Not
+            # return_blob(): its ImageContent is a tool result, which a resource
+            # cannot return.
+            return [ResourceContent(r.content, mime_type=r.headers["content-type"])]
 
         # JSON or XML adapter answers (children, acl, ...) as text, not base64
         # bytes.

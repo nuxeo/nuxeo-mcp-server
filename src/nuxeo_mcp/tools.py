@@ -143,7 +143,15 @@ def register_tools(
 
         return server_info
 
-    @tool(name="nuxeo_list_children", description="list children of a folder document ")
+    @tool(
+        name="nuxeo_list_children",
+        description=(
+            "List the children of a folder document. The list comes from the "
+            "search index: recently created, modified or moved documents may take "
+            "a few seconds to appear; read them by uid or path with "
+            "nuxeo_get_document instead."
+        ),
+    )
     def nuxeo_list_children(
         ref: Annotated[
             str, Field(description="reference can be either a uuid or a path ")

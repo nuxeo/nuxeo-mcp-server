@@ -1,6 +1,7 @@
 """The nuxeo://<ref>@<adapter> resources, read through a real MCP client."""
 
 import asyncio
+import base64
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -29,7 +30,7 @@ def _nuxeo(content_type: str, body: bytes) -> MagicMock:
     response = nuxeo.client.request.return_value
     response.headers = {"content-type": content_type}
     response.content = body
-    response.text = body.decode()
+    response.text = body.decode(errors="replace")
     return nuxeo
 
 
@@ -82,3 +83,17 @@ def test_xml_adapter_answer_is_text() -> None:
     content = _read(nuxeo, f"nuxeo://{UID}@acl")
 
     assert content.text == "<acl/>"
+
+
+@pytest.mark.unit
+def test_image_rendition_is_a_blob() -> None:
+    """An image file is returned as a blob with its MIME type, not ImageContent."""
+    nuxeo = _nuxeo("image/png", b"\x89PNG")
+    nuxeo.client.request.return_value.headers["content-disposition"] = (
+        "inline; filename=thumb.png"
+    )
+
+    content = _read(nuxeo, f"nuxeo://{UID}@rendition/thumbnail")
+
+    assert content.mimeType == "image/png"
+    assert base64.b64decode(content.blob) == b"\x89PNG"
