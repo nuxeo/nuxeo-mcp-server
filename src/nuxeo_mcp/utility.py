@@ -40,29 +40,10 @@ def format_docs(docs: list[Document], as_resource: bool = False) -> str:
     return "\n".join(md_output)
 
 
-def format_doc(
-    doc: Dict[str, Any] | Document, as_resource: bool = False
-) -> Dict[str, str] | str:
-    """
-    Format a Nuxeo document as markdown text.
-
-    Args:
-        doc: A Nuxeo document as a dictionary
-        as_resource : ask for the output to be a resource (nuxeo://)
-
-    Returns:
-        A dictionary with content and content_type keys or the uri of the Document
-    """
-
-    if doc is None:
-        return {"content": "No document provided", "content_type": "text/plain"}
-
+def format_doc(doc: Dict[str, Any] | Document) -> str:
+    """Format a Nuxeo document, or its dictionary form, as markdown text."""
     if isinstance(doc, Document):
-        if as_resource:
-            return f"nuxeo://{doc.uid}"
         doc = doc.as_dict()
-    elif as_resource:
-        return f"nuxeo://{doc.get('uid')}"
 
     # Extract basic document information
     uid = doc.get("uid", "Unknown")
@@ -167,14 +148,13 @@ def format_property_value(value: Any) -> str:
         return str(value)
 
 
-def return_blob(blob_info: Dict[str, Any]) -> Any:
+def return_blob(blob_info: Dict[str, Any]) -> str | bytes | Image:
     """Return image blobs as ImageContent, anything else as its raw content."""
 
+    content: str | bytes = blob_info["content"]
     if "image/" in blob_info["mime_type"]:
-        content = blob_info["content"]
         # ImageContent.data is a base64-encoded string, never raw bytes.
         if isinstance(content, bytes):
             content = base64.b64encode(content).decode("ascii")
         return Image(type="image", data=content, mime_type=blob_info["mime_type"])
-
-    return blob_info["content"]
+    return content

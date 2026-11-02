@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional, Type
 from fastmcp import FastMCP
 from nuxeo.client import Nuxeo
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse
 
 # Import authentication modules
 from .config import (
@@ -202,11 +202,11 @@ class NuxeoMCPServer:
         self.mcp.run()
 
 
-def add_healthcheck(mcp, server_info: Optional[Dict[str, Any]] = None):
+def add_healthcheck(mcp: Any, server_info: Optional[Dict[str, Any]] = None) -> None:
     """Add health check endpoint with server configuration info."""
 
     @mcp.custom_route("/health", methods=["GET"])
-    async def health_check(request: Request) -> PlainTextResponse:
+    async def health_check(request: Request) -> JSONResponse:
 
         health_data: Dict[str, Any] = {
             "status": "OK",
@@ -216,9 +216,6 @@ def add_healthcheck(mcp, server_info: Optional[Dict[str, Any]] = None):
         # Add server configuration info if available
         if server_info:
             health_data.update(server_info)
-
-        # Return as JSON for easier parsing
-        from starlette.responses import JSONResponse
 
         return JSONResponse(health_data)
 

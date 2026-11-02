@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import re
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Callable, Dict, List, Optional
 
 from fastmcp.exceptions import ToolError
 from mcp.types import ImageContent as Image
@@ -66,8 +66,8 @@ def _unsupported_filter_operators(nxql_filter: str) -> List[str]:
 
 
 def register_tools(
-    mcp,
-    nuxeo,
+    mcp: Any,
+    nuxeo: Any,
     file_path_policy: Optional[FilePathPolicy] = None,
     read_only: bool = False,
 ) -> None:
@@ -82,14 +82,14 @@ def register_tools(
     """
     files = file_path_policy or FilePathPolicy()
 
-    def tool(**kwargs):
+    def tool(**kwargs: Any) -> Callable[[Callable], Callable]:
         """Register a tool, attaching its declared safety annotations by name.
 
         Going through here rather than @mcp.tool directly keeps the annotations
         in one readable table and makes an unannotated tool a startup failure
         rather than something a client only notices at call time.
         """
-        name = kwargs.get("name")
+        name = kwargs["name"]
         annotations = TOOL_ANNOTATIONS.get(name)
         if annotations is None:
             raise RuntimeError(
@@ -101,7 +101,8 @@ def register_tools(
             # Not registered at all, rather than registered and refused: a
             # client cannot list or call it, whatever the model attempts.
             return lambda fn: fn
-        return mcp.tool(**kwargs)
+        decorator: Callable[[Callable], Callable] = mcp.tool(**kwargs)
+        return decorator
 
     # Tool: Get repository info
     @tool(
@@ -118,8 +119,7 @@ def register_tools(
             Information about the Nuxeo repository
         """
 
-        server_info = nuxeo.client.server_info()
-
+        server_info: Dict[str, Any] = nuxeo.client.server_info()
         return server_info
 
     @tool(
@@ -176,8 +176,10 @@ def register_tools(
             - 'doctypes': Information about document types
             - 'schemas': Basic schema information
         """
-        types_info = nuxeo.client.request("GET", "api/v1/config/types/")
-        return types_info.json()
+        types_info: Dict[str, Any] = nuxeo.client.request(
+            "GET", "api/v1/config/types/"
+        ).json()
+        return types_info
 
     @tool(
         name="nuxeo_get_metadata_schema",
@@ -197,8 +199,10 @@ def register_tools(
         Returns:
             List of schemas with their complete definitions
         """
-        schemas = nuxeo.client.request("GET", "api/v1/config/schemas/")
-        return schemas.json()
+        schemas: List[Dict[str, Any]] = nuxeo.client.request(
+            "GET", "api/v1/config/schemas/"
+        ).json()
+        return schemas
 
     @tool(
         name="nuxeo_list_operations",
@@ -225,7 +229,8 @@ def register_tools(
         Returns:
             Dictionary where each key is an Operation name and the value is its documentation
         """
-        return nuxeo.operations.operations
+        operations: Dict[str, Any] = nuxeo.operations.operations
+        return operations
 
     @tool(
         name="nuxeo_execute_operation",
@@ -233,10 +238,10 @@ def register_tools(
     )
     def nuxeo_execute_operation(
         operation_id: str,
-        params: Dict[str, Any] = None,
-        input_type: str = None,
-        input_value: str = None,
-        file_path: str = None,
+        params: Optional[Dict[str, Any]] = None,
+        input_type: Optional[str] = None,
+        input_value: Optional[str] = None,
+        file_path: Optional[str] = None,
     ) -> Any:
         """
         Execute a Nuxeo Operation with the specified parameters and input.
@@ -360,7 +365,7 @@ def register_tools(
         type: str,
         properties: Dict[str, Any],
         parent_path: str,
-        file_path: str = None,
+        file_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Create a new document in the Nuxeo repository with optional file attachment.
@@ -644,10 +649,7 @@ def register_tools(
             except Exception as e:
                 raise ToolError(f"Rendition {rendition!r} failed: {e}")
 
-        # Format the document
-        result = format_doc(doc)
-
-        return result
+        return format_doc(doc)
 
     @tool(
         name="nuxeo_update_metadata",
@@ -717,15 +719,14 @@ def register_tools(
         if path and uid:
             raise ValueError("Only one of path or uid should be provided")
 
-        # Handle properties as either dict or JSON string
-        if properties:
-            if isinstance(properties, str):
-                try:
-                    import json
-
-                    properties = json.loads(properties)
-                except json.JSONDecodeError as e:
-                    raise ValueError(f"Invalid JSON in properties parameter: {e}")
+        # Some clients send the object as a JSON string.
+        if isinstance(properties, str):
+            try:
+                properties = json.loads(properties)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON in properties parameter: {e}")
+        if properties is not None and not isinstance(properties, dict):
+            raise ValueError("properties must be an object")
 
         doc = nuxeo.documents.get(path=path, uid=uid)
 
@@ -743,7 +744,7 @@ def register_tools(
             "path, read the UID with nuxeo_get_document first."
         ),
     )
-    def nuxeo_delete_document(uid: str = None) -> Dict[str, Any]:
+    def nuxeo_delete_document(uid: Optional[str] = None) -> Dict[str, Any]:
         """
         Delete a document from the Nuxeo repository.
 
@@ -783,7 +784,7 @@ def register_tools(
         ),
     )
     def nuxeo_move_document(
-        document_uid: str, target_path: str, new_name: str = None
+        document_uid: str, target_path: str, new_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Move a document to a different location in the Nuxeo repository.
