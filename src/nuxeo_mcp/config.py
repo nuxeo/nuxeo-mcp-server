@@ -11,7 +11,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ class NuxeoServerConfig:
     oauth2_config: Optional[OAuth2Config] = None
     jwt_secret: Optional[str] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         if self.auth_method == AuthMethod.OAUTH2 and not self.oauth2_config:
             raise ValueError("OAuth2 configuration required when auth_method is OAUTH2")
@@ -148,7 +148,7 @@ class MCPAuthConfig:
     token_storage_backend: Literal["keyring", "encrypted_file"] = "keyring"
     config_file_path: Optional[Path] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Set default config file path if not provided."""
         if not self.config_file_path:
             self.config_file_path = self._get_default_config_path()
@@ -179,29 +179,24 @@ class MCPAuthConfig:
         if not self.config_file_path:
             return
 
+        servers: Dict[str, Dict[str, Any]] = {}
+        for name, server in self.servers.items():
+            oauth2 = asdict(server.oauth2_config) if server.oauth2_config else None
+            # Never written to disk: passwords are not saved at all, secrets masked.
+            if oauth2 and oauth2.get("client_secret"):
+                oauth2["client_secret"] = "***"
+            servers[name] = {
+                "url": server.url,
+                "auth_method": server.auth_method.value,
+                "username": server.username,
+                "oauth2_config": oauth2,
+            }
         config_data = {
-            "servers": {
-                name: {
-                    "url": server.url,
-                    "auth_method": server.auth_method.value,
-                    "username": server.username,
-                    "oauth2_config": (
-                        asdict(server.oauth2_config) if server.oauth2_config else None
-                    ),
-                }
-                for name, server in self.servers.items()
-            },
+            "servers": servers,
             "default_server": self.default_server,
             "enable_browser_auth": self.enable_browser_auth,
             "token_storage_backend": self.token_storage_backend,
         }
-
-        # Don't save sensitive data like passwords or secrets
-        for server_data in config_data["servers"].values():
-            if "password" in server_data:
-                del server_data["password"]
-            if server_data.get("oauth2_config", {}).get("client_secret"):
-                server_data["oauth2_config"]["client_secret"] = "***"
 
         self.config_file_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_file_path, "w") as f:

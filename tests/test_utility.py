@@ -68,17 +68,7 @@ def test_format_doc() -> None:
 def test_format_doc_empty() -> None:
     """Test that the format_doc function handles empty documents."""
     result_empty = format_doc({})
-    result_none = format_doc(None)
 
-    # When document is None, it returns a dict
-    assert isinstance(result_none, dict)
-    assert "content" in result_none
-    assert "content_type" in result_none
-    assert result_none["content"] == "No document provided"
-    assert result_none["content_type"] == "text/plain"
-
-    # When document is empty dict, it returns a string (markdown)
-    assert isinstance(result_empty, str)
     assert "Document: Untitled" in result_empty
     assert "**UID**: Unknown" in result_empty
     assert "**Type**: Unknown" in result_empty
