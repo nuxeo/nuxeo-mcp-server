@@ -18,6 +18,10 @@ The server may hold real content. The run must leave it exactly as it found it.
   step 4.6.
 - If `WS` already exists at step 4.1, stop the run: pick another `RUN` and start
   over. Never reuse or delete an existing workspace.
+- `WS` belongs to the run only once step 4.1 succeeds and returns `WS_UID`. If
+  it does not, record SKIP for steps 4.2 to 9 and go straight to the Report:
+  another run may own `WS`, so nothing may be written into it or deleted.
+- Never overwrite or delete a local file the run did not create (see 4.5).
 - Leave nothing behind: cleanup deletes `WS` permanently (not to the trash), and
   step 10.5 checks it is gone. Audit entries for the run remain; that is
   expected.
@@ -29,8 +33,8 @@ The server may hold real content. The run must leave it exactly as it found it.
 - Check each step against its **Pass if** condition. Record PASS, FAIL (with the
   error) or SKIP (with the reason), then continue: a failure does not stop the run.
 - Steps marked *retry* depend on the search index, `nuxeo_list_children`
-  included: new, changed or moved documents can take a few seconds to show up. Retry up to 5 times, 2 seconds apart, before
-  recording FAIL.
+  included: new, changed or moved documents can take a few seconds to show up.
+  Retry up to 5 times, 2 seconds apart, before recording FAIL.
 - Always run the Cleanup step, even after failures.
 - End with the report table described in [Report](#report).
 
@@ -108,8 +112,10 @@ Pass if: `status` is `success`. Note `uid` as `NOTE_UID`.
 `type` = `File`, `properties` = `{"dc:title": "File RUN"}`.
 Pass if: `status` is `success`. Note `uid` as `FILE_UID`.
 
-**4.5** Upload (needs a shared filesystem). Write `DIR/mcp-test-RUN.txt`
-containing `Hello from RUN`. Then `nuxeo_create_document`: `parent_path` = `WS`,
+**4.5** Upload (needs a shared filesystem). Create `DIR/mcp-test-RUN.txt`
+containing `Hello from RUN`, only if no file or link of that name exists; if
+one does, record SKIP for 4.5, 4.6 and the steps reading `UPLOAD_UID`, and leave
+it alone. Then `nuxeo_create_document`: `parent_path` = `WS`,
 `name` = `upload`, `type` = `File`, `properties` = `{"dc:title": "Upload RUN"}`,
 `file_path` = `DIR/mcp-test-RUN.txt`.
 Pass if: `status` is `success`. Note `uid` as `UPLOAD_UID`.
@@ -196,7 +202,7 @@ Pass if: it fails with an error saying `nxql_filter` is only for semantic mode.
 `{"size": 10, "_source": ["dc:title", "ecm:path"], "query": {"bool": {"must": {"match": {"all_field": "fox"}}, "filter": [{"term": {"ecm:ancestorId": "WS_UID"}}, {"term": {"ecm:isVersion": false}}]}}}`.
 Pass if: the hits contain `NOTE_UID` and the result has `_nuxeo_executed_query`.
 
-**8.2** `nuxeo_search_documents_with_query_dsl`: `query` =
+**8.2** *retry* `nuxeo_search_documents_with_query_dsl`: `query` =
 `{"size": 0, "query": {"bool": {"filter": [{"term": {"ecm:ancestorId": "WS_UID"}}, {"term": {"ecm:isVersion": false}}]}}, "aggs": {"types": {"terms": {"field": "ecm:primaryType"}}}}`.
 Pass if: the `types` buckets are `File` (2, or 1 if 4.5 was skipped), `Folder` (1)
 and `Note` (1).
@@ -224,13 +230,12 @@ Pass if: `status` is `success`.
 **10.2** `nuxeo_get_document` with `ref` = `NOTE_UID`.
 Pass if: it fails with not found. A trashed document counts as FAIL.
 
-**10.3** `nuxeo_delete_document` with `uid` = `WS_UID`. This deletes everything
-created in the run. If `WS_UID` is unknown because 4.1 failed after creating
-it, read `WS` with `nuxeo_get_document` first, and delete it only if its title
-is `MCP Test RUN`.
+**10.3** `nuxeo_delete_document` with `uid` = `WS_UID`, the uid returned by step
+4.1. This deletes everything created in the run. Without `WS_UID`, delete
+nothing: report `WS` for manual cleanup if it exists.
 Pass if: `status` is `success`.
 
-**10.4** Delete `DIR/mcp-test-RUN.txt` if it was created.
+**10.4** Delete `DIR/mcp-test-RUN.txt` only if step 4.5 created it.
 
 **10.5** `nuxeo_get_document` with `ref` = `WS`, then with `ref` = `FILE_UID`
 and `UPLOAD_UID`.

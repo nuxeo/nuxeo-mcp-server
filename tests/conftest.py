@@ -85,13 +85,15 @@ def docker_client(request: pytest.FixtureRequest) -> docker.DockerClient:
 
 # Get the Nuxeo Docker image from environment variable or use default
 NUXEO_DOCKER = os.environ.get(
-    "NUXEO_DOCKER_IMAGE", "docker-private.packages.nuxeo.com/nuxeo/nuxeo:2025"
+    "NUXEO_DOCKER_IMAGE",
+    # Embedded OpenSearch, search client and audit: the search tools need them.
+    "docker-private.packages.nuxeo.com/nuxeo/nuxeo-mcp-demo:2025",
 )
 
 
 @pytest.fixture(scope="session")
 def nuxeo_container(
-    docker_client: docker.DockerClient, request: pytest.FixtureRequest
+    request: pytest.FixtureRequest,
 ) -> Generator[Optional[docker.models.containers.Container], None, None]:
     """
     Start a Nuxeo container for testing.
@@ -109,6 +111,9 @@ def nuxeo_container(
     if os.environ.get("NUXEO_URL"):
         yield None
         return
+
+    # Requested only now: an existing server must not need a Docker daemon.
+    docker_client: docker.DockerClient = request.getfixturevalue("docker_client")
 
     # Pull the Nuxeo image if needed
     try:

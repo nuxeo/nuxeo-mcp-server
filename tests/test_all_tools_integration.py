@@ -134,9 +134,9 @@ def ws(mcp: Mcp, upload_dir: Path) -> Iterator[Dict[str, str]]:
             "properties": {"dc:title": f"MCP Test {run}"},
         },
     )
-    assert created["path"] == path
     ids = {"run": run, "path": path, "uid": created["uid"]}
     try:
+        assert created["path"] == path
         upload = upload_dir / f"mcp-test-{run}.txt"
         upload.write_text(f"Hello from {run}")
         ids["upload_file"] = str(upload)
@@ -331,20 +331,25 @@ def test_search_query_dsl(mcp: Mcp, ws: Dict[str, str]) -> None:
 
     assert "_nuxeo_executed_query" in eventually(note_hit, "the note in Query DSL")
 
-    aggs = mcp.ok(
-        "nuxeo_search_documents_with_query_dsl",
-        {
-            "query": {
-                "size": 0,
-                "query": {"bool": {"filter": subtree}},
-                "aggs": {"types": {"terms": {"field": "ecm:primaryType"}}},
-            }
-        },
-    )
-    buckets = {
-        b["key"]: b["doc_count"] for b in aggs["aggregations"]["types"]["buckets"]
-    }
-    assert buckets == {"File": 2, "Folder": 1, "Note": 1}
+    expected = {"File": 2, "Folder": 1, "Note": 1}
+
+    def buckets() -> Dict[str, int]:
+        aggs = mcp.ok(
+            "nuxeo_search_documents_with_query_dsl",
+            {
+                "query": {
+                    "size": 0,
+                    "query": {"bool": {"filter": subtree}},
+                    "aggs": {"types": {"terms": {"field": "ecm:primaryType"}}},
+                }
+            },
+        )
+        found = {
+            b["key"]: b["doc_count"] for b in aggs["aggregations"]["types"]["buckets"]
+        }
+        return found if found == expected else {}
+
+    assert eventually(buckets, "the run documents in the aggregation") == expected
 
     empty = mcp.ok(
         "nuxeo_search_documents_with_query_dsl",
