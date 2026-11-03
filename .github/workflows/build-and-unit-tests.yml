@@ -25,6 +25,7 @@ jobs:
         uv run isort --check-only src/ tests/
         uv run mypy src/
         uv run python scripts/generate_tool_reference.py --check
+        uv run python scripts/add_license_headers.py --check
         
     - name: Run unit tests
       run: |
