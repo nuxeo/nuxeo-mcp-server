@@ -330,7 +330,8 @@ def test_search_semantic_unavailable(mcp: Mcp) -> None:
 
 def test_search_query_dsl(mcp: Mcp, ws: Dict[str, str]) -> None:
     subtree = [
-        {"term": {"ecm:ancestorId": ws["uid"]}},
+        # Not ecm:ancestorId: LTS 2023 does not index it.
+        {"term": {"ecm:path.children": ws["path"]}},
         {"term": {"ecm:isVersion": False}},
     ]
     match = {
@@ -345,7 +346,8 @@ def test_search_query_dsl(mcp: Mcp, ws: Dict[str, str]) -> None:
 
     assert "_nuxeo_executed_query" in eventually(note_hit, "the note in Query DSL")
 
-    expected = {"File": 2, "Folder": 1, "Note": 1}
+    # ecm:path.children matches the workspace itself too.
+    expected = {"File": 2, "Folder": 1, "Note": 1, "Workspace": 1}
 
     def buckets() -> Dict[str, int]:
         aggs = mcp.ok(
