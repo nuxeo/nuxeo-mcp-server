@@ -59,6 +59,8 @@ def has_header(text: str) -> bool:
     """True when the leading comment block, not any string, holds the license."""
     lines = text.splitlines()
     for line in lines[_preamble(lines) :]:
+        if not line.strip():
+            continue
         if not line.startswith("#"):
             return False
         if line.startswith(MARKER):
@@ -79,14 +81,19 @@ def main() -> int:
     files = subprocess.run(
         ["git", "ls-files", "*.py"], capture_output=True, text=True, check=True
     ).stdout.split()
-    missing = [f for f in files if not has_header(Path(f).read_text(encoding="utf-8"))]
+    # utf-8-sig strips a BOM that would otherwise end up after the header.
+    missing = [
+        f for f in files if not has_header(Path(f).read_text(encoding="utf-8-sig"))
+    ]
     if "--check" in sys.argv:
         for f in missing:
             print(f"missing license header: {f}")
         return 1 if missing else 0
     for f in missing:
         path = Path(f)
-        path.write_text(with_header(path.read_text(encoding="utf-8")), encoding="utf-8")
+        bom = path.read_bytes().startswith(b"\xef\xbb\xbf")
+        text = with_header(path.read_text(encoding="utf-8-sig"))
+        path.write_text(text, encoding="utf-8-sig" if bom else "utf-8")
     print(f"added the header to {len(missing)} files")
     return 0
 
