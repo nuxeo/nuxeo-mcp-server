@@ -386,7 +386,6 @@ def test_main_treats_an_empty_auth_method_as_basic(monkeypatch, caplog, value) -
     [
         ([], False, "any"),
         (["--http"], False, "disabled"),
-        (["--sse"], False, "disabled"),
         (["--http"], True, "upload_dir"),
         ([], True, "upload_dir"),
     ],

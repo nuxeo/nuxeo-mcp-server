@@ -224,15 +224,10 @@ def main() -> None:
     """Run the Nuxeo MCP server."""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Nuxeo MCP Server")
-    # --http and --sse select mutually exclusive transport modes; rejecting both
-    # up front avoids one silently overriding the other (and hiding the SSE
-    # deprecation warning).
-    transport_group = parser.add_mutually_exclusive_group()
-    transport_group.add_argument("--http", action="store_true", help="Run in HTTP mode")
-    transport_group.add_argument(
-        "--sse",
+    parser.add_argument(
+        "--http",
         action="store_true",
-        help="Run in SSE mode (DEPRECATED: use --http streamable-http instead)",
+        help="Serve streamable HTTP at /mcp instead of stdio",
     )
     parser.add_argument(
         "--port", type=int, default=8080, help="HTTP port (default: 8080)"
@@ -288,9 +283,7 @@ def main() -> None:
         f"  Auth mode: {auth_mode.value} ({mode_source}); every caller acts as "
         "the same Nuxeo identity"
     )
-    file_path_policy = FilePathPolicy.for_transport(
-        upload_dir, stdio=not (args.http or args.sse)
-    )
+    file_path_policy = FilePathPolicy.for_transport(upload_dir, stdio=not args.http)
     file_path_logs = {
         "upload_dir": f"only inside {upload_dir}",
         "any": "any local file (stdio)",
@@ -341,28 +334,6 @@ def main() -> None:
             )
             sys.exit(1)
 
-    elif args.sse:
-        # SSE transport is deprecated in FastMCP (the sse_app helper was removed
-        # in 3.x) and is expected to be dropped in a future major release.
-        # streamable-http is the supported HTTP transport; --sse is retained only
-        # for backward compatibility with existing clients.
-        logger.warning(
-            "SSE mode is deprecated and will be removed in a future release; "
-            "migrate clients to --http (streamable-http)."
-        )
-        logger.info(f"Starting MCP server in SSE mode on {args.host}:{args.port}")
-        try:
-            server.mcp.run(
-                transport="sse",
-                host=args.host,
-                port=args.port,
-            )
-        except Exception as e:
-            logger.error(f"Error starting HTTP server: {e}")
-            logger.error(
-                "Please check the FastMCP documentation for HTTP mode instructions."
-            )
-            sys.exit(1)
     else:
         logger.info("Starting MCP server in stdio mode")
         server.run()

@@ -20,7 +20,6 @@ services:
       - NUXEO_USERNAME=Administrator
       - NUXEO_PASSWORD=Administrator
       - NUXEO_MCP_AUTH_MODE=local
-      - MCP_MODE=http
       - MCP_PORT=8181
       - MCP_HOST=0.0.0.0
     ports:
