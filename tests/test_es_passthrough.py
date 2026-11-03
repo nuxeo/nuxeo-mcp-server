@@ -173,6 +173,22 @@ class TestElasticsearchPassthrough:
         assert "restricted to administrators" in str(error)
 
     @patch("requests.post")
+    def test_audit_non_admin_lts_2023(self, mock_post):
+        """LTS 2023 answers a non-administrator with a 400, not a 403."""
+        mock_post.return_value = _response(
+            400,
+            _nuxeo_exception(
+                400,
+                "java.lang.IllegalArgumentException: Invalid index submitted: audit",
+            ),
+        )
+
+        error = self._fail(mock_post, "audit")
+
+        assert error.unavailable
+        assert "restricted to administrators" in str(error)
+
+    @patch("requests.post")
     def test_passthrough_not_installed(self, mock_post):
         mock_post.return_value = _response(
             404,

@@ -382,6 +382,11 @@ def test_search_query_dsl(mcp: Mcp, ws: Dict[str, str]) -> None:
 
 def test_search_audit(mcp: Mcp, ws: Dict[str, str]) -> None:
     query = {"size": 20, "query": {"term": {"docUUID": ws["file"]}}}
+    assert mcp.server.nuxeo is not None
+    if not mcp.server.nuxeo.users.current_user().isAdministrator:
+        error = mcp.fails("nuxeo_search_audit_with_query_dsl", {"query": query})
+        assert "restricted to administrators" in error
+        return
 
     def events() -> Set[str]:
         r = mcp.ok("nuxeo_search_audit_with_query_dsl", {"query": query})

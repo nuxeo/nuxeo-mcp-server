@@ -88,7 +88,10 @@ def _explain(status: int, message: str, index: str) -> PassthroughError:
             status,
             unavailable=True,
         )
-    if status == 403:
+    # LTS 2023 refuses a non-administrator with a 400, not a 403.
+    if status == 403 or (
+        index == "audit" and status == 400 and "invalid index submitted" in lowered
+    ):
         if index == "audit":
             return PassthroughError(
                 "Audit search is restricted to administrators, and the current "

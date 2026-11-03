@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from nuxeo.models import Document
 
 from tests.helpers import capture_tools
 
@@ -26,17 +27,35 @@ def _update(**kwargs: Any) -> tuple:
     nuxeo = MagicMock()
     nuxeo.documents.put.return_value = {"title": "Saved"}
     doc = nuxeo.documents.get.return_value
-    doc.properties = {}
+    doc.uid = "u"
+    doc.changeToken = "42"
+    doc.properties = {"dc:title": "Old", "dc:creator": "Administrator"}
     tool = capture_tools(nuxeo)["nuxeo_update_metadata"]
     return tool(**kwargs), nuxeo, doc
 
 
+def _sent(nuxeo: MagicMock) -> Document:
+    nuxeo.documents.put.assert_called_once()
+    sent: Document = nuxeo.documents.put.call_args.args[0]
+    return sent
+
+
 @pytest.mark.unit
 def test_json_object_string_is_parsed() -> None:
-    _, nuxeo, doc = _update(uid="u", properties='{"dc:title": "New"}')
+    _, nuxeo, _ = _update(uid="u", properties='{"dc:title": "New"}')
 
-    assert doc.properties == {"dc:title": "New"}
-    nuxeo.documents.put.assert_called_once_with(doc)
+    assert _sent(nuxeo).properties == {"dc:title": "New"}
+
+
+@pytest.mark.unit
+def test_sends_only_the_changed_properties() -> None:
+    """Not dc:creator: Nuxeo refuses read-only properties from non-administrators."""
+    _, nuxeo, _ = _update(path="/a", properties={"dc:title": "New"})
+
+    sent = _sent(nuxeo)
+    assert sent.uid == "u"
+    assert sent.changeToken == "42"
+    assert sent.properties == {"dc:title": "New"}
 
 
 @pytest.mark.unit
@@ -63,7 +82,7 @@ def test_rejected_properties_touch_nothing(properties: str, error: Any) -> None:
     if error is None:
         # JSON null means no properties: the document is saved unchanged.
         _, nuxeo, _ = _update(uid="u", properties=properties)
-        nuxeo.documents.put.assert_called_once()
+        assert _sent(nuxeo).properties == {}
         return
     nuxeo = MagicMock()
     tool = capture_tools(nuxeo)["nuxeo_update_metadata"]
