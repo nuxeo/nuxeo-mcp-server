@@ -61,8 +61,7 @@ OAuth2 works over stdio and over HTTP. Where the server runs does:
 | In a container | No: a published port forwards to the container's network interface, not to the loopback the callback listens on. Use Basic authentication. |
 
 Sign-in happens once, at startup, as the identity every caller then uses (see
-[Local mode](#local-mode-one-identity)). For a shared server where each caller
-signs in as themselves, see the delegated mode, out of scope for local mode.
+[Local mode](#local-mode-one-identity)).
 
 ### 1. Register an OAuth2 client in Nuxeo
 

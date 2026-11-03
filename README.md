@@ -37,7 +37,7 @@ The MCP server connects to Nuxeo using the credentials you provide through confi
 
 Using a least-privilege account (a regular Nuxeo user) is recommended for production deployments.
 
-> **Note:** read and write tools are still subject to per-document ACLs enforced by Nuxeo — a user only sees documents they have `Read` on, and can only modify documents where they have `Write`. The `nuxeo_search_documents_with_query_dsl` tool additionally requires the Nuxeo `/site/es` passthrough to be accessible to non-admin users (a server-side configuration decision); the tool's probe returns a clear `"Permission denied"` error if it is not.
+> **Note:** read and write tools are still subject to per-document ACLs enforced by Nuxeo — a user only sees documents they have `Read` on, and can only modify documents where they have `Write`. The `nuxeo_search_documents_with_query_dsl` tool additionally requires the Nuxeo `/site/es` passthrough to be accessible to non-admin users (a server-side configuration decision); the tool returns a clear `"Permission denied"` error if it is not.
 
 ## Authentication Mode
 
@@ -65,7 +65,7 @@ This limits what the MCP server exposes, not what the Nuxeo account may do: the 
 | Transport | `NUXEO_MCP_UPLOAD_DIR` unset | `NUXEO_MCP_UPLOAD_DIR` set |
 |---|---|---|
 | stdio | Any file the server can read | Only regular files inside the folder |
-| HTTP / SSE | Refused | Only regular files inside the folder |
+| HTTP | Refused | Only regular files inside the folder |
 
 Paths are checked after resolving `..` and symlinks; a relative path is taken from the folder. A folder that does not exist stops the server at startup. `/health` reports `file_path` as `any`, `upload_dir` or `disabled`.
 
@@ -99,11 +99,11 @@ NUXEO_AUTH_METHOD=oauth2 nuxeo-mcp
 nuxeo-mcp --oauth2 --no-browser
 ```
 
-See the [Authentication Guide](specs/20_authentication.md) for registering the OAuth2 client in Nuxeo and the sign-in flow.
+See the [Authentication Guide](AUTHENTICATION.md) for registering the OAuth2 client in Nuxeo and the sign-in flow.
 
 ## Documentation
 
-- [Authentication Guide](specs/20_authentication.md) - OAuth2 and authentication setup
+- [Authentication Guide](AUTHENTICATION.md) - OAuth2 and authentication setup
 - [Developer Guide](DEVELOPER.md) - How to build, run tests, and extend the project
 - [Usage Guide](USAGE.md) - How to use the MCP Server
 - [Test Scenario](nuxeo_mcp_test_scenario.md) - Agent-run check of every tool against a live Nuxeo server
@@ -139,65 +139,28 @@ docker run -p 8181:8181 --name nuxeo-mcp \
   nuxeo-mcp-server
 ```
 
-### Environment Variables
+### Server Settings
 
-You can configure the nuxeo-mcp server using environment variables:
+The container serves MCP over streamable HTTP at `http://<host>:<port>/mcp`, with `/health` beside it:
 
-#### Authentication Settings
-
-```bash
-# Basic Authentication (required in the container)
-docker run -p 8181:8181 \
-  -e NUXEO_URL="http://mynuxeo.example.com/nuxeo" \
-  -e NUXEO_USERNAME="admin" \
-  -e NUXEO_PASSWORD="secret" \
-  nuxeo-mcp-server
-```
-
-OAuth2 is not supported in the container; see [Authentication Mode](#authentication-mode).
-
-#### Server Mode Configuration
-
-The Docker container supports configurable server modes through environment variables:
-
-- `MCP_MODE`: Server mode (`sse` or `http`, default: `sse`)
 - `MCP_PORT`: Server port (default: `8181`)
 - `MCP_HOST`: Server host (default: `0.0.0.0`)
 
-> **Note:** The `sse` transport is deprecated in FastMCP and scheduled for
-> removal in a future release. New deployments should use `MCP_MODE=http`
-> (streamable-HTTP). The `sse` default is retained for backward compatibility.
+OAuth2 is not supported in the container; see [Authentication Mode](#authentication-mode). Over HTTP, `file_path` uploads are refused unless `NUXEO_MCP_UPLOAD_DIR` is set (see [Local Files](#local-files-file_path)).
 
-These examples leave out the credentials; add the `NUXEO_URL`, `NUXEO_USERNAME` and `NUXEO_PASSWORD` variables shown above.
+### Nuxeo and the MCP Server Together
+
+`docker-compose-demo.yml` starts the `nuxeo-mcp-demo` image (Nuxeo with embedded OpenSearch, showcase content and Web UI, see [ci/docker/nuxeo](ci/docker/nuxeo/README.md)) beside the MCP server, on `http://localhost:8081/mcp`:
 
 ```bash
-# Run in HTTP mode
-docker run -p 8181:8181 \
-  -e MCP_MODE=http \
-  --name nuxeo-mcp \
-  nuxeo-mcp-server
-
-# Run in SSE mode (default)
-docker run -p 8181:8181 \
-  -e MCP_MODE=sse \
-  --name nuxeo-mcp \
-  nuxeo-mcp-server
-
-# Run on a different port
-docker run -p 9000:9000 \
-  -e MCP_PORT=9000 \
-  --name nuxeo-mcp \
-  nuxeo-mcp-server
+docker compose -f docker-compose-demo.yml up --build
 ```
 
-## Configuring with Cline
+Inside Docker, point `NUXEO_URL` at the Nuxeo service name (`http://nuxeo:8080/nuxeo`), not `localhost`.
 
-To use the Nuxeo MCP server with Cline, you need to add a configuration to your Cline MCP settings file. See the [Nuxeo MCP Server Configuration Examples](./nuxeo_mcp_config.md) for detailed examples of how to configure the server with different transport options.
+## Configuring an MCP Client
 
-The configuration file is typically located at:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
-- **Cline**: `~/.config/cline/cline_mcp_settings.json` or `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+See [Client Configuration](nuxeo_mcp_config.md) for stdio and HTTP examples.
 
 ## License
 

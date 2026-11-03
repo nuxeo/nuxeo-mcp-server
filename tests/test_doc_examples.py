@@ -21,7 +21,6 @@ DOCS = [
     "DEVELOPER.md",
     "llm.txt",
     "nuxeo_mcp_test_scenario.md",
-    "nuxeo_mcp_config.md",
 ]
 
 _CALL = re.compile(r'use_tool\(\s*"nuxeo",\s*"(\w+)",\s*(\{.*?\})\s*\)', re.S)

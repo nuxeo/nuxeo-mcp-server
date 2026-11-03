@@ -5,62 +5,40 @@ This document provides instructions for AI agents to install, run, and use the N
 ## 1. INSTALLATION
 
 ### Prerequisites
-- Python 3.11 or higher
-- pip (Python package manager)
+- Python 3.11 or higher and uv (https://docs.astral.sh/uv/)
 - git
-- A Nuxeo server instance (can be run via Docker)
+- A Nuxeo server instance
 
 ### Installation Steps
 ```bash
-# Clone the repository
 git clone https://github.com/nuxeo/nuxeo-mcp-server.git
 cd nuxeo-mcp-server
-
-# Create a virtual environment
-python -m venv venv
-
-# Activate the virtual environment
-# On Unix/macOS:
-source venv/bin/activate
-# On Windows:
-# venv\Scripts\activate
-
-# Install the package in development mode
-pip install -e ".[dev]"
-
-# Verify installation
-python -c "import nuxeo_mcp; print(nuxeo_mcp.__file__)"
+uv sync --frozen
 ```
 
-### Docker Installation for Nuxeo Server (Optional)
+### Nuxeo Server for Testing (Optional)
 ```bash
-# Pull the Nuxeo Docker image
-docker pull nuxeo/nuxeo:latest
-
-# Run Nuxeo container
-docker run -d --name nuxeo -p 8080:8080 -e NUXEO_DEV_MODE=true nuxeo/nuxeo:latest
-
-# Verify Nuxeo is running
+# Nuxeo with embedded OpenSearch, needed by the Query DSL and audit tools
+docker run -d --name nuxeo -p 8080:8080 \
+  docker-private.packages.nuxeo.com/nuxeo/nuxeo-mcp-demo:2025
 curl http://localhost:8080/nuxeo/runningstatus
 ```
 
 ## 2. RUNNING THE SERVER
 
-### Basic Command
+Credentials are required: there is no default identity.
+
 ```bash
-# Start the MCP server with default settings
-# Make sure your virtual environment is activated
-python -m nuxeo_mcp
+# stdio, the default: an MCP client starts the server
+NUXEO_URL="http://localhost:8080/nuxeo" NUXEO_USERNAME="Administrator" \
+  NUXEO_PASSWORD="Administrator" uv run nuxeo-mcp
+
+# Streamable HTTP, served at http://localhost:8181/mcp
+NUXEO_URL="http://localhost:8080/nuxeo" NUXEO_USERNAME="Administrator" \
+  NUXEO_PASSWORD="Administrator" uv run nuxeo-mcp --http --port 8181
 ```
 
-### Configuration Options
-```bash
-# With custom configuration via environment variables
-NUXEO_URL="http://mynuxeo.example.com/nuxeo" NUXEO_USERNAME="admin" NUXEO_PASSWORD="secret" python -m nuxeo_mcp
-```
-
-### Verification
-The server will output a message indicating it's running and listening for connections.
+The server stops at startup if the credentials are missing or rejected.
 
 ## 3. AVAILABLE TOOLS AND RESOURCES
 
@@ -110,7 +88,7 @@ Write:
 ### Discovering Tools and Resources
 Use the MCP Inspector to discover available tools and resources:
 ```bash
-npx @modelcontextprotocol/inspector python -m nuxeo_mcp
+npx @modelcontextprotocol/inspector --config mcp.json --server default
 ```
 
 ## 4. CONFIGURATION
@@ -123,18 +101,8 @@ npx @modelcontextprotocol/inspector python -m nuxeo_mcp
 - `NUXEO_MCP_UPLOAD_DIR`: only folder `file_path` may read from; unset: any file over stdio, none over HTTP
 - `NUXEO_MCP_READ_ONLY`: `true` hides the write tools (create, update, move, delete, execute operation); default `false`
 
-### Cline Configuration
-Add to Cline MCP settings file:
-```json
-{
-  "mcpServers": {
-    "nuxeo": {
-      "command": "python",
-      "args": ["-m", "nuxeo_mcp"]
-    }
-  }
-}
-```
+### Client Configuration
+See nuxeo_mcp_config.md for stdio and HTTP examples.
 
 ## 5. TROUBLESHOOTING
 
@@ -155,21 +123,15 @@ Add to Cline MCP settings file:
 
 ### Using MCP Inspector
 ```bash
-# Install MCP Inspector
-npm install -g @modelcontextprotocol/inspector
-
-# Run MCP Inspector with Nuxeo MCP Server
-npx @modelcontextprotocol/inspector python -m nuxeo_mcp
-
-# Access web interface at http://localhost:3000
+npx @modelcontextprotocol/inspector --config mcp.json --server default
+# Web interface at http://localhost:6274
 ```
 
 ## 6. EXAMPLE WORKFLOW
 
-```python
-# Import necessary modules
-from fastmcp import use_tool, access_resource
+`use_tool(server, tool, arguments)` is pseudo-code for your MCP client's tool call.
 
+```python
 # Get repository info
 repo_info = use_tool("nuxeo", "nuxeo_get_repository_info", {})
 print(f"Connected to repository: {repo_info['repositoryName']}")
