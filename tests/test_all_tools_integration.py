@@ -33,6 +33,7 @@ from typing import Any, Callable, Dict, Iterator, Set, Tuple
 import pytest
 from fastmcp import Client
 from fastmcp.client.client import CallToolResult
+from nuxeo.models import Document
 
 from nuxeo_mcp.file_access import FilePathPolicy
 from nuxeo_mcp.server import NuxeoMCPServer
@@ -287,6 +288,50 @@ def test_update_and_move(mcp: Mcp, ws: Dict[str, str]) -> None:
         "nuxeo_move_document", {"document_uid": ws["note"], "target_path": ws["path"]}
     )
     assert moved["path"] == note_path
+
+
+def test_update_after_a_concurrent_edit_conflicts(
+    mcp: Mcp, ws: Dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A partial update must not overwrite an edit made since the tool read."""
+    nuxeo = mcp.server.nuxeo
+    assert nuxeo is not None
+    doc = mcp.ok(
+        "nuxeo_create_document",
+        {
+            "parent_path": ws["path"],
+            "name": "conflict",
+            "type": "Note",
+            "properties": {"dc:title": "Before"},
+        },
+    )
+    real_get = nuxeo.documents.get
+
+    def get_then_edit(self: Any, **kwargs: Any) -> Any:
+        stale = real_get(**kwargs)
+        nuxeo.documents.put(
+            Document(
+                uid=stale.uid,
+                changeToken=stale.changeToken,
+                properties={"dc:title": "Concurrent"},
+            )
+        )
+        return stale
+
+    # API objects use __slots__: patch the class, restored below.
+    monkeypatch.setattr(type(nuxeo.documents), "get", get_then_edit)
+    error = mcp.fails(
+        "nuxeo_update_metadata",
+        {"uid": doc["uid"], "properties": {"dc:title": "Lost"}},
+    )
+    monkeypatch.undo()
+
+    try:
+        assert "409" in error or "change token" in error.lower()
+        assert real_get(uid=doc["uid"]).title == "Concurrent"
+    finally:
+        # Keep the run workspace's per-type counts for test_search_query_dsl.
+        mcp.ok("nuxeo_delete_document", {"uid": doc["uid"]})
 
 
 def _subtree_nxql(ws: Dict[str, str]) -> str:
