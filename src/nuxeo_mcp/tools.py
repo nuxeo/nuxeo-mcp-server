@@ -899,8 +899,8 @@ def register_tools(
         "    AND ecm:mixinType != 'HiddenInNavigation' AND ecm:isProxy = 0\n"
         "    AND ecm:isVersion = 0 AND ecm:isTrashed = 0\n"
         "\n"
-        'mode="semantic" -- a question or phrase matched on meaning, on servers\n'
-        "with vector search:\n"
+        'mode="semantic" -- a question or phrase matched on meaning, on Nuxeo\n'
+        "2025 or later with the optional vector search:\n"
         '  "what causes musty cork taint from chlorine and mould"\n'
         "\n"
         "See the nuxeo://nxql-guide resource for the full NXQL syntax, and "
@@ -1051,8 +1051,9 @@ def register_tools(
             "Search documents in the Nuxeo repository. mode='nxql' (default) runs "
             "a NXQL statement: read nuxeo://nxql-guide first, it gives the default "
             "filter that keeps versions and system documents out. mode='semantic' "
-            "matches a question or phrase on meaning, only on servers with vector "
-            "search; elsewhere it fails with an error saying so. Returns a "
+            "matches a question or phrase on meaning, only on Nuxeo 2025 or later "
+            "with the optional vector search; elsewhere it fails with an error "
+            "saying so. Returns a "
             "normalized result envelope. For counts, groupings or aggregations, use "
             "nuxeo_search_documents_with_query_dsl instead. "
             "Recently created or modified documents may take a few seconds to "

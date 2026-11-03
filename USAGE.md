@@ -97,7 +97,7 @@ To configure a client, see [Client Configuration](nuxeo_mcp_config.md).
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
 | `nuxeo_move_document` | no | yes | no | Move a document, identified by UID, under the folder at target_path. Not idempotent: repeating the call renames the document. To move by path, read the UID with nuxeo_get_document first. |
 | `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo audit log index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
-| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. mode='nxql' (default) runs a NXQL statement: read nuxeo://nxql-guide first, it gives the default filter that keeps versions and system documents out. mode='semantic' matches a question or phrase on meaning, only on servers with vector search; elsewhere it fails with an error saying so. Returns a normalized result envelope. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
+| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. mode='nxql' (default) runs a NXQL statement: read nuxeo://nxql-guide first, it gives the default filter that keeps versions and system documents out. mode='semantic' matches a question or phrase on meaning, only on Nuxeo 2025 or later with the optional vector search; elsewhere it fails with an error saying so. Returns a normalized result envelope. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo repository index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
 
@@ -162,7 +162,9 @@ for doc in result["documents"]:
 > 2025 behaviour.
 
 Matches a question or phrase on meaning rather than keywords, against the Nuxeo
-vector index. **Most Nuxeo servers have no vector index**: there the call fails
+vector index. Vector search is optional, and only exists on Nuxeo 2025 and
+later; Nuxeo 2023 never has it. **Most Nuxeo servers have no vector index**:
+there the call fails
 with an error saying semantic search is not available and naming the
 exact-match alternatives (`mode="nxql"` with `ecm:fulltext`, or the Query DSL
 tool). An agent should not retry semantic mode after that error.
