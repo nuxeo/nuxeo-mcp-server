@@ -157,11 +157,12 @@ CORE_FIELDS: Dict[str, str] = {
     "ecm:name": "keyword - name in its parent",
     "ecm:title": "keyword - title, exact value; use dc:title.fulltext to find words",
     "ecm:path": "keyword - full path; prefix or term on it, or term on "
-    "ecm:path.children for everything under a path",
+    "ecm:path.children for everything under a path, that path included",
     "ecm:path@depth": "integer - path depth",
     "ecm:path@level*": "keyword - path segment at each level, level1 to level5",
     "ecm:parentId": "keyword - parent id",
-    "ecm:ancestorId": "keyword[] - every ancestor id; term on it for a subtree",
+    "ecm:ancestorId": "keyword[] - every ancestor id; LTS 2025 and later only: "
+    "for a subtree, prefer a term on ecm:path.children, which every LTS indexes",
     "ecm:primaryType": "keyword - document type, e.g. File, Note, Folder",
     "ecm:mixinType": "keyword[] - facets, e.g. Folderish, HiddenInNavigation",
     "ecm:currentLifeCycleState": "keyword - lifecycle state, e.g. project",

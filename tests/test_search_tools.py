@@ -349,6 +349,22 @@ def test_semantic_mode_says_the_server_has_no_vector_search() -> None:
     assert "nuxeo_search_documents_with_query_dsl" in message
 
 
+def test_semantic_mode_says_lts_2023_has_no_vector_search() -> None:
+    """LTS 2023 lacks the page provider itself: same answer as no vector index."""
+    nuxeo = _semantic_nuxeo(
+        # Verbatim str() of the client's HTTPError, observed on 2023.55.
+        raise_exc=Exception(
+            'HTTPError(400), error: "Could not resolve page provider with name '
+            "'search_check_nxql'\", server trace: None"
+        )
+    )
+
+    with pytest.raises(ToolError) as excinfo:
+        _search_tool(nuxeo)("cork", mode="semantic")
+
+    assert "not available on this Nuxeo server" in str(excinfo.value)
+
+
 def test_semantic_mode_reports_other_failures_in_the_engine_words() -> None:
     """A model still deploying is not "no vector search": do not claim it is."""
     engine_error = "Model not ready yet. Please deploy the model first."

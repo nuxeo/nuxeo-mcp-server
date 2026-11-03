@@ -926,14 +926,18 @@ def register_tools(
         "AND ecm:isVersion = 0"
     )
 
-    # How Nuxeo answers a page provider bound to an index it does not have. This is
-    # the only failure that means "no semantic search on this server"; a model that
+    # How Nuxeo answers when it has no semantic search: a 2025 server without a
+    # vector index, or an LTS 2023 server, which lacks the page provider. These are
+    # the only failures that mean "no semantic search on this server"; a model that
     # is still deploying, for instance, fails differently and is reported as is.
-    _NO_VECTOR_INDEX = "indexes [vector] not found"
+    _NO_SEMANTIC_SEARCH = (
+        "indexes [vector] not found",
+        f"Could not resolve page provider with name '{_SEMANTIC_PAGE_PROVIDER}'",
+    )
 
     _SEMANTIC_UNAVAILABLE = (
         "Semantic search is not available on this Nuxeo server: it has no vector "
-        "index. Do not retry mode='semantic'. Search by exact terms instead: "
+        "search. Do not retry mode='semantic'. Search by exact terms instead: "
         "mode='nxql' with ecm:fulltext (see nuxeo://nxql-guide), or "
         "nuxeo_search_documents_with_query_dsl with a match query on all_field "
         "(see nuxeo://query-dsl-guide)."
@@ -1019,7 +1023,7 @@ def register_tools(
             # A failed page provider does not arrive as a 200 carrying hasError: the
             # REST layer re-raises it as a 400 (QueryObject: `if (res.hasError())
             # throw new NuxeoException(msg, SC_BAD_REQUEST)`), so it lands here.
-            if _NO_VECTOR_INDEX in str(e):
+            if any(marker in str(e) for marker in _NO_SEMANTIC_SEARCH):
                 raise ToolError(_SEMANTIC_UNAVAILABLE)
             # Anything else -- an embedding model still deploying, an engine error --
             # is reported in the engine's own words. Naming a cause would send the
