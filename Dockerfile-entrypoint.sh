@@ -1,19 +1,13 @@
 #!/bin/bash
 set -e
 
-# Default values
-MODE=${MCP_MODE:-http}
 PORT=${MCP_PORT:-8181}
 HOST=${MCP_HOST:-0.0.0.0}
 
-# Start the server based on the mode
-if [ "$MODE" = "http" ]; then
-    echo "starting MCP in http mode"
-    exec nuxeo-mcp --http --port "$PORT" --host "$HOST"
-elif [ "$MODE" = "sse" ]; then
-    echo "starting MCP in sse mode"
-    exec nuxeo-mcp --sse --port "$PORT" --host "$HOST"
-else
-    echo "Invalid MCP_MODE: $MODE. Use either '\''http'\'' or '\''sse'\''."
+# SSE was removed: fail loudly rather than serve /mcp to SSE clients.
+if [ -n "${MCP_MODE:-}" ] && [ "$MCP_MODE" != "http" ]; then
+    echo "MCP_MODE=$MCP_MODE is no longer supported: the image serves streamable HTTP at /mcp" >&2
     exit 1
 fi
+
+exec nuxeo-mcp --http --port "$PORT" --host "$HOST"
