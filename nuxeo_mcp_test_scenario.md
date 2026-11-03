@@ -199,13 +199,13 @@ Pass if: it fails with an error saying `nxql_filter` is only for semantic mode.
 ## 8. Query DSL search
 
 **8.1** *retry* `nuxeo_search_documents_with_query_dsl`: `query` =
-`{"size": 10, "_source": ["dc:title", "ecm:path"], "query": {"bool": {"must": {"match": {"all_field": "fox"}}, "filter": [{"term": {"ecm:ancestorId": "WS_UID"}}, {"term": {"ecm:isVersion": false}}]}}}`.
+`{"size": 10, "_source": ["dc:title", "ecm:path"], "query": {"bool": {"must": {"match": {"all_field": "fox"}}, "filter": [{"term": {"ecm:path.children": "WS"}}, {"term": {"ecm:isVersion": false}}]}}}`.
 Pass if: the hits contain `NOTE_UID` and the result has `_nuxeo_executed_query`.
 
 **8.2** *retry* `nuxeo_search_documents_with_query_dsl`: `query` =
-`{"size": 0, "query": {"bool": {"filter": [{"term": {"ecm:ancestorId": "WS_UID"}}, {"term": {"ecm:isVersion": false}}]}}, "aggs": {"types": {"terms": {"field": "ecm:primaryType"}}}}`.
-Pass if: the `types` buckets are `File` (2, or 1 if 4.5 was skipped), `Folder` (1)
-and `Note` (1).
+`{"size": 0, "query": {"bool": {"filter": [{"term": {"ecm:path.children": "WS"}}, {"term": {"ecm:isVersion": false}}]}}, "aggs": {"types": {"terms": {"field": "ecm:primaryType"}}}}`.
+Pass if: the `types` buckets are `File` (2, or 1 if 4.5 was skipped), `Folder` (1),
+`Note` (1) and `Workspace` (1): `ecm:path.children` matches `WS` itself.
 
 **8.3** `nuxeo_search_documents_with_query_dsl`: `query` =
 `{"query": {"term": {"no_such_field": "x"}}}`.
