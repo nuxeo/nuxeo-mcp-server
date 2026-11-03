@@ -744,12 +744,15 @@ def register_tools(
 
         doc = nuxeo.documents.get(path=path, uid=uid)
 
-        if properties:
-            for key, value in properties.items():
-                doc.properties[key] = value
+        # Send only the changed properties: sending back the full document makes
+        # Nuxeo reject read-only ones, such as dc:creator for non-administrators.
+        # The change token keeps a concurrent edit a conflict, not a lost update.
+        changes = Document(
+            uid=doc.uid, changeToken=doc.changeToken, properties=properties or {}
+        )
 
-        # Format the server's answer: the local copy keeps its stale title.
-        return format_doc(nuxeo.documents.put(doc))
+        # Format the server's answer, not the document read before the update.
+        return format_doc(nuxeo.documents.put(changes))
 
     @tool(
         name="nuxeo_delete_document",
