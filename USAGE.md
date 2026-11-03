@@ -28,15 +28,15 @@ pip install -e .
 
 The Nuxeo MCP Server is configured with environment variables. `NUXEO_USERNAME` and `NUXEO_PASSWORD` are required for Basic authentication; there is no default identity.
 
-### Environment Variables
-
-You can also configure the Nuxeo MCP Server using environment variables:
-
 ```bash
 export NUXEO_URL=http://localhost:8080/nuxeo
 export NUXEO_USERNAME=Administrator
 export NUXEO_PASSWORD=Administrator
 ```
+
+`NUXEO_MCP_READ_ONLY` hides the write tools and `NUXEO_MCP_UPLOAD_DIR` restricts
+`file_path` uploads; see the [README](README.md#read-only-mode). OAuth2 is
+described in [AUTHENTICATION.md](AUTHENTICATION.md).
 
 ## Running the Server
 
@@ -68,6 +68,15 @@ python -m nuxeo_mcp
 ```
 
 </details>
+
+Over stdio (the default), the MCP client starts the server. To serve MCP over
+streamable HTTP instead, at `http://<host>:<port>/mcp`:
+
+```bash
+uv run nuxeo-mcp --http --port 8181
+```
+
+To configure a client, see [Client Configuration](nuxeo_mcp_config.md).
 
 ## Available Tools
 
@@ -107,11 +116,13 @@ The Nuxeo MCP Server provides the following resources:
 
 ## Examples
 
+The examples call tools as `use_tool(server, tool, arguments)`: pseudo-code for
+your MCP client's tool call. `tests/test_doc_examples.py` checks the arguments
+against the registered tools.
+
 ### Get Repository Information
 
 ```python
-from fastmcp import use_tool
-
 result = use_tool("nuxeo", "nuxeo_get_repository_info", {})
 print(result)
 ```
@@ -123,8 +134,6 @@ envelope. Read the `nuxeo://nxql-guide` resource first: it gives the default
 filter that keeps versions, proxies, trashed and system documents out.
 
 ```python
-from fastmcp import use_tool
-
 result = use_tool("nuxeo", "nuxeo_search_documents", {
     "query": (
         "SELECT * FROM File WHERE ecm:fulltext = 'budget'"
@@ -236,8 +245,6 @@ exposes `_search` only, so field names cannot be discovered at runtime, and an
 unknown field matches nothing rather than raising an error.
 
 ```python
-from fastmcp import use_tool
-
 # Full-text search with highlighting. Query `all_field`, but highlight
 # analysed fields: `all_field` is a copy_to catch-all, never stored, so the
 # highlighter has no text to fragment for it. String properties are keyword
@@ -305,8 +312,6 @@ engine shape rather than the document envelope. See
 `nuxeo://audit-query-dsl-guide` for the field names.
 
 ```python
-from fastmcp import use_tool
-
 # Deletions over the last day
 result = use_tool("nuxeo", "nuxeo_search_audit_with_query_dsl", {
     "query": {
@@ -338,8 +343,6 @@ server-side.
 ### Get a Document
 
 ```python
-from fastmcp import use_tool
-
 # Get document metadata; `ref` is a path or a UID
 result = use_tool("nuxeo", "nuxeo_get_document", {
     "ref": "/default-domain/workspaces/My Workspace/My Document"
@@ -362,8 +365,6 @@ thumbnail = use_tool("nuxeo", "nuxeo_get_document", {
 ### Create a Document
 
 ```python
-from fastmcp import use_tool
-
 result = use_tool("nuxeo", "nuxeo_create_document", {
     "parent_path": "/default-domain/workspaces/My Workspace",
     "name": "My New Document",
@@ -379,8 +380,6 @@ print(result)
 ### Update a Document
 
 ```python
-from fastmcp import use_tool
-
 result = use_tool("nuxeo", "nuxeo_update_metadata", {
     "path": "/default-domain/workspaces/My Workspace/My Document",
     "properties": {
@@ -394,31 +393,12 @@ print(result)
 ### Delete a Document
 
 ```python
-from fastmcp import use_tool
-
 # Deletion takes a UID only, not a path
 result = use_tool("nuxeo", "nuxeo_delete_document", {
     "uid": "12345678-1234-1234-1234-123456789012"
 })
 print(result)
 ```
-
-## Configuring with Cline
-
-To use the Nuxeo MCP server with Cline, you need to add a configuration to your Cline MCP settings file. Here's an example configuration:
-
-```json
-{
-  "mcpServers": {
-    "nuxeo": {
-      "command": "python",
-      "args": ["-m", "nuxeo_mcp"]
-    }
-  }
-}
-```
-
-For more detailed examples, see the [Nuxeo MCP Server Configuration Examples](./nuxeo_mcp_config.md).
 
 ## Troubleshooting
 
@@ -460,7 +440,7 @@ DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector \
 
 Note: The `DANGEROUSLY_OMIT_AUTH=true` flag is used to bypass authentication for local testing. Do not use this in production environments.
 
-3. The MCP Inspector will start a web server that you can access at http://localhost:6277
+3. The MCP Inspector opens its web interface, by default at http://localhost:6274
 
 4. Use the MCP Inspector to explore the tools and resources provided by the Nuxeo MCP Server:
    - View available tools and their input schemas
@@ -476,13 +456,13 @@ The MCP Inspector is particularly useful for:
 
 ### Common Errors
 
-#### "Cannot connect to Nuxeo server"
+#### "Basic authentication requires NUXEO_USERNAME and NUXEO_PASSWORD"
 
-This error occurs when the MCP server cannot connect to the Nuxeo server. Check that the Nuxeo server is running and that the URL is correct.
+The server refuses to start without both variables: there is no default identity.
 
-#### "Authentication failed"
+#### "Nuxeo rejected the credentials for user ..."
 
-This error occurs when the MCP server cannot authenticate with the Nuxeo server. Check that the username and password are correct.
+Nuxeo answered 401 or 403 to the startup check. Check the username and password.
 
 #### "Document not found"
 
@@ -495,8 +475,6 @@ This error occurs when the MCP server cannot find a document at the specified pa
 Always handle errors when using the Nuxeo MCP Server. Tools and resources may return errors if there are issues with the Nuxeo server or with the input parameters.
 
 ```python
-from fastmcp import use_tool
-
 try:
     result = use_tool("nuxeo", "nuxeo_get_document", {
         "ref": "/default-domain/workspaces/My Workspace/My Document"
@@ -509,5 +487,3 @@ except Exception as e:
 ### Performance Considerations
 
 - Use `page_size` and `page_index` when searching; `page_size` is capped at 100 and `hasMore` tells you whether to page again
-- Use the `schemas` parameter when getting documents to limit the properties returned
-- Use the `enrichers` parameter when getting documents to include additional information

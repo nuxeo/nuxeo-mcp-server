@@ -2,14 +2,12 @@
   "mcpServers": {
     "default": {
       "command": "uv",
-      "args": ["run", "--frozen", "python", "-m", "nuxeo_mcp"],
-      "env": { 
+      "args": ["run", "--frozen", "nuxeo-mcp"],
+      "env": {
         "NUXEO_URL": "http://localhost:8080/nuxeo",
         "NUXEO_USERNAME": "Administrator",
-        "NUXEO_PASSWORD": "Administrator",
-        "MCP_TRANSPORT": "stdio"
-      },
-      "transport": "stdio"
+        "NUXEO_PASSWORD": "Administrator"
+      }
     }
   }
 }

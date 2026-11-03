@@ -1,6 +1,6 @@
 services:
   nuxeo:
-    image: docker-internal.packages.nuxeo.com/nuxeo/nuxeo-mcp-demo:2025
+    image: docker-private.packages.nuxeo.com/nuxeo/nuxeo-mcp-demo:2025
     environment:
       - NUXEO_DEV_MODE=true
     ports:

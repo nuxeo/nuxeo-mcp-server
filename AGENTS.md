@@ -27,14 +27,16 @@ nuxeo-mcp-server/
 │   ├── config.py           # Configuration dataclasses & enums
 │   ├── token_store.py      # OAuth2 token storage
 │   ├── utility.py          # Document formatting helpers
-│   └── __main__.py         # CLI entry-point
+│   ├── __main__.py         # CLI entry-point
+│   └── guides/             # Markdown served by the nuxeo:// guide resources
 ├── tests/                  # pytest test suite
-├── ci/                     # CI helper files (Docker, etc.)
-├── specs/                  # Specification documents
+├── scripts/                # Tool reference generator
+├── ci/docker/nuxeo/        # nuxeo-mcp-demo image (Nuxeo + embedded OpenSearch)
 ├── .github/workflows/      # GitHub Actions CI/CD
 ├── pyproject.toml          # Project metadata & dependencies
-├── Dockerfile              # Container image
-├── docker-compose.yml      # Local multi-container setup
+├── Dockerfile              # Container image (Dockerfile-entrypoint.sh: MCP_PORT, MCP_HOST)
+├── docker-compose*.yml     # Nuxeo + MCP server; -demo uses nuxeo-mcp-demo
+├── mcp_client.py           # Command-line client, used by the image smoke test
 └── seed_nuxeo.py           # Test data seeding script
 ```
 
@@ -263,19 +265,18 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 
 ### Server Transport Modes
 
-The server binary (`nuxeo-mcp`) supports three transport modes:
-
 ```bash
 nuxeo-mcp                          # stdio (default, for MCP clients)
-nuxeo-mcp --http --port 8080       # Streamable-HTTP
-nuxeo-mcp --sse  --port 8080       # SSE (deprecated, use --http instead)
+nuxeo-mcp --http --port 8080       # Streamable-HTTP, at /mcp (the Docker default)
 nuxeo-mcp --oauth2                 # Enable OAuth2 auth (any transport)
 nuxeo-mcp --oauth2 --no-browser    # OAuth2, sign-in URL printed on stderr
 ```
 
-A `/health` endpoint is always available in HTTP and SSE modes.
+A `/health` endpoint is available over HTTP.
 
 ---
+
+## Testing
 
 ### Strategy
 
