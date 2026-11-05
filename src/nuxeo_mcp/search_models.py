@@ -102,10 +102,10 @@ class SearchResult(BaseModel):
     totalCount: int = Field(
         default=0,
         description=(
-            "Total matches, not the page size. Exception: ranking modes such as "
-            "semantic have no exhaustive match count -- there it is the number of "
-            "candidates the retrieval considered, which grows with pageSize. Do not "
-            "read it as a corpus-wide total in that mode."
+            "Total matches, not the page size. Exception: ranking modes have no "
+            "exhaustive match count -- there it is the number of candidates the "
+            "retrieval considered, which grows with pageSize. Do not read it as a "
+            "corpus-wide total in those modes."
         ),
     )
     pageIndex: int = Field(
@@ -117,7 +117,7 @@ class SearchResult(BaseModel):
     hasMore: bool = Field(
         default=False,
         description=(
-            "True when further pages are available. Exception: in semantic mode "
+            "True when further pages are available. Exception: in ranking modes "
             "it means more candidates, not more matches -- each page is less "
             "relevant than the last. Stop when the scores or snippets stop being "
             "relevant, not when hasMore turns false."

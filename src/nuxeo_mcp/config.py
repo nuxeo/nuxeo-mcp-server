@@ -80,21 +80,33 @@ _TRUE = ("true", "1", "yes", "on")
 _FALSE = ("false", "0", "no", "off", "")
 
 
+def _flag_from_env(name: str) -> bool:
+    """Read a true/false variable, False when unset; anything else raises."""
+    value = os.environ.get(name, "")
+    normalized = value.strip().lower()
+    if normalized in _TRUE:
+        return True
+    if normalized in _FALSE:
+        return False
+    raise ValueError(f"Unsupported {name} {value!r}; supported: true, false")
+
+
 def read_only_from_env() -> bool:
     """Read NUXEO_MCP_READ_ONLY, defaulting to False when unset.
 
     An unrecognized value raises rather than defaulting: a typo must not
     silently expose the write tools.
     """
-    value = os.environ.get("NUXEO_MCP_READ_ONLY", "")
-    normalized = value.strip().lower()
-    if normalized in _TRUE:
-        return True
-    if normalized in _FALSE:
-        return False
-    raise ValueError(
-        f"Unsupported NUXEO_MCP_READ_ONLY {value!r}; supported: true, false"
-    )
+    return _flag_from_env("NUXEO_MCP_READ_ONLY")
+
+
+def experimental_from_env() -> bool:
+    """Read NUXEO_MCP_EXPERIMENTAL, defaulting to False when unset.
+
+    Experimental features depend on Nuxeo features no release ships yet: off by
+    default, agents never see them on servers that lack them.
+    """
+    return _flag_from_env("NUXEO_MCP_EXPERIMENTAL")
 
 
 @dataclass

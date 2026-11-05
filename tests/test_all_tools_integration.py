@@ -129,6 +129,7 @@ def mcp(
             username=username,
             password=password,
             file_path_policy=FilePathPolicy(upload_dir=str(upload_dir)),
+            experimental=True,
         )
     )
 

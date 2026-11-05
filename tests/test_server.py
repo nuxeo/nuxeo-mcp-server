@@ -233,6 +233,7 @@ def test_health_reports_auth_mode() -> None:
     assert body["auth_method"] == "basic"
     assert body["file_path"] == "disabled"
     assert body["read_only"] is False
+    assert body["experimental"] is False
 
 
 @pytest.mark.unit
@@ -256,6 +257,25 @@ def test_read_only_server_hides_write_tools_and_reports_it() -> None:
     health = server.mcp.custom_routes[0]
     body = json.loads(asyncio.run(health["func"](MagicMock())).body)
     assert body["read_only"] is True
+
+
+@pytest.mark.unit
+def test_experimental_server_reports_it() -> None:
+    """experimental reaches /health."""
+    import asyncio
+    import json
+
+    with mock.patch("nuxeo_mcp.server.Nuxeo"):
+        server = NuxeoMCPServer(
+            username="user",
+            password="pass",
+            fastmcp_class=MockFastMCP,
+            experimental=True,
+        )
+
+    health = server.mcp.custom_routes[0]
+    body = json.loads(asyncio.run(health["func"](MagicMock())).body)
+    assert body["experimental"] is True
 
 
 @pytest.mark.unit
