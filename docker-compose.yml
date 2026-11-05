@@ -17,6 +17,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - NUXEO_URL=http://nuxeo:8080/nuxeo
+      - NUXEO_PUBLIC_URL=http://localhost:8080/nuxeo
       - NUXEO_USERNAME=Administrator
       - NUXEO_PASSWORD=Administrator
       - NUXEO_MCP_AUTH_MODE=local

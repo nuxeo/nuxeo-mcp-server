@@ -249,6 +249,7 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 | Variable | Purpose |
 |----------|---------|
 | `NUXEO_URL` | Nuxeo server URL (default: `http://localhost:8080/nuxeo`) |
+| `NUXEO_PUBLIC_URL` | Nuxeo URL users open, base of the returned Web UI links; default `NUXEO_URL` |
 | `NUXEO_USERNAME` | Username for Basic auth (required, no default) |
 | `NUXEO_PASSWORD` | Password for Basic auth (required, no default) |
 | `NUXEO_AUTH_METHOD` | `basic` or `oauth2`; any other value stops startup |

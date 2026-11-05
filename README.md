@@ -156,7 +156,7 @@ OAuth2 is not supported in the container; see [Authentication Mode](#authenticat
 docker compose -f docker-compose-demo.yml up --build
 ```
 
-Inside Docker, point `NUXEO_URL` at the Nuxeo service name (`http://nuxeo:8080/nuxeo`), not `localhost`.
+Inside Docker, point `NUXEO_URL` at the Nuxeo service name (`http://nuxeo:8080/nuxeo`), not `localhost`, and set `NUXEO_PUBLIC_URL` to the URL users open (`http://localhost:8080/nuxeo`): the document links the tools return are built on it.
 
 ## Configuring an MCP Client
 

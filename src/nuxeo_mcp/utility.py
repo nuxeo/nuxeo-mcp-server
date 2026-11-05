@@ -21,11 +21,27 @@ common tasks.
 """
 
 import base64
-from typing import Any, Dict, List, Tuple
+import os
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 from uuid import UUID
 
 from mcp.types import ImageContent as Image
 from nuxeo.models import Document
+
+
+def public_url(host: str) -> str:
+    """Base URL users open: NUXEO_PUBLIC_URL, else the host the server uses.
+
+    The server often reaches Nuxeo by a container name the user's browser cannot
+    resolve, so links shown to the user are built on the public URL.
+    """
+    return (os.environ.get("NUXEO_PUBLIC_URL") or host).rstrip("/")
+
+
+def web_ui_url(base_url: str, path: Optional[str]) -> Optional[str]:
+    """Web UI link to the document at ``path``, encoded to stay one token."""
+    return f"{base_url}/ui/#!/browse{quote(path)}" if path else None
 
 
 def is_uuid(v: str) -> bool:

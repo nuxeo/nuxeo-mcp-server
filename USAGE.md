@@ -35,7 +35,10 @@ export NUXEO_PASSWORD=Administrator
 ```
 
 `NUXEO_MCP_READ_ONLY` hides the write tools and `NUXEO_MCP_UPLOAD_DIR` restricts
-`file_path` uploads; see the [README](README.md#read-only-mode). OAuth2 is
+`file_path` uploads; see the [README](README.md#read-only-mode).
+`NUXEO_PUBLIC_URL` is the Nuxeo URL users open, when `NUXEO_URL` is an internal
+address (`http://nuxeo:8080/nuxeo` in Docker): the Web UI links returned to the
+user (`url` of created, moved and found documents) are built on it. OAuth2 is
 described in [AUTHENTICATION.md](AUTHENTICATION.md).
 
 ## Running the Server
