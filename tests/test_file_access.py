@@ -121,6 +121,8 @@ def test_stdio_with_upload_dir_is_restricted(upload_dir: Path) -> None:
 def _tools(policy: FilePathPolicy) -> tuple:
     """Register the tools; return them and the Nuxeo mock."""
     nuxeo = MagicMock()
+    nuxeo.client.host = "http://nuxeo:8080/nuxeo"
+    nuxeo.documents.create.return_value.path = "/n"
     return capture_tools(nuxeo, policy), nuxeo
 
 

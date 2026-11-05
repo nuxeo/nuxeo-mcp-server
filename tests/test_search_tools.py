@@ -378,6 +378,33 @@ def test_semantic_mode_reports_other_failures_in_the_engine_words() -> None:
     assert "not available on this Nuxeo server" not in message
 
 
+@pytest.mark.parametrize("mode", ["nxql", "semantic"])
+def test_hit_url_is_built_on_the_public_url(
+    monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    """The internal host is often a container name a browser cannot resolve."""
+    monkeypatch.setenv("NUXEO_PUBLIC_URL", "https://nuxeo.example.com/nuxeo/")
+    query = "SELECT * FROM File" if mode == "nxql" else "cork"
+    result = _search_tool(_semantic_nuxeo())(query, mode=mode)
+
+    url = result.documents[0].url
+    assert url is not None
+    assert url.startswith(
+        "https://nuxeo.example.com/nuxeo/ui/#!/browse/default-domain/"
+    )
+
+
+def test_hit_url_falls_back_on_the_client_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NUXEO_PUBLIC_URL", raising=False)
+    result = _search_tool(_semantic_nuxeo())("cork", mode="semantic")
+
+    assert result.documents[0].url == (
+        "http://nuxeo:8080/nuxeo/ui/#!/browse/default-domain/workspaces/cork.pdf"
+    )
+
+
 def test_page_size_is_clamped() -> None:
     nuxeo = _make_nuxeo()
     _search_tool(nuxeo)("SELECT * FROM File", mode="nxql", page_size=10_000)

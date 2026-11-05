@@ -45,7 +45,9 @@ from nuxeo_mcp.utility import (
     format_doc,
     format_docs,
     is_uuid,
+    public_url,
     return_blob,
+    web_ui_url,
 )
 
 # Configure logging
@@ -490,7 +492,7 @@ def register_tools(
             "path": doc.path,
             "title": doc_title,
             "type": type,
-            "url": f"{nuxeo.client.host}/ui/#!/browse{doc.path}",
+            "url": web_ui_url(public_url(nuxeo.client.host), doc.path),
             "details": format_doc(doc),  # Include full formatted details as a string
         }
 
@@ -876,7 +878,7 @@ def register_tools(
             "uid": moved["uid"],
             "path": path,
             "title": moved.get("title") or properties.get("dc:title", ""),
-            "url": f"{nuxeo.client.host}/ui/#!/browse{path}",
+            "url": web_ui_url(public_url(nuxeo.client.host), path),
         }
 
     # --- Search -------------------------------------------------------------
@@ -1043,6 +1045,7 @@ def register_tools(
             page_size=page_size,
             page_index=page_index,
             include_snippets=include_snippets,
+            base_url=public_url(nuxeo.client.host),
         )
 
     @tool(
@@ -1152,6 +1155,7 @@ def register_tools(
             interpreted_query=query,
             page_size=page_size,
             page_index=page_index,
+            base_url=public_url(nuxeo.client.host),
         )
 
     def _run_query_dsl(

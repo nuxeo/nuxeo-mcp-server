@@ -20,7 +20,12 @@ These tests verify the functionality of the utility functions.
 
 import pytest
 
-from nuxeo_mcp.utility import format_doc, format_property_value
+from nuxeo_mcp.utility import (
+    format_doc,
+    format_property_value,
+    public_url,
+    web_ui_url,
+)
 
 
 @pytest.mark.unit
@@ -103,3 +108,25 @@ def test_format_property_value() -> None:
     assert format_property_value("") == "*Empty string*"
     assert format_property_value("Hello") == "Hello"
     assert format_property_value("Hello|World") == "Hello\\|World"
+
+
+def test_public_url_prefers_nuxeo_public_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NUXEO_PUBLIC_URL", "https://nuxeo.example.com/nuxeo/")
+    assert public_url("http://nuxeo:8080/nuxeo") == "https://nuxeo.example.com/nuxeo"
+
+
+def test_public_url_falls_back_on_the_client_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NUXEO_PUBLIC_URL", raising=False)
+    assert public_url("http://nuxeo:8080/nuxeo/") == "http://nuxeo:8080/nuxeo"
+
+
+def test_web_ui_url() -> None:
+    assert web_ui_url("http://h/nuxeo", "/default-domain/a") == (
+        "http://h/nuxeo/ui/#!/browse/default-domain/a"
+    )
+    assert web_ui_url("http://h/nuxeo", "/ws/Une fleur") == (
+        "http://h/nuxeo/ui/#!/browse/ws/Une%20fleur"
+    )
+    assert web_ui_url("http://h/nuxeo", None) is None

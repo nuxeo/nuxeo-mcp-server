@@ -30,6 +30,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
+from nuxeo_mcp.utility import web_ui_url
+
 # Mode names are part of the tool contract; keep them stable.
 MODE_NXQL = "nxql"
 MODE_SEMANTIC = "semantic"
@@ -48,6 +50,10 @@ class SearchHit(BaseModel):
     )
     title: Optional[str] = Field(default=None, description="Document title.")
     path: Optional[str] = Field(default=None, description="Repository path.")
+    url: Optional[str] = Field(
+        default=None,
+        description="Web UI link to the document, to give to the user.",
+    )
     createdAt: Optional[str] = Field(
         default=None, description="ISO 8601 creation date."
     )
@@ -157,6 +163,7 @@ def to_search_hit(
     *,
     score: Optional[float] = None,
     snippets: Optional[List[str]] = None,
+    base_url: Optional[str] = None,
 ) -> SearchHit:
     """Map one Nuxeo REST ``document`` entry onto the normalized model.
 
@@ -187,6 +194,7 @@ def to_search_hit(
         documentType=entry.get("type"),
         title=_first(entry, properties, "title", "dc:title"),
         path=entry.get("path"),
+        url=web_ui_url(base_url, entry.get("path")) if base_url else None,
         createdAt=_first(entry, properties, "dc:created"),
         modifiedAt=_first(entry, properties, "lastModified", "dc:modified"),
         createdBy=_first(entry, properties, "dc:creator"),
@@ -238,8 +246,12 @@ def to_search_result(
     page_index: int = 0,
     degraded: Optional[str] = None,
     include_snippets: bool = True,
+    base_url: Optional[str] = None,
 ) -> SearchResult:
-    """Map a Nuxeo paginated query response onto the envelope."""
+    """Map a Nuxeo paginated query response onto the envelope.
+
+    ``base_url`` is the Nuxeo URL hits link to.
+    """
     entries = query_result.get("entries") or []
     total = query_result.get("resultsCount")
     if total is None:
@@ -248,7 +260,9 @@ def to_search_result(
     documents = []
     for entry in entries:
         score, snippets = _evidence(entry, include_snippets)
-        documents.append(to_search_hit(entry, score=score, snippets=snippets))
+        documents.append(
+            to_search_hit(entry, score=score, snippets=snippets, base_url=base_url)
+        )
 
     return SearchResult(
         documents=documents,
