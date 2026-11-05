@@ -23,7 +23,7 @@ import json
 import logging
 import os
 import re
-from typing import Annotated, Any, Callable, Dict, List, Optional
+from typing import Annotated, Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 from fastmcp.exceptions import ToolError
 from mcp.types import ImageContent as Image
@@ -35,8 +35,10 @@ from nuxeo_mcp.annotations import TOOL_ANNOTATIONS
 from nuxeo_mcp.file_access import FilePathPolicy
 from nuxeo_mcp.query_dsl import QueryDslRejected, apply_guardrails
 from nuxeo_mcp.search_models import (
+    MODE_IMAGE,
     MODE_NXQL,
     MODE_SEMANTIC,
+    MODE_SIMILAR,
     SEARCH_MODES,
     SearchResult,
     to_search_result,
@@ -897,7 +899,8 @@ def register_tools(
     # the engine response -- the opposite of the normalized envelope.
 
     _SEMANTIC_FILTER_DOC = (
-        '**mode="semantic" only.** NXQL WHERE conditions ANDed after the query '
+        '**mode="semantic", "image" and "similar" only.** NXQL WHERE conditions '
+        "ANDed after the query "
         "term, replacing the default \"ecm:mixinType <> 'HiddenInNavigation' AND "
         'ecm:isProxy = 0 AND ecm:isVersion = 0". The supported fields and '
         "operators below are those of the current Nuxeo vector search, which is "
@@ -929,6 +932,14 @@ def register_tools(
             "meaning, on servers with the experimental Nuxeo vector search:\n"
             '  "what causes musty cork taint from chlorine and mould"\n'
             "\n"
+            'mode="image" (experimental) -- a description of what a picture shows,\n'
+            "matched on the image content:\n"
+            '  "a dog running on a beach"\n'
+            "\n"
+            'mode="similar" (experimental) -- the uid or path of a document; returns\n'
+            "the documents nearest to it (pictures for a picture, text otherwise):\n"
+            '  "/default-domain/workspaces/photos/beach.jpg"\n'
+            "\n"
             if experimental
             else ""
         )
@@ -936,7 +947,7 @@ def register_tools(
         "nuxeo_search_documents_with_query_dsl for aggregations and highlighting."
     )
 
-    # Semantic mode runs through the standard page-provider REST endpoint rather
+    # Vector modes run through the standard page-provider REST endpoint rather
     # than the Query DSL passthrough: the passthrough only whitelists indexes whose
     # client is "opensearch", and the vector client is not one. Going through the
     # page provider also keeps the embedding model id server-side -- it is
@@ -958,24 +969,100 @@ def register_tools(
         "AND ecm:isVersion = 0"
     )
 
-    # How Nuxeo answers when it has no semantic search: a 2025 server without a
-    # vector index, or an LTS 2023 server, which lacks the page provider. These are
-    # the only failures that mean "no semantic search on this server"; a model that
-    # is still deploying, for instance, fails differently and is reported as is.
-    _NO_SEMANTIC_SEARCH = (
-        "indexes [vector] not found",
-        f"Could not resolve page provider with name '{_SEMANTIC_PAGE_PROVIDER}'",
+    _EXACT_SEARCH_HINT = (
+        "Search by exact terms instead: mode='nxql' with ecm:fulltext (see "
+        "nuxeo://nxql-guide), or nuxeo_search_documents_with_query_dsl with a "
+        "match query on all_field (see nuxeo://query-dsl-guide)."
     )
 
-    _SEMANTIC_UNAVAILABLE = (
-        "Semantic search is not available on this Nuxeo server: it has no vector "
-        "search. Do not retry mode='semantic'. Search by exact terms instead: "
-        "mode='nxql' with ecm:fulltext (see nuxeo://nxql-guide), or "
-        "nuxeo_search_documents_with_query_dsl with a match query on all_field "
-        "(see nuxeo://query-dsl-guide)."
+    class _VectorMode(NamedTuple):
+        """What differs between the vector modes: everything else is shared."""
+
+        label: str
+        index_name: str
+        doc_type: str
+        enrichers: str
+        # Metadata prefixes kept per hit; None keeps them all.
+        metadata_prefixes: Optional[Tuple[str, ...]] = None
+
+    # Images have no text, so no highlight: the hit url leads to the picture.
+    # Picture properties list every view with its blob URLs and dimensions, about
+    # 6 KB per hit of nothing an agent can use: keep the title and dates only.
+    # Filtered here: the Nuxeo client forces X-NXDocumentProperties on every
+    # request, and that header wins over any narrower one we could send.
+    _VECTOR_MODES = {
+        MODE_SEMANTIC: _VectorMode(
+            "Semantic", "vector", "Document", "highlight, score"
+        ),
+        MODE_IMAGE: _VectorMode(
+            "Image", "vector-image", "Picture", "score", ("dc", "common")
+        ),
+    }
+
+    # Modes running on a vector index: similar borrows the index of its reference.
+    _VECTOR_SEARCH_MODES = (*_VECTOR_MODES, MODE_SIMILAR)
+
+    # The NXQL of the lexical more_like_this on the default index (NXP-25315); the
+    # vector client reads it as vector similarity to the referenced document.
+    _MORE_LIKE_THIS = "/*+ES: OPERATOR(more_like_this) */ ecm:uuid"
+
+    def _resolve_reference(ref: str) -> Tuple[str, str]:
+        """Return the uid of the reference document and the vector mode to search.
+
+        Pictures are compared on the image index, everything else on the text one.
+        """
+        ref = ref.strip()
+        try:
+            doc = (
+                nuxeo.documents.get(uid=ref)
+                if is_uuid(ref)
+                else nuxeo.documents.get(path=ref)
+            )
+        except Exception as e:
+            raise ToolError(
+                f"Reference document {ref!r} not found or not readable: {e}. "
+                "mode='similar' takes the uid or path of an existing document."
+            )
+        facets = getattr(doc, "facets", None) or []
+        return doc.uid, MODE_IMAGE if "Picture" in facets else MODE_SEMANTIC
+
+    def _unavailable(mode: str, index_mode: str) -> str:
+        spec = _VECTOR_MODES[index_mode]
+        if mode == MODE_SIMILAR:
+            # The other index may exist: only the reference's kind is ruled out.
+            kind = "pictures" if index_mode == MODE_IMAGE else "non-picture documents"
+            return (
+                f"Similar search on {kind} is not available on this Nuxeo server: "
+                f"it has no {spec.index_name} index. Do not retry mode='similar' "
+                f"on {kind}, nor mode='{index_mode}'. " + _EXACT_SEARCH_HINT
+            )
+        return (
+            f"{spec.label} search is not available on this Nuxeo server: it has no "
+            f"{spec.index_name} index. Do not retry mode='{mode}'. "
+            + _EXACT_SEARCH_HINT
+        )
+
+    _NO_VECTOR_SEARCH = (
+        "Vector search is not available on this Nuxeo server. Do not retry "
+        "mode='semantic', 'image' or 'similar'. " + _EXACT_SEARCH_HINT
     )
 
-    def _check_semantic_filter(nxql_filter: str) -> None:
+    def _no_vector_index(mode: str, error: str) -> bool:
+        """Whether a failure means the server lacks this vector index.
+
+        Only this index: on a 2025 server the other one may exist. A model that
+        is still deploying, for instance, fails differently and is reported as is.
+        """
+        return f"indexes [{_VECTOR_MODES[mode].index_name}] not found" in error
+
+    def _no_page_provider(error: str) -> bool:
+        """Whether the server lacks the page provider: LTS 2023, no vector mode works."""
+        return (
+            f"Could not resolve page provider with name '{_SEMANTIC_PAGE_PROVIDER}'"
+            in error
+        )
+
+    def _check_semantic_filter(mode: str, nxql_filter: str) -> None:
         """Refuse the operators the vector client always drops.
 
         The vector client silently discards OR, NOT, LIKE and ILIKE whatever the
@@ -990,25 +1077,26 @@ def register_tools(
         operators = _unsupported_filter_operators(nxql_filter)
         if operators:
             raise ToolError(
-                f"nxql_filter uses {', '.join(operators)}, which semantic search "
+                f"nxql_filter uses {', '.join(operators)}, which {mode} search "
                 "ignores rather than applies: the results would not be filtered. "
                 "Supported: AND, =, <>, IN, NOT IN, IS [NOT] NULL, <, <=, >, >=, "
                 "[NOT] BETWEEN, STARTSWITH. For anything else use mode='nxql'."
             )
 
-    def _run_semantic(
+    def _run_vector(
         query: str,
+        mode: str,
         page_size: int,
         page_index: int,
         nxql_filter: str,
         include_snippets: bool,
     ) -> SearchResult:
-        """Execute a semantic search and map it onto the shared envelope.
+        """Execute a semantic or image search and map it onto the shared envelope.
 
         Vector search is experimental in Nuxeo: the filter support described
         here follows its vector client and may change between releases.
 
-        **This mode is a fulltext search by meaning, with basic filtering.** It is
+        **These modes are a search by meaning, with basic filtering.** They are
         not a general NXQL engine: the query text is the whole point, and the
         filter is a best-effort narrowing on a small set of indexed scalar fields.
         Anything that needs real query expressiveness -- conditions on arbitrary
@@ -1017,7 +1105,10 @@ def register_tools(
 
         The vector client embeds the ``ecm:fulltext`` value and runs k-NN, while
         still honouring the scalar predicates in the rest of the NXQL. So
-        ``interpretedQuery`` is the query that ran, as in nxql mode.
+        ``interpretedQuery`` is the query that ran, as in nxql mode. In image
+        mode a multimodal model embeds the text into the same space as the
+        picture views, so the text is matched against the pixels: titles and
+        captions play no part.
 
         One field does not carry its usual meaning here. The client fetches
         ``k = (offset + page_size) * 5`` chunks, collapses them to distinct
@@ -1031,10 +1122,14 @@ def register_tools(
         cannot be surfaced in ``degraded`` from here. Exposing them over REST is a
         Nuxeo-side change.
         """
-        nxql = (
-            f"SELECT * FROM Document WHERE ecm:fulltext = "
-            f"'{_escape_nxql_literal(query)}' AND ({nxql_filter})"
-        )
+        if mode == MODE_SIMILAR:
+            uid, index_mode = _resolve_reference(query)
+            predicate = f"{_MORE_LIKE_THIS} = '{_escape_nxql_literal(uid)}'"
+        else:
+            index_mode = mode
+            predicate = f"ecm:fulltext = '{_escape_nxql_literal(query)}'"
+        spec = _VECTOR_MODES[index_mode]
+        nxql = f"SELECT * FROM {spec.doc_type} WHERE {predicate} AND ({nxql_filter})"
 
         try:
             response = nuxeo.client.request(
@@ -1042,10 +1137,10 @@ def register_tools(
                 f"api/v1/search/pp/{_SEMANTIC_PAGE_PROVIDER}/execute",
                 # "score" needs a search client that exposes it; elsewhere the field
                 # is simply absent and score stays null.
-                headers={"enrichers-document": "highlight, score"},
+                headers={"enrichers-document": spec.enrichers},
                 params={
                     "queryParams": nxql,
-                    "index": "vector",
+                    "index": spec.index_name,
                     "pageSize": page_size,
                     "currentPageIndex": page_index,
                 },
@@ -1055,24 +1150,35 @@ def register_tools(
             # A failed page provider does not arrive as a 200 carrying hasError: the
             # REST layer re-raises it as a 400 (QueryObject: `if (res.hasError())
             # throw new NuxeoException(msg, SC_BAD_REQUEST)`), so it lands here.
-            if any(marker in str(e) for marker in _NO_SEMANTIC_SEARCH):
-                raise ToolError(_SEMANTIC_UNAVAILABLE)
+            if _no_page_provider(str(e)):
+                raise ToolError(_NO_VECTOR_SEARCH)
+            if _no_vector_index(index_mode, str(e)):
+                raise ToolError(_unavailable(mode, index_mode))
+            if mode == MODE_SIMILAR and "is not in the vector index" in str(e):
+                raise ToolError(
+                    f"The reference document is not in the {spec.index_name} index: "
+                    "it is not indexed yet, or its type is not covered. Nothing to "
+                    "compare to."
+                )
             # Anything else -- an embedding model still deploying, an engine error --
             # is reported in the engine's own words. Naming a cause would send the
             # reader after the wrong one.
+            label = "Similar" if mode == MODE_SIMILAR else spec.label
             raise ToolError(
-                f"Semantic search failed on this server: {e}. Check the Nuxeo server "
-                "log for the cause. mode='nxql' does not depend on the vector index."
+                f"{label} search failed on this server: {e}. Check the Nuxeo "
+                f"server log for the cause. mode='nxql' does not depend on the "
+                f"{spec.index_name} index."
             )
 
         return to_search_result(
             data,
-            mode=MODE_SEMANTIC,
+            mode=mode,
             interpreted_query=nxql,
             page_size=page_size,
             page_index=page_index,
             include_snippets=include_snippets,
             base_url=public_url(nuxeo.client.host),
+            metadata_prefixes=spec.metadata_prefixes,
         )
 
     # Off by default: the experimental modes need a Nuxeo vector search no release
@@ -1080,16 +1186,22 @@ def register_tools(
     enabled = ", ".join(SEARCH_MODES if experimental else (MODE_NXQL,))
     _experimental_only = "Experimental modes only."
     _query_doc = 'A NXQL statement (mode="nxql")' + (
-        ', or a question/phrase to match on meaning (mode="semantic").'
+        ', a question/phrase to match on meaning (mode="semantic"), a '
+        'description of what a picture shows (mode="image"), English works '
+        'best, or the uid or path of the reference document (mode="similar"), '
+        "which is excluded from the results."
         if experimental
         else "."
     )
-    _mode_doc = '"nxql" or "semantic".' if experimental else '"nxql".'
+    _mode_doc = (
+        '"nxql", "semantic", "image" or "similar".' if experimental else '"nxql".'
+    )
     _nxql_filter_doc = (
         _SEMANTIC_FILTER_DOC if experimental else _experimental_only + " Leave empty."
     )
     _include_snippets_doc = (
-        '**mode="semantic" only.** Return the matching passages of each document.'
+        '**mode="semantic" and "similar" on text only.** Return the matching '
+        "passages of each document."
         if experimental
         else _experimental_only
     )
@@ -1102,9 +1214,15 @@ def register_tools(
             "filter that keeps versions and system documents out. "
             + (
                 "Experimental: mode='semantic' matches a question or phrase on "
-                "meaning. It needs the experimental Nuxeo vector search, in no "
-                "released Nuxeo and never on 2023; elsewhere it fails with an "
-                "error saying so. "
+                "meaning. mode='image' finds pictures whose content matches a "
+                'description ("a dog on a beach"), without relying on titles or '
+                "tags. mode='similar' takes a document uid or path and returns the "
+                "documents nearest to it: similar pictures for a picture, related "
+                "documents otherwise; high scores flag near-duplicates. Picture hits "
+                "keep only dc:* and common:* metadata: read a picture in full with "
+                "nuxeo_get_document. These three "
+                "need the experimental Nuxeo vector search, in no released Nuxeo "
+                "and never on 2023; elsewhere they fail with an error saying so. "
                 if experimental
                 else ""
             )
@@ -1135,8 +1253,10 @@ def register_tools(
             SearchResult. ``interpretedQuery`` reports the NXQL executed.
 
         Raises:
-            ToolError: on an empty query, an unknown or disabled mode, or
-                mode="semantic" on a server without vector search.
+            ToolError: on an empty query, an unknown or disabled mode, a vector
+                mode on a server without the matching vector index, or
+                mode="similar" on a reference document that does not exist or is
+                not indexed.
         """
         if not query or not query.strip():
             raise ToolError(_SEARCH_USAGE)
@@ -1152,12 +1272,13 @@ def register_tools(
         page_size = max(1, min(page_size, 100))
         page_index = max(0, page_index)
 
-        if mode != MODE_SEMANTIC and nxql_filter.strip():
+        if mode not in _VECTOR_SEARCH_MODES and nxql_filter.strip():
             # Refused rather than ignored: a model would trust a filter that never
             # ran.
             raise ToolError(
                 (
-                    "nxql_filter is only used by mode='semantic'. "
+                    "nxql_filter is only used by mode='semantic', 'image' and "
+                    "'similar'. "
                     if experimental
                     else ""
                 )
@@ -1165,10 +1286,11 @@ def register_tools(
                 "query."
             )
 
-        if mode == MODE_SEMANTIC:
-            _check_semantic_filter(nxql_filter)
-            return _run_semantic(
+        if mode in _VECTOR_SEARCH_MODES:
+            _check_semantic_filter(mode, nxql_filter)
+            return _run_vector(
                 query,
+                mode=mode,
                 page_size=page_size,
                 page_index=page_index,
                 nxql_filter=nxql_filter.strip() or _SEMANTIC_DEFAULT_FILTER,

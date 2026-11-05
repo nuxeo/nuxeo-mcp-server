@@ -35,7 +35,9 @@ from nuxeo_mcp.utility import web_ui_url
 # Mode names are part of the tool contract; keep them stable.
 MODE_NXQL = "nxql"
 MODE_SEMANTIC = "semantic"
-SEARCH_MODES = (MODE_NXQL, MODE_SEMANTIC)
+MODE_IMAGE = "image"
+MODE_SIMILAR = "similar"
+SEARCH_MODES = (MODE_NXQL, MODE_SEMANTIC, MODE_IMAGE, MODE_SIMILAR)
 
 
 class SearchHit(BaseModel):
@@ -72,7 +74,11 @@ class SearchHit(BaseModel):
     state: Optional[str] = Field(default=None, description="Lifecycle state.")
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Document properties, as returned by the repository.",
+        description=(
+            "Document properties, as returned by the repository. Some modes keep "
+            "only the dc:* and common:* properties; read the full document with "
+            "nuxeo_get_document."
+        ),
     )
 
     # Search-specific fields. Populated only by modes that rank or explain matches;
@@ -164,6 +170,7 @@ def to_search_hit(
     score: Optional[float] = None,
     snippets: Optional[List[str]] = None,
     base_url: Optional[str] = None,
+    metadata_prefixes: Optional[Tuple[str, ...]] = None,
 ) -> SearchHit:
     """Map one Nuxeo REST ``document`` entry onto the normalized model.
 
@@ -172,6 +179,11 @@ def to_search_hit(
     field is resolved from both places.
     """
     properties: Dict[str, Any] = entry.get("properties") or {}
+    metadata = (
+        {k: v for k, v in properties.items() if k.split(":", 1)[0] in metadata_prefixes}
+        if metadata_prefixes
+        else properties
+    )
 
     extensions: Dict[str, Any] = {}
     for key in (
@@ -201,7 +213,7 @@ def to_search_hit(
         modifiedBy=_first(entry, properties, "dc:lastContributor"),
         version=entry.get("versionLabel"),
         state=entry.get("state"),
-        metadata=properties,
+        metadata=metadata,
         score=score,
         snippets=list(snippets or []),
         extensions={"nuxeo": extensions} if extensions else {},
@@ -247,10 +259,12 @@ def to_search_result(
     degraded: Optional[str] = None,
     include_snippets: bool = True,
     base_url: Optional[str] = None,
+    metadata_prefixes: Optional[Tuple[str, ...]] = None,
 ) -> SearchResult:
     """Map a Nuxeo paginated query response onto the envelope.
 
-    ``base_url`` is the Nuxeo URL hits link to.
+    ``base_url`` is the Nuxeo URL hits link to. ``metadata_prefixes`` keeps only
+    the properties of these schema prefixes (``dc`` for ``dc:title``).
     """
     entries = query_result.get("entries") or []
     total = query_result.get("resultsCount")
@@ -261,7 +275,13 @@ def to_search_result(
     for entry in entries:
         score, snippets = _evidence(entry, include_snippets)
         documents.append(
-            to_search_hit(entry, score=score, snippets=snippets, base_url=base_url)
+            to_search_hit(
+                entry,
+                score=score,
+                snippets=snippets,
+                base_url=base_url,
+                metadata_prefixes=metadata_prefixes,
+            )
         )
 
     return SearchResult(
