@@ -32,7 +32,8 @@ from nuxeo_mcp.query_dsl import (
     apply_guardrails,
     field_guide,
 )
-from tests.helpers import Captured, capture_tools, mock_nuxeo
+from nuxeo_mcp.tools import register_tools
+from tests.helpers import Captured, MockFastMCP, capture_tools, mock_nuxeo
 
 QUERY_RESULT = {
     "resultsCount": 2,
@@ -69,8 +70,8 @@ QUERY_RESULT = {
 }
 
 
-def _register_and_capture(nuxeo: Any) -> Captured:
-    return capture_tools(nuxeo)
+def _register_and_capture(nuxeo: Any, experimental: bool = True) -> Captured:
+    return capture_tools(nuxeo, experimental=experimental)
 
 
 def _make_nuxeo(query_result: Any = None) -> MagicMock:
@@ -376,6 +377,56 @@ def test_semantic_mode_reports_other_failures_in_the_engine_words() -> None:
     message = str(excinfo.value)
     assert engine_error in message
     assert "not available on this Nuxeo server" not in message
+
+
+def _search_description(experimental: bool) -> str:
+    mcp = MockFastMCP("test")
+    register_tools(mcp, _make_nuxeo(), experimental=experimental)
+    return next(
+        t["description"] for t in mcp.tools if t["name"] == "nuxeo_search_documents"
+    )
+
+
+def test_semantic_mode_is_hidden_by_default() -> None:
+    assert "semantic" not in _search_description(experimental=False)
+    assert "Experimental: mode='semantic'" in _search_description(experimental=True)
+
+
+@pytest.mark.parametrize("experimental", [False, True])
+def test_discovery_mentions_semantic_only_when_experimental(
+    experimental: bool,
+) -> None:
+    """The whole tools/list payload, docstring-parsed params and output schema."""
+    import asyncio
+    import json
+
+    from fastmcp import Client, FastMCP
+
+    async def tools_list() -> str:
+        mcp = FastMCP("test")
+        register_tools(mcp, _make_nuxeo(), experimental=experimental)
+        async with Client(mcp) as client:
+            tools = await client.list_tools()
+        return json.dumps([t.model_dump() for t in tools], default=str).lower()
+
+    payload = asyncio.run(tools_list())
+    assert ("semantic" in payload) is experimental
+
+
+def test_semantic_mode_is_refused_by_default() -> None:
+    nuxeo = _semantic_nuxeo()
+    search = _register_and_capture(nuxeo, experimental=False)["nuxeo_search_documents"]
+    with pytest.raises(ToolError, match="NUXEO_MCP_EXPERIMENTAL"):
+        search("cork", mode="semantic")
+    nuxeo.client.request.assert_not_called()
+
+
+def test_unknown_mode_lists_only_enabled_modes() -> None:
+    search = _register_and_capture(_make_nuxeo(), experimental=False)[
+        "nuxeo_search_documents"
+    ]
+    with pytest.raises(ToolError, match=r"Supported modes: nxql\.$"):
+        search("x", mode="fuzzy")
 
 
 @pytest.mark.parametrize("mode", ["nxql", "semantic"])

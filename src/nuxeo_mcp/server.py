@@ -38,6 +38,7 @@ from .config import (
     MCPAuthConfig,
     NuxeoServerConfig,
     OAuth2Config,
+    experimental_from_env,
     read_only_from_env,
     upload_dir_from_env,
 )
@@ -75,6 +76,7 @@ class NuxeoMCPServer:
         open_browser: bool = True,
         file_path_policy: Optional[FilePathPolicy] = None,
         read_only: bool = False,
+        experimental: bool = False,
     ):
         """
         Initialize the Nuxeo MCP Server.
@@ -92,6 +94,7 @@ class NuxeoMCPServer:
             file_path_policy: Which local files the upload tools may read;
                 None disables file_path
             read_only: Register only the read-only tools
+            experimental: Expose the experimental features
         """
         self.nuxeo_url = nuxeo_url
         self.username = username
@@ -100,6 +103,7 @@ class NuxeoMCPServer:
         self.auth_mode = auth_mode
         self.file_path_policy = file_path_policy or FilePathPolicy()
         self.read_only = read_only
+        self.experimental = experimental
         self.auth_manager = AuthenticationManager()
         self.nuxeo = None
 
@@ -199,12 +203,19 @@ class NuxeoMCPServer:
             "auth_mode": auth_mode.value,
             "file_path": self.file_path_policy.mode,
             "read_only": read_only,
+            "experimental": experimental,
         }
         add_healthcheck(self.mcp, server_info)
 
         # Register tools and resources without authentication wrapper for basic auth
         # (The Nuxeo client already has the auth configured)
-        register_tools(self.mcp, self.nuxeo, self.file_path_policy, read_only=read_only)
+        register_tools(
+            self.mcp,
+            self.nuxeo,
+            self.file_path_policy,
+            read_only=read_only,
+            experimental=experimental,
+        )
 
         # Register MCP resources.
         register_resources(self.mcp, self.nuxeo)
@@ -277,6 +288,7 @@ def main() -> None:
         auth_mode = AuthMode.from_env()
         upload_dir = upload_dir_from_env()
         read_only = read_only_from_env()
+        experimental = experimental_from_env()
     except ValueError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -312,6 +324,14 @@ def main() -> None:
             else "no; write tools are registered"
         )
     )
+    logger.info(
+        "  Experimental: "
+        + (
+            "yes; semantic search mode is exposed"
+            if experimental
+            else "no; experimental features are hidden"
+        )
+    )
 
     # Create the server
     try:
@@ -323,6 +343,7 @@ def main() -> None:
             auth_mode=auth_mode,
             file_path_policy=file_path_policy,
             read_only=read_only,
+            experimental=experimental,
             # The OAuth2 sign-in runs while the server is created, so the flag
             # has to reach it here, not after.
             open_browser=not args.no_browser,

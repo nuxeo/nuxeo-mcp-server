@@ -86,6 +86,7 @@ def register_tools(
     nuxeo: Any,
     file_path_policy: Optional[FilePathPolicy] = None,
     read_only: bool = False,
+    experimental: bool = False,
 ) -> None:
     """
     Register MCP tools with the FastMCP server.
@@ -95,6 +96,7 @@ def register_tools(
         nuxeo: The Nuxeo client instance
         file_path_policy: Which local files file_path may name; None disables it
         read_only: Register only the tools annotated read-only
+        experimental: Expose the experimental features (semantic search mode)
     """
     files = file_path_policy or FilePathPolicy()
 
@@ -894,6 +896,27 @@ def register_tools(
     # open-world where the other modes are closed, and its value is fidelity to
     # the engine response -- the opposite of the normalized envelope.
 
+    _SEMANTIC_FILTER_DOC = (
+        '**mode="semantic" only.** NXQL WHERE conditions ANDed after the query '
+        "term, replacing the default \"ecm:mixinType <> 'HiddenInNavigation' AND "
+        'ecm:isProxy = 0 AND ecm:isVersion = 0". The supported fields and '
+        "operators below are those of the current Nuxeo vector search, which is "
+        "experimental and may change.\n\n"
+        "OR, NOT, LIKE and ILIKE are refused with an error. **A clause on an "
+        "unmapped field is dropped, not refused**: you get *more* documents than "
+        "you asked for, with no error. Check the results rather than assuming the "
+        "filter held.\n\n"
+        "Filterable fields come from the vector index mapping. With the default "
+        "mapping: ecm:primaryType, ecm:mixinType, ecm:ancestorId, ecm:tag, "
+        "ecm:uuid, ecm:repository (keyword); ecm:path (path); ecm:isProxy, "
+        "ecm:isVersion (boolean); dc:modified, chunk_id (range). Anything else -- "
+        "dc:title, ecm:isTrashed, any unmapped property -- is dropped.\n\n"
+        'Operators: = <> IN "NOT IN" "IS NULL" "IS NOT NULL" on any filterable '
+        'field; < <= > >= BETWEEN "NOT BETWEEN" on range fields only; STARTSWITH '
+        "on ecm:path only. Refused: OR, NOT (except in NOT IN, NOT BETWEEN, IS NOT "
+        "NULL), LIKE, ILIKE. ORDER BY is ignored; results are ranked by relevance."
+    )
+
     _SEARCH_USAGE = (
         "nuxeo_search_documents needs a NXQL statement. Start from the default\n"
         "filter, or versions and system documents come back:\n"
@@ -901,11 +924,15 @@ def register_tools(
         "    AND ecm:mixinType != 'HiddenInNavigation' AND ecm:isProxy = 0\n"
         "    AND ecm:isVersion = 0 AND ecm:isTrashed = 0\n"
         "\n"
-        'mode="semantic" -- a question or phrase matched on meaning, on Nuxeo\n'
-        "2025 or later with the optional vector search:\n"
-        '  "what causes musty cork taint from chlorine and mould"\n'
-        "\n"
-        "See the nuxeo://nxql-guide resource for the full NXQL syntax, and "
+        + (
+            'mode="semantic" (experimental) -- a question or phrase matched on\n'
+            "meaning, on servers with the experimental Nuxeo vector search:\n"
+            '  "what causes musty cork taint from chlorine and mould"\n'
+            "\n"
+            if experimental
+            else ""
+        )
+        + "See the nuxeo://nxql-guide resource for the full NXQL syntax, and "
         "nuxeo_search_documents_with_query_dsl for aggregations and highlighting."
     )
 
@@ -1048,77 +1075,78 @@ def register_tools(
             base_url=public_url(nuxeo.client.host),
         )
 
+    # Off by default: the experimental modes need a Nuxeo vector search no release
+    # ships yet, so agents must not discover them on servers that lack it.
+    enabled = ", ".join(SEARCH_MODES if experimental else (MODE_NXQL,))
+    _experimental_only = "Experimental modes only."
+    _query_doc = 'A NXQL statement (mode="nxql")' + (
+        ', or a question/phrase to match on meaning (mode="semantic").'
+        if experimental
+        else "."
+    )
+    _mode_doc = '"nxql" or "semantic".' if experimental else '"nxql".'
+    _nxql_filter_doc = (
+        _SEMANTIC_FILTER_DOC if experimental else _experimental_only + " Leave empty."
+    )
+    _include_snippets_doc = (
+        '**mode="semantic" only.** Return the matching passages of each document.'
+        if experimental
+        else _experimental_only
+    )
+
     @tool(
         name="nuxeo_search_documents",
         description=(
             "Search documents in the Nuxeo repository. mode='nxql' (default) runs "
             "a NXQL statement: read nuxeo://nxql-guide first, it gives the default "
-            "filter that keeps versions and system documents out. mode='semantic' "
-            "matches a question or phrase on meaning, only on Nuxeo 2025 or later "
-            "with the optional vector search; elsewhere it fails with an error "
-            "saying so. Returns a "
-            "normalized result envelope. For counts, groupings or aggregations, use "
+            "filter that keeps versions and system documents out. "
+            + (
+                "Experimental: mode='semantic' matches a question or phrase on "
+                "meaning. It needs the experimental Nuxeo vector search, in no "
+                "released Nuxeo and never on 2023; elsewhere it fails with an "
+                "error saying so. "
+                if experimental
+                else ""
+            )
+            + "Returns a normalized result envelope. For counts, groupings or aggregations, use "
             "nuxeo_search_documents_with_query_dsl instead. "
             "Recently created or modified documents may take a few seconds to "
             "appear; read them by uid or path with nuxeo_get_document instead."
         ),
     )
     def nuxeo_search_documents(
-        query: str = "",
-        mode: str = MODE_NXQL,
-        page_size: int = 20,
-        page_index: int = 0,
-        nxql_filter: str = "",
-        include_snippets: bool = True,
+        query: Annotated[str, Field(description=_query_doc)] = "",
+        mode: Annotated[str, Field(description=_mode_doc)] = MODE_NXQL,
+        page_size: Annotated[int, Field(description="Documents per page.")] = 20,
+        page_index: Annotated[
+            int, Field(description="Zero-based page to retrieve.")
+        ] = 0,
+        nxql_filter: Annotated[str, Field(description=_nxql_filter_doc)] = "",
+        include_snippets: Annotated[
+            bool, Field(description=_include_snippets_doc)
+        ] = True,
     ) -> SearchResult:
         """Search the repository and return the normalized envelope.
 
-        Args:
-            query: A NXQL statement (mode="nxql"), or a question/phrase to match
-                on meaning (mode="semantic").
-            mode: "nxql" or "semantic".
-            page_size: Documents per page.
-            page_index: Zero-based page to retrieve.
-            nxql_filter: **mode="semantic" only.** NXQL WHERE conditions ANDed
-                after the query term, replacing the default
-                "ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 AND
-                ecm:isVersion = 0". The supported fields and operators below are
-                those of the current Nuxeo vector search, which is experimental
-                and may change.
-
-                OR, NOT, LIKE and ILIKE are refused with an error. **A clause on
-                an unmapped field is dropped, not refused**: you get *more*
-                documents than you asked for, with no error. Check the results
-                rather than assuming the filter held.
-
-                Filterable fields come from the vector index mapping. With the
-                default mapping: ecm:primaryType, ecm:mixinType, ecm:ancestorId,
-                ecm:tag, ecm:uuid, ecm:repository (keyword); ecm:path (path);
-                ecm:isProxy, ecm:isVersion (boolean); dc:modified, chunk_id
-                (range). Anything else -- dc:title, ecm:isTrashed, any unmapped
-                property -- is dropped.
-
-                Operators: = <> IN "NOT IN" "IS NULL" "IS NOT NULL" on any
-                filterable field; < <= > >= BETWEEN "NOT BETWEEN" on range fields
-                only; STARTSWITH on ecm:path only. Refused: OR, NOT (except in
-                NOT IN, NOT BETWEEN, IS NOT NULL), LIKE, ILIKE. ORDER BY is
-                ignored; results are ranked by relevance.
-            include_snippets: **mode="semantic" only.** Return the matching
-                passages of each document.
+        Parameters are described through Field, not here: FastMCP publishes the
+        docstring Args, and the experimental modes must not show when disabled.
 
         Returns:
             SearchResult. ``interpretedQuery`` reports the NXQL executed.
 
         Raises:
-            ToolError: on an empty query, an unknown mode, or mode="semantic" on
-                a server without vector search.
+            ToolError: on an empty query, an unknown or disabled mode, or
+                mode="semantic" on a server without vector search.
         """
         if not query or not query.strip():
             raise ToolError(_SEARCH_USAGE)
 
         if mode not in SEARCH_MODES:
+            raise ToolError(f"Unknown mode {mode!r}. Supported modes: {enabled}.")
+        if mode != MODE_NXQL and not experimental:
             raise ToolError(
-                f"Unknown mode {mode!r}. Supported modes: {', '.join(SEARCH_MODES)}."
+                f"mode={mode!r} is experimental and disabled on this server "
+                "(NUXEO_MCP_EXPERIMENTAL). Use mode='nxql'."
             )
 
         page_size = max(1, min(page_size, 100))
@@ -1128,8 +1156,13 @@ def register_tools(
             # Refused rather than ignored: a model would trust a filter that never
             # ran.
             raise ToolError(
-                "nxql_filter is only used by mode='semantic'. In mode='nxql', put "
-                "the conditions in the WHERE clause of the query."
+                (
+                    "nxql_filter is only used by mode='semantic'. "
+                    if experimental
+                    else ""
+                )
+                + "In mode='nxql', put the conditions in the WHERE clause of the "
+                "query."
             )
 
         if mode == MODE_SEMANTIC:

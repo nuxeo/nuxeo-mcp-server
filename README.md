@@ -9,7 +9,7 @@ A Model Context Protocol (MCP) server for interacting with a Nuxeo Content Repos
 
 - 🔄 Connect to a Nuxeo Content Repository Server
 - 🛠️ MCP Tools for common Nuxeo operations (query, retrieve, create, update, delete documents)
-- 🔍 Document search with NXQL, or by meaning on Nuxeo 2025+ with vector search, returning a normalized result envelope
+- 🔍 Document search with NXQL, returning a normalized result envelope; search by meaning is [experimental](#experimental-features)
 - ⚡ Query DSL search - raw Elasticsearch/OpenSearch request bodies for aggregations, highlighting and sorting
 - 🔐 Audit log search - Query DSL against the audit index (admin only)
 - 🔒 OAuth2 authentication - browser-based, with token storage
@@ -57,6 +57,10 @@ With OAuth2, the server keeps the tokens it obtains so you do not sign in on eve
 Set `NUXEO_MCP_READ_ONLY=true` to expose only the read tools. The tools that change the repository (`nuxeo_create_document`, `nuxeo_update_metadata`, `nuxeo_move_document`, `nuxeo_delete_document`, `nuxeo_execute_operation`) are not registered, so a client cannot list or call them. Accepted values: `true`/`false` (also `1`/`0`, `yes`/`no`, `on`/`off`); unset means `false`; any other value stops the server. `/health` reports `read_only`.
 
 This limits what the MCP server exposes, not what the Nuxeo account may do: the account's ACLs still apply, and over HTTP anyone who reaches the server reads as that account.
+
+## Experimental Features
+
+Set `NUXEO_MCP_EXPERIMENTAL=true` to expose features that depend on Nuxeo features no release ships yet: today, `mode="semantic"` of `nuxeo_search_documents`, which needs the experimental Nuxeo vector search (never on LTS 2023). Off by default, the tool describes `mode="nxql"` only and refuses the other modes. Same accepted values as `NUXEO_MCP_READ_ONLY`; `/health` reports `experimental`. See [USAGE](USAGE.md#modesemantic).
 
 ## Local Files (`file_path`)
 

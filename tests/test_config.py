@@ -123,3 +123,17 @@ def test_read_only_from_env_rejects_a_typo(monkeypatch) -> None:
     monkeypatch.setenv("NUXEO_MCP_READ_ONLY", "ture")
     with pytest.raises(ValueError, match="supported: true, false"):
         read_only_from_env()
+
+
+@pytest.mark.unit
+def test_experimental_from_env(monkeypatch) -> None:
+    """NUXEO_MCP_EXPERIMENTAL is off when unset; a typo stops startup."""
+    from nuxeo_mcp.config import experimental_from_env
+
+    monkeypatch.delenv("NUXEO_MCP_EXPERIMENTAL", raising=False)
+    assert experimental_from_env() is False
+    monkeypatch.setenv("NUXEO_MCP_EXPERIMENTAL", "true")
+    assert experimental_from_env() is True
+    monkeypatch.setenv("NUXEO_MCP_EXPERIMENTAL", "ture")
+    with pytest.raises(ValueError, match="NUXEO_MCP_EXPERIMENTAL"):
+        experimental_from_env()

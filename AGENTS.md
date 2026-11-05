@@ -120,7 +120,7 @@ Tools are registered via `register_tools(mcp, nuxeo, read_only=False)`; with `re
 | `nuxeo_list_operations` | yes | no | no | Get information about available Automation Operations in the Nuxeo server |
 | `nuxeo_move_document` | no | yes | no | Move a document, identified by UID, under the folder at target_path. Not idempotent: repeating the call renames the document. To move by path, read the UID with nuxeo_get_document first. |
 | `nuxeo_search_audit_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo audit log index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Administrators only. Read nuxeo://audit-query-dsl-guide first for the field names. |
-| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. mode='nxql' (default) runs a NXQL statement: read nuxeo://nxql-guide first, it gives the default filter that keeps versions and system documents out. mode='semantic' matches a question or phrase on meaning, only on Nuxeo 2025 or later with the optional vector search; elsewhere it fails with an error saying so. Returns a normalized result envelope. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
+| `nuxeo_search_documents` | yes | no | no | Search documents in the Nuxeo repository. mode='nxql' (default) runs a NXQL statement: read nuxeo://nxql-guide first, it gives the default filter that keeps versions and system documents out. Returns a normalized result envelope. For counts, groupings or aggregations, use nuxeo_search_documents_with_query_dsl instead. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_search_documents_with_query_dsl` | yes | no | yes | Run a raw OpenSearch/Elasticsearch Query DSL request against the Nuxeo repository index and return the engine response, plus two server-added keys: _nuxeo_executed_query (the guarded request) and _nuxeo_hint (set on empty results). Use this for aggregations, highlighting, sorting and any query the normalized search cannot express. Read nuxeo://query-dsl-guide first for the field names. Recently created or modified documents may take a few seconds to appear; read them by uid or path with nuxeo_get_document instead. |
 | `nuxeo_update_metadata` | no | yes | no | Update an existing document in the Nuxeo repository |
 
@@ -215,7 +215,7 @@ def my_prompt(arg: str) -> str:
 ```
 __main__.py  →  main()
   └─ server.py: NuxeoMCPServer.__init__()
-       ├─ server.py main(): read NUXEO_URL / NUXEO_AUTH_METHOD / NUXEO_MCP_AUTH_MODE / NUXEO_MCP_UPLOAD_DIR / NUXEO_MCP_READ_ONLY / credentials from env
+       ├─ server.py main(): read NUXEO_URL / NUXEO_AUTH_METHOD / NUXEO_MCP_AUTH_MODE / NUXEO_MCP_UPLOAD_DIR / NUXEO_MCP_READ_ONLY / NUXEO_MCP_EXPERIMENTAL / credentials from env
        ├─ auth.py / middleware.py: build Nuxeo client (basic or OAuth2); basic refuses to start without credentials
        ├─ server.py: create FastMCP instance + /health endpoint
        ├─ tools.py: register_tools()
@@ -256,6 +256,7 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 | `NUXEO_MCP_AUTH_MODE` | `local` (default, only value): one Nuxeo identity for every caller |
 | `NUXEO_MCP_UPLOAD_DIR` | Only folder `file_path` may read from; unset: any file over stdio, none over HTTP |
 | `NUXEO_MCP_READ_ONLY` | `true` registers only the tools annotated read-only (default `false`); any other value stops startup |
+| `NUXEO_MCP_EXPERIMENTAL` | `true` exposes experimental features: `mode="semantic"` (default `false`); any other value stops startup |
 | `NUXEO_OAUTH_CLIENT_ID` | OAuth2 client ID |
 | `NUXEO_OAUTH_CLIENT_SECRET` | OAuth2 client secret |
 | `NUXEO_OAUTH_AUTH_ENDPOINT` | OAuth2 authorization endpoint |
