@@ -327,7 +327,7 @@ def main() -> None:
     logger.info(
         "  Experimental: "
         + (
-            "yes; semantic search mode is exposed"
+            "yes; semantic, image and similar search modes are exposed"
             if experimental
             else "no; experimental features are hidden"
         )

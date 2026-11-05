@@ -60,7 +60,7 @@ This limits what the MCP server exposes, not what the Nuxeo account may do: the 
 
 ## Experimental Features
 
-Set `NUXEO_MCP_EXPERIMENTAL=true` to expose features that depend on Nuxeo features no release ships yet: today, `mode="semantic"` of `nuxeo_search_documents`, which needs the experimental Nuxeo vector search (never on LTS 2023). Off by default, the tool describes `mode="nxql"` only and refuses the other modes. Same accepted values as `NUXEO_MCP_READ_ONLY`; `/health` reports `experimental`. See [USAGE](USAGE.md#modesemantic).
+Set `NUXEO_MCP_EXPERIMENTAL=true` to expose features that depend on Nuxeo features no release ships yet: today, the `semantic`, `image` and `similar` modes of `nuxeo_search_documents`, which need the experimental Nuxeo vector search (never on LTS 2023). Off by default, the tool describes `mode="nxql"` only and refuses the other modes. Same accepted values as `NUXEO_MCP_READ_ONLY`; `/health` reports `experimental`. See [USAGE](USAGE.md#modesemantic).
 
 ## Local Files (`file_path`)
 

@@ -18,6 +18,8 @@ Nuxeo is mocked; these cover the contract of the tools themselves -- mode
 dispatch, the normalized envelope, and the Query DSL guardrails.
 """
 
+import copy
+from types import SimpleNamespace
 from typing import Any, Callable, Dict
 from unittest.mock import MagicMock
 
@@ -350,20 +352,25 @@ def test_semantic_mode_says_the_server_has_no_vector_search() -> None:
     assert "nuxeo_search_documents_with_query_dsl" in message
 
 
-def test_semantic_mode_says_lts_2023_has_no_vector_search() -> None:
-    """LTS 2023 lacks the page provider itself: same answer as no vector index."""
-    nuxeo = _semantic_nuxeo(
+@pytest.mark.parametrize("mode", ["semantic", "image", "similar"])
+def test_lts_2023_rules_out_every_vector_mode(mode: str) -> None:
+    """LTS 2023 lacks the page provider itself: no vector mode can work."""
+    nuxeo = _similar_nuxeo(
+        ["Picture"],
         # Verbatim str() of the client's HTTPError, observed on 2023.55.
         raise_exc=Exception(
             'HTTPError(400), error: "Could not resolve page provider with name '
             "'search_check_nxql'\", server trace: None"
-        )
+        ),
     )
 
     with pytest.raises(ToolError) as excinfo:
-        _search_tool(nuxeo)("cork", mode="semantic")
+        _search_tool(nuxeo)("cork", mode=mode)
 
-    assert "not available on this Nuxeo server" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "Vector search is not available on this Nuxeo server" in message
+    assert "Do not retry mode='semantic', 'image' or 'similar'" in message
+    assert "ecm:fulltext" in message
 
 
 def test_semantic_mode_reports_other_failures_in_the_engine_words() -> None:
@@ -410,15 +417,18 @@ def test_discovery_mentions_semantic_only_when_experimental(
         return json.dumps([t.model_dump() for t in tools], default=str).lower()
 
     payload = asyncio.run(tools_list())
-    assert ("semantic" in payload) is experimental
+    for mode in ("semantic", "mode='image'", "similar"):
+        assert (mode in payload) is experimental, mode
 
 
-def test_semantic_mode_is_refused_by_default() -> None:
-    nuxeo = _semantic_nuxeo()
+@pytest.mark.parametrize("mode", ["semantic", "image", "similar"])
+def test_vector_modes_are_refused_by_default(mode: str) -> None:
+    nuxeo = _similar_nuxeo(["Picture"])
     search = _register_and_capture(nuxeo, experimental=False)["nuxeo_search_documents"]
     with pytest.raises(ToolError, match="NUXEO_MCP_EXPERIMENTAL"):
-        search("cork", mode="semantic")
+        search("cork", mode=mode)
     nuxeo.client.request.assert_not_called()
+    nuxeo.documents.get.assert_not_called()
 
 
 def test_unknown_mode_lists_only_enabled_modes() -> None:
@@ -427,6 +437,85 @@ def test_unknown_mode_lists_only_enabled_modes() -> None:
     ]
     with pytest.raises(ToolError, match=r"Supported modes: nxql\.$"):
         search("x", mode="fuzzy")
+
+
+# ---------------------------------------------------------------------------
+# mode="image"
+# ---------------------------------------------------------------------------
+
+IMAGE_RESPONSE = {
+    "resultsCount": 1,
+    "currentPageIndex": 0,
+    "pageSize": 10,
+    "isNextPageAvailable": False,
+    "entries": [
+        {
+            "entity-type": "document",
+            "uid": "pic-1",
+            "path": "/default-domain/workspaces/coco/coco-139",
+            "type": "Picture",
+            "title": "IMG_139",
+            "properties": {},
+            "contextParameters": {"score": 0.64},
+        }
+    ],
+}
+
+
+def test_image_mode_queries_the_image_index_for_pictures() -> None:
+    nuxeo = _semantic_nuxeo(IMAGE_RESPONSE)
+    result = _search_tool(nuxeo)("a dog on a beach", mode="image")
+
+    kwargs = nuxeo.client.request.call_args.kwargs
+    assert kwargs["params"]["index"] == "vector-image"
+    assert result.interpretedQuery == (
+        "SELECT * FROM Picture WHERE ecm:fulltext = 'a dog on a beach' "
+        "AND (ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 "
+        "AND ecm:isVersion = 0)"
+    )
+    # Images have no passage to highlight.
+    assert kwargs["headers"]["enrichers-document"] == "score"
+    assert result.mode == "image"
+
+
+def test_image_mode_keeps_only_light_metadata() -> None:
+    """Picture views would bloat every hit: only dc and common properties stay."""
+    response = copy.deepcopy(IMAGE_RESPONSE)
+    response["entries"][0]["properties"] = {
+        "dc:title": "IMG_139",
+        "common:icon": "/icons/image.gif",
+        "picture:views": [{"title": "Small"}],
+        "file:content": {"name": "139.jpg"},
+    }
+    result = _search_tool(_semantic_nuxeo(response))("a dog", mode="image")
+
+    assert result.documents[0].metadata == {
+        "dc:title": "IMG_139",
+        "common:icon": "/icons/image.gif",
+    }
+
+
+def test_semantic_mode_keeps_all_metadata() -> None:
+    response = copy.deepcopy(SEMANTIC_RESPONSE)
+    response["entries"][0]["properties"]["file:content"] = {"name": "cork.pdf"}
+    result = _search_tool(_semantic_nuxeo(response))("cork", mode="semantic")
+
+    assert "file:content" in result.documents[0].metadata
+
+
+def test_image_mode_returns_the_same_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NUXEO_PUBLIC_URL", raising=False)
+    result = _search_tool(_semantic_nuxeo(IMAGE_RESPONSE))("a dog", mode="image")
+
+    hit = result.documents[0]
+    assert hit.id == "pic-1"
+    assert hit.score == 0.64
+    assert hit.snippets == []
+    assert hit.url == (
+        "http://nuxeo:8080/nuxeo/ui/#!/browse/default-domain/workspaces/coco/coco-139"
+    )
 
 
 @pytest.mark.parametrize("mode", ["nxql", "semantic"])
@@ -453,6 +542,152 @@ def test_hit_url_falls_back_on_the_client_host(
 
     assert result.documents[0].url == (
         "http://nuxeo:8080/nuxeo/ui/#!/browse/default-domain/workspaces/cork.pdf"
+    )
+
+
+def test_image_mode_accepts_a_filter_and_refuses_dropped_operators() -> None:
+    nuxeo = _semantic_nuxeo(IMAGE_RESPONSE)
+    _search_tool(nuxeo)(
+        "a cat", mode="image", nxql_filter="ecm:path STARTSWITH '/default-domain'"
+    )
+    assert nuxeo.client.request.call_args.kwargs["params"]["queryParams"].endswith(
+        "AND (ecm:path STARTSWITH '/default-domain')"
+    )
+
+    with pytest.raises(ToolError, match="nxql_filter uses OR, which image search"):
+        _search_tool(nuxeo)(
+            "a cat", mode="image", nxql_filter="ecm:isProxy = 0 OR ecm:isVersion = 0"
+        )
+
+
+def test_image_mode_says_the_server_has_no_image_search() -> None:
+    nuxeo = _semantic_nuxeo(
+        raise_exc=Exception(
+            'HTTPError(400), error: "java.lang.IllegalArgumentException: Invalid '
+            "page provider configuration 'search_check_nxql': Configured indexes "
+            "[vector-image] not found for repository 'default'\", server trace: None"
+        )
+    )
+
+    with pytest.raises(ToolError) as excinfo:
+        _search_tool(nuxeo)("a dog", mode="image")
+
+    message = str(excinfo.value)
+    assert "Image search is not available on this Nuxeo server" in message
+    assert "Do not retry mode='image'" in message
+
+
+def test_semantic_mode_is_not_unavailable_because_images_are() -> None:
+    """A missing image index says nothing about the text vector index."""
+    nuxeo = _semantic_nuxeo(
+        raise_exc=Exception("Configured indexes [vector-image] not found")
+    )
+    with pytest.raises(ToolError) as excinfo:
+        _search_tool(nuxeo)("cork", mode="semantic")
+    assert "not available on this Nuxeo server" not in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# mode="similar"
+# ---------------------------------------------------------------------------
+
+REF_UID = "8e08f10c-2221-4fe8-8fb1-5f56880526fc"
+
+
+def _similar_nuxeo(
+    facets: Any, response_json: Any = None, raise_exc: Any = None
+) -> MagicMock:
+    nuxeo = _semantic_nuxeo(response_json, raise_exc)
+    nuxeo.documents.get.return_value = SimpleNamespace(uid=REF_UID, facets=facets)
+    return nuxeo
+
+
+def test_similar_mode_on_a_picture_searches_the_image_index() -> None:
+    nuxeo = _similar_nuxeo(["Picture", "Versionable"], IMAGE_RESPONSE)
+    result = _search_tool(nuxeo)(REF_UID, mode="similar")
+
+    nuxeo.documents.get.assert_called_once_with(uid=REF_UID)
+    kwargs = nuxeo.client.request.call_args.kwargs
+    assert kwargs["params"]["index"] == "vector-image"
+    assert kwargs["headers"]["enrichers-document"] == "score"
+    assert result.interpretedQuery == (
+        "SELECT * FROM Picture WHERE /*+ES: OPERATOR(more_like_this) */ "
+        f"ecm:uuid = '{REF_UID}' "
+        "AND (ecm:mixinType <> 'HiddenInNavigation' AND ecm:isProxy = 0 "
+        "AND ecm:isVersion = 0)"
+    )
+    assert result.mode == "similar"
+
+
+def test_similar_mode_on_a_text_document_searches_the_text_index() -> None:
+    nuxeo = _similar_nuxeo(["Versionable"])
+    result = _search_tool(nuxeo)("/default-domain/workspaces/cork.pdf", mode="similar")
+
+    nuxeo.documents.get.assert_called_once_with(
+        path="/default-domain/workspaces/cork.pdf"
+    )
+    kwargs = nuxeo.client.request.call_args.kwargs
+    assert kwargs["params"]["index"] == "vector"
+    assert kwargs["params"]["queryParams"].startswith(
+        "SELECT * FROM Document WHERE /*+ES: OPERATOR(more_like_this) */ "
+        f"ecm:uuid = '{REF_UID}'"
+    )
+    assert result.documents[0].snippets == ["chlorine reacts with mould to form TCA"]
+
+
+def test_similar_mode_reports_an_unknown_reference() -> None:
+    nuxeo = _similar_nuxeo([])
+    nuxeo.documents.get.side_effect = Exception("HTTPError(404)")
+    with pytest.raises(ToolError, match="not found or not readable"):
+        _search_tool(nuxeo)(REF_UID, mode="similar")
+    nuxeo.client.request.assert_not_called()
+
+
+def test_similar_mode_reports_a_reference_missing_from_the_index() -> None:
+    nuxeo = _similar_nuxeo(
+        ["Picture"],
+        raise_exc=Exception(
+            "HTTPError(400) Document: x is not in the vector index, or not readable"
+        ),
+    )
+    with pytest.raises(ToolError, match="not in the vector-image index"):
+        _search_tool(nuxeo)(REF_UID, mode="similar")
+
+
+@pytest.mark.parametrize(
+    "facets, index, kind, other_mode",
+    [
+        (["Picture"], "vector-image", "pictures", "image"),
+        (["Versionable"], "vector", "non-picture documents", "semantic"),
+    ],
+)
+def test_similar_mode_says_the_server_has_no_index_for_the_reference(
+    facets: Any, index: str, kind: str, other_mode: str
+) -> None:
+    nuxeo = _similar_nuxeo(
+        facets, raise_exc=Exception(f"Configured indexes [{index}] not found")
+    )
+    with pytest.raises(ToolError) as excinfo:
+        _search_tool(nuxeo)(REF_UID, mode="similar")
+
+    message = str(excinfo.value)
+    assert f"Similar search on {kind} is not available" in message
+    assert f"Do not retry mode='similar' on {kind}, nor mode='{other_mode}'" in message
+
+
+def test_similar_mode_failure_is_labelled_similar() -> None:
+    nuxeo = _similar_nuxeo(["Picture"], raise_exc=Exception("model not deployed"))
+    with pytest.raises(ToolError, match="^Similar search failed on this server"):
+        _search_tool(nuxeo)(REF_UID, mode="similar")
+
+
+def test_similar_mode_accepts_a_filter() -> None:
+    nuxeo = _similar_nuxeo(["Picture"], IMAGE_RESPONSE)
+    _search_tool(nuxeo)(
+        REF_UID, mode="similar", nxql_filter="ecm:path STARTSWITH '/default-domain'"
+    )
+    assert nuxeo.client.request.call_args.kwargs["params"]["queryParams"].endswith(
+        "AND (ecm:path STARTSWITH '/default-domain')"
     )
 
 
