@@ -1,8 +1,5 @@
-ARG PYTHON_VERSION=3.13.16
+ARG PYTHON_VERSION=3.13.18
 FROM python:${PYTHON_VERSION}-slim
-
-# Install curl for healthcheck
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Configure user
 ENV NUXEO_USER=nuxeo
@@ -46,7 +43,7 @@ ENV MCP_HOST=0.0.0.0
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:${MCP_PORT}/health || exit 1
+  CMD ["python", "-c", "import os, urllib.request; opener = urllib.request.build_opener(urllib.request.ProxyHandler({})); opener.open('http://localhost:' + os.environ['MCP_PORT'] + '/health', timeout=5).close()"]
 
 # Copy the entrypoint, and use it
 COPY --chown=$NUXEO_USER:0 --chmod=0755 Dockerfile-entrypoint.sh entrypoint.sh
