@@ -18,8 +18,9 @@ signing does not oblige Hyland to accept the contribution.
 ## Getting Started
 
 1. Fork the repository and create a feature branch from `main`.
-2. Install Python 3.11+ and [uv](https://docs.astral.sh/uv/), then the
-   development dependencies:
+2. Install [uv](https://docs.astral.sh/uv/), then the development
+   dependencies; uv installs the Python version set by `requires-python`
+   in `pyproject.toml`:
 
    ```bash
    uv sync --frozen --extra dev
