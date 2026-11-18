@@ -371,7 +371,7 @@ def test_search_semantic_unavailable(mcp: Mcp) -> None:
     result = mcp.call("nuxeo_search_documents", {"query": "fox", "mode": "semantic"})
     if not result.is_error:
         pytest.skip("this server has vector search; semantic search is not covered")
-    assert "Semantic search is not available" in text(result)
+    assert "search is not available on this Nuxeo server" in text(result)
 
 
 def test_search_query_dsl(mcp: Mcp, ws: Dict[str, str]) -> None:

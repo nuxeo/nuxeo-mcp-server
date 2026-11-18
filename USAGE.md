@@ -236,6 +236,62 @@ Notes:
   `hasMore` likewise means more candidates, each page less relevant than the
   last: stop when scores or snippets stop being relevant.
 
+#### `mode="image"`
+
+> **Experimental, off by default.** Needs `NUXEO_MCP_EXPERIMENTAL=true`, and on
+> the server the image vector index (`vector-image`) of the experimental Nuxeo
+> vector search, with a multimodal model such as CLIP.
+
+Finds Pictures whose content matches a description, without titles, tags or
+captions. A multimodal model embeds the text into the same space as the picture
+views, so the query is matched against the pixels. Same envelope, filter rules
+and `totalCount` caveat as `mode="semantic"`; it searches `FROM Picture` only.
+
+```python
+result = use_tool("nuxeo", "nuxeo_search_documents", {
+    "query": "a dog running on a beach",
+    "mode": "image",
+})
+
+for doc in result["documents"]:
+    print(doc["score"], doc["title"], doc["url"])
+```
+
+- Describe what the picture shows, in English: "a red double decker bus", not
+  "bus".
+- `snippets` stay empty, images have no passage. To see a hit, fetch its
+  thumbnail with `nuxeo_get_document` and `rendition="thumbnail"`; to show it
+  to the user, give the hit `url`.
+- `metadata` keeps only the `dc:*` and `common:*` properties: the picture views
+  would add about 6 KB per hit. Read a picture in full with `nuxeo_get_document`.
+- On a server without the image index the call fails with an error saying image
+  search is not available; do not retry.
+
+#### `mode="similar"`
+
+> **Experimental, off by default.** Needs `NUXEO_MCP_EXPERIMENTAL=true`, and on
+> the server the vector index of the reference document: the image index for a
+> Picture, the text index otherwise.
+
+`query` is the uid or path of a reference document. The result lists the
+documents nearest to it, the reference excluded: similar pictures for a
+Picture, related documents otherwise (with `snippets`).
+Same envelope and `nxql_filter` rules as the other vector modes; picture hits
+keep only `dc:*` and `common:*` metadata, as in `mode="image"`.
+
+```python
+result = use_tool("nuxeo", "nuxeo_search_documents", {
+    "query": "8e08f10c-2221-4fe8-8fb1-5f56880526fc",
+    "mode": "similar",
+    "page_size": 5,
+})
+```
+
+- Near-duplicates (resized, cropped, recompressed copies) score clearly higher
+  than merely related documents: read the top scores, not just the order.
+- A reference that is not indexed yet, or whose type the index does not cover,
+  fails with an error saying there is nothing to compare to.
+
 Calling the tool with an empty query returns usage help with a worked example
 instead of an error.
 

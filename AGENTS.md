@@ -256,7 +256,7 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 | `NUXEO_MCP_AUTH_MODE` | `local` (default, only value): one Nuxeo identity for every caller |
 | `NUXEO_MCP_UPLOAD_DIR` | Only folder `file_path` may read from; unset: any file over stdio, none over HTTP |
 | `NUXEO_MCP_READ_ONLY` | `true` registers only the tools annotated read-only (default `false`); any other value stops startup |
-| `NUXEO_MCP_EXPERIMENTAL` | `true` exposes experimental features: `mode="semantic"` (default `false`); any other value stops startup |
+| `NUXEO_MCP_EXPERIMENTAL` | `true` exposes experimental features: `semantic`, `image`, `similar` search modes (default `false`); any other value stops startup |
 | `NUXEO_OAUTH_CLIENT_ID` | OAuth2 client ID |
 | `NUXEO_OAUTH_CLIENT_SECRET` | OAuth2 client secret |
 | `NUXEO_OAUTH_AUTH_ENDPOINT` | OAuth2 authorization endpoint |
