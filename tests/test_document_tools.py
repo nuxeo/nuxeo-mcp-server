@@ -21,7 +21,7 @@ different document types and blob operations.
 
 import base64
 import logging
-from typing import Any, Tuple
+from typing import Tuple
 
 import pytest
 from mcp.types import ImageContent
@@ -35,7 +35,6 @@ logging.basicConfig(level=logging.INFO)
 
 @pytest.mark.integration
 def test_get_picture_document(
-    nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
 ) -> None:
@@ -116,7 +115,6 @@ def test_get_picture_document(
 
 @pytest.mark.integration
 def test_get_picture_document_blob(
-    nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
 ) -> None:
@@ -192,7 +190,6 @@ def test_get_picture_document_blob(
 
 @pytest.mark.integration
 def test_get_picture_document_conversion(
-    nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
 ) -> None:
@@ -279,7 +276,6 @@ def test_get_picture_document_conversion(
 
 @pytest.mark.integration
 def test_get_picture_document_thumbnail(
-    nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
 ) -> None:

@@ -2,7 +2,7 @@
 
 ## Unit tests
 
-No Nuxeo server needed; the Nuxeo client is mocked.
+No Nuxeo server is needed; the Nuxeo client is mocked.
 
 ```bash
 uv run pytest tests/ -v --no-integration
@@ -10,27 +10,30 @@ uv run pytest tests/ -v --no-integration
 
 ## Integration tests
 
-Marked `@pytest.mark.integration`, run with `--integration`.
-
-By default they start the `nuxeo-mcp-demo:2025` image (Nuxeo with embedded
-OpenSearch, see `ci/docker/nuxeo`) and seed it with `seed_nuxeo.py`. Override the
-image with `NUXEO_DOCKER_IMAGE`.
+Tests marked `@pytest.mark.integration` run with `--integration` against an
+existing Nuxeo server. They neither provision services nor seed the repository.
+Use a test server with an administrator account, OpenSearch search and audit
+backends, the search passthrough and Web UI. Picture conversions
+also need the server's conversion tools, including FFmpeg.
 
 ```bash
+export NUXEO_URL=http://localhost:8080/nuxeo
+export NUXEO_USERNAME=Administrator
+export NUXEO_PASSWORD=Administrator
+uv run python seed_nuxeo.py --url "$NUXEO_URL" \
+  --username "$NUXEO_USERNAME" --password "$NUXEO_PASSWORD"
 uv run pytest tests/ -v --integration
 ```
 
-To run against an existing server instead, set `NUXEO_URL`: no container is
-started and nothing is seeded. Use an administrator account.
+The URL defaults to `http://localhost:8080/nuxeo`; credentials default to
+`Administrator` / `Administrator` for local test servers.
+
+`test_all_tools_integration.py` creates its own workspace and deletes it on
+teardown. It can run independently without seeding:
 
 ```bash
-NUXEO_URL=http://localhost:8080/nuxeo NUXEO_USERNAME=Administrator \
-NUXEO_PASSWORD=Administrator uv run pytest tests/test_all_tools_integration.py --integration
+uv run pytest tests/test_all_tools_integration.py -v --integration
 ```
 
-`test_all_tools_integration.py` calls every tool, and works in its own workspace,
-deleted at the end: it is safe on a server holding real content. The other
-integration tests expect the seeded data, so they only pass on the container.
-
-On Rancher Desktop, pass `--rancher` (or set `USE_RANCHER=true`); the socket
-defaults to `~/.rd/docker.sock`, override it with `RANCHER_DOCKER_SOCKET`.
+The other document integration tests expect the data created by `seed_nuxeo.py`.
+CI provisions and seeds separate Nuxeo 2023, 2025 and 2027 environments.

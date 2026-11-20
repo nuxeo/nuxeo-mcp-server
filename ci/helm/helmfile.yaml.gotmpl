@@ -1,0 +1,25 @@
+environments:
+  integration-tests:
+    values:
+    - environments/integration-tests.yaml
+    - values/env-values-nuxeo.yaml.gotmpl
+values: # values for all environments and helmfiles
+- git::https://{{ requiredEnv "GITHUB_USER" }}:{{ requiredEnv "GITHUB_PASSWORD" }}@github.com/nuxeo/nuxeo-lts.git@ci/helm/apps/base/values/env-values-global.yaml.gotmpl?ref=v{{ requiredEnv "NUXEO_VERSION" }}&depth=1
+- values/env-values-global.yaml
+---
+helmDefaults:
+  args:
+    - "--repository-cache ~/.cache/helm/repository-{{ env "NAMESPACE" | default "default" }}"
+  timeout: 300
+  wait: true
+
+# allow concurrent execution of helmfile declaring the same chart in two different versions
+lockFilePath: "helmfile-{{ requiredEnv "NUXEO_VERSION" }}.lock"
+
+helmfiles:
+- path: git::https://{{ requiredEnv "GITHUB_USER" }}:{{ requiredEnv "GITHUB_PASSWORD" }}@github.com/nuxeo/nuxeo-lts.git@ci/helm/apps/helmfile-base.yaml.gotmpl?ref=v{{ requiredEnv "NUXEO_VERSION" }}&depth=1
+  values:
+  - {{ toYaml .Values | nindent 4 }}
+- path: helmfile-mcp.yaml.gotmpl
+  values:
+  - {{ toYaml .Values | nindent 4 }}

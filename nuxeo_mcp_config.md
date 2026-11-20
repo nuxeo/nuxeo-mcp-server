@@ -55,7 +55,7 @@ connects to its `/mcp` endpoint:
 }
 ```
 
-With `docker-compose-demo.yml`, the port is `8081`. Clients that only launch
+With the local `docker-compose.yml`, the port is `8081`. Clients that only launch
 stdio servers need a bridge such as
 [`mcp-remote`](https://www.npmjs.com/package/mcp-remote):
 `"command": "npx", "args": ["mcp-remote", "http://127.0.0.1:8181/mcp"]`.

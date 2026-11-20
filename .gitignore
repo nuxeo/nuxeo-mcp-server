@@ -28,6 +28,7 @@ env/
 
 # uv
 .python-version
+.ci-bin/
 
 # IDE files
 .idea/

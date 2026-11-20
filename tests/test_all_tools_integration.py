@@ -117,7 +117,6 @@ def upload_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def mcp(
-    nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
     upload_dir: Path,

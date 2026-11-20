@@ -12,6 +12,7 @@ included, from the lock file:
 git clone https://github.com/nuxeo/nuxeo-mcp-server.git
 cd nuxeo-mcp-server
 uv sync --frozen --extra dev
+uv pip install 'jwt==1.4.0' --force-reinstall
 ```
 
 uv creates `.venv`. Without uv: `python -m venv .venv`, activate it, then
@@ -28,12 +29,11 @@ docker build -t nuxeo-mcp-server .
 
 ```bash
 uv run pytest tests/ -v --no-integration   # unit, Nuxeo mocked
-uv run pytest tests/ -v --integration      # starts a Nuxeo container
+uv run pytest tests/ -v --integration      # existing, seeded Nuxeo server
 ```
 
-Integration tests run against the `nuxeo-mcp-demo:2025` image (Nuxeo with
-embedded OpenSearch, built from [ci/docker/nuxeo](ci/docker/nuxeo/README.md)),
-or against an existing server with `NUXEO_URL`. See
+Integration tests use an existing server selected with `NUXEO_URL`. Provision and
+seed it before running the suite; the tests do not start containers. See
 [tests/README.md](tests/README.md). Add `-s --log-cli-level=INFO` for live output.
 
 `seed_nuxeo.py` creates the sample folder, File, Note and Picture the integration
@@ -82,13 +82,13 @@ uv lock --upgrade                 # upgrade within pyproject.toml bounds
 
 Commit `pyproject.toml` and `uv.lock` together.
 
-## CI Workflows
+## Continuous integration
 
-All use the `.github/actions/setup-and-install-dep` composite action:
+Pull requests and `main` run packaging, static checks and unit tests, then build
+the multi-platform image with SBOM and provenance. Smoke and integration tests
+run against Nuxeo 2023, 2025 and 2027 in independent Kubernetes environments.
+Successful `main` builds promote the tested image to the snapshot registry.
 
-| Workflow | What it does |
-|---|---|
-| `build-and-unit-tests.yml` | `uv build`, the checks above, unit tests |
-| `integration-tests.yml` | Integration tests against the `nuxeo-mcp-demo:2025` image |
-| `package-docker-image.yml` | Builds the image, smoke-tests it with `mcp_client.py`, pushes it from `main` |
-| `updatecli.yml` | Scheduled dependency updates |
+The package version stays at `0.1.0`; snapshot image tags identify builds.
+`updatecli.yml` remains in GitHub Actions for scheduled Python and uv updates.
+The [CI notes](ci/README.md) describe infrastructure configuration.

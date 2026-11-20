@@ -1,0 +1,4 @@
+image: {{ printf "%s/nuxeo/nuxeo-mcp-server@%s" (requiredEnv "DOCKER_REGISTRY") (requiredEnv "MCP_IMAGE_DIGEST") | quote }}
+nuxeoUrl: {{ requiredEnv "NUXEO_URL" | quote }}
+labels: {{- toYaml .Values.global.labels | nindent 2 }}
+{{- toYaml .Values.global.selectors | nindent 0 }}

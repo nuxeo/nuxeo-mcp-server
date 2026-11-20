@@ -1,0 +1,19 @@
+apiVersion: skaffold/v2beta18
+kind: Config
+build:
+  tagPolicy:
+    envTemplate:
+      template: "{{.FTESTS_VERSION}}"
+  artifacts:
+    - image: "$DOCKER_REGISTRY/nuxeo/nuxeo-mcp-tests"
+      context: ci/docker
+      custom:
+        buildCommand: |
+          docker-buildx \
+            --build-arg NUXEO_VERSION={{.NUXEO_VERSION}} \
+            --build-arg NUXEO_PACKAGES={{.NUXEO_PACKAGES}} \
+            --build-arg BUILD_TAG={{.BUILD_TAG}} \
+            --build-arg SCM_REF={{.GIT_COMMIT}} \
+            --build-arg VERSION={{.FTESTS_VERSION}} \
+            --secret id=CLID \
+            --secret id=CONNECT_URL

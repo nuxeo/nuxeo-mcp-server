@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp
+  labels:
+    app.kubernetes.io/name: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp
+        {{- with .Values.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      imagePullSecrets:
+      - name: kubernetes-docker-cfg
+      nodeSelector: {{ toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations: {{ toYaml .Values.tolerations | nindent 8 }}
+      containers:
+      - name: mcp
+        image: {{ required "image is required" .Values.image | quote }}
+        ports:
+        - name: http
+          containerPort: 8181
+        env:
+        - name: NUXEO_URL
+          value: {{ required "nuxeoUrl is required" .Values.nuxeoUrl | quote }}
+        - name: NUXEO_USERNAME
+          value: Administrator
+        - name: NUXEO_PASSWORD
+          value: Administrator
+        - name: NUXEO_AUTH_METHOD
+          value: basic
+        - name: MCP_PORT
+          value: "8181"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 512Mi

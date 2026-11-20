@@ -16,12 +16,17 @@ cd nuxeo-mcp-server
 uv sync --frozen
 ```
 
-### Nuxeo Server for Testing (Optional)
+### Nuxeo Server for Testing
+
+Use an existing Nuxeo server. Query DSL and audit tools require OpenSearch
+search and audit backends and the Nuxeo search passthrough. For the integration
+suite, provision a test server and seed its repository:
+
 ```bash
-# Nuxeo with embedded OpenSearch, needed by the Query DSL and audit tools
-docker run -d --name nuxeo -p 8080:8080 \
-  docker-private.packages.nuxeo.com/nuxeo/nuxeo-mcp-demo:2025
-curl http://localhost:8080/nuxeo/runningstatus
+uv sync --frozen --extra dev
+uv pip install 'jwt==1.4.0' --force-reinstall
+uv run python seed_nuxeo.py --url http://localhost:8080/nuxeo \
+  --username Administrator --password Administrator
 ```
 
 ## 2. RUNNING THE SERVER

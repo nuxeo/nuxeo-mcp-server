@@ -43,6 +43,16 @@ RUN echo 'nuxeo:x:1200:0:nuxeo:/app:/usr/sbin/nologin' >> /tmp/passwd
 
 FROM runtime-base
 
+ARG SCM_REF=unknown
+ARG VERSION=0.1.0
+LABEL org.opencontainers.image.title="Nuxeo MCP Server" \
+      org.opencontainers.image.description="MCP server for Nuxeo Content Repository" \
+      org.opencontainers.image.url="https://github.com/nuxeo/nuxeo-mcp-server" \
+      org.opencontainers.image.source="https://github.com/nuxeo/nuxeo-mcp-server" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.revision=$SCM_REF \
+      org.opencontainers.image.version=$VERSION
+
 # Group 0 owns the files so the image also runs under a random uid (OpenShift).
 COPY --from=build /tmp/passwd /etc/passwd
 COPY --from=build --chown=nuxeo:0 /app /app
