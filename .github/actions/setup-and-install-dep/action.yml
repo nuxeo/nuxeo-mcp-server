@@ -8,7 +8,7 @@ inputs:
 
 outputs:
   python-version:
-    description: 'The Python version read from Dockerfile (major.minor.patch, e.g. 3.13.16)'
+    description: 'The Python version read from Dockerfile (major.minor.patch, e.g. 3.13.18)'
     value: ${{ steps.read-python-version.outputs.value }}
 
 runs:
@@ -18,7 +18,7 @@ runs:
       id: read-python-version
       shell: bash
       run: |
-        version=$(sed -n 's/^ARG PYTHON_VERSION=\([0-9]*\.[0-9]*\.[0-9]*\)/\1/p' Dockerfile)
+        version=$(sed -n 's|^FROM .*/python:\([0-9]*\.[0-9]*\.[0-9]*\)[-@].*|\1|p' Dockerfile | sort -u)
         echo "value=${version}" >> $GITHUB_OUTPUT
 
     - name: Set up uv

@@ -24,9 +24,6 @@ authors = [
 dependencies = [
     "fastmcp>=4.1.1,<5",
     "nuxeo[oauth2]>=7.1.0",
-    "docker>=7.2.0",
-    "pillow>=13.0.0",
-    "reportlab>=5.0.1",
     "uvicorn>=0.23.0",
     "fastapi>=0.100.0",
     "requests>=2.28.0",
@@ -39,6 +36,10 @@ dev = [
     "black>=23.0.0",
     "isort>=5.0.0",
     "mypy>=1.0.0",
+    # Integration test container (tests/conftest.py) and test data (seed_nuxeo.py)
+    "docker>=7.2.0",
+    "pillow>=13.0.0",
+    "reportlab>=5.0.1",
 ]
 
 [project.scripts]
@@ -58,7 +59,6 @@ markers = [
 
 [tool.black]
 line-length = 88
-target-version = ["py311"]
 include = '\.pyi?$'
 
 [tool.isort]
