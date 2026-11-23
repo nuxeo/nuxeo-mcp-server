@@ -1,9 +1,12 @@
-name: Update Python Version
+name: Update Python and uv
 
 on:
   schedule:
     - cron: '0 6 * * 1'  # Every Monday at 6am
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   updatecli:
@@ -13,9 +16,24 @@ jobs:
 
       - name: Install Updatecli
         uses: Alfresco/alfresco-build-tools/.github/actions/setup-updatecli@3bbbfc459dd15452e68e3cefcbc56596d88d71ee # v19.15.0
-      
+
+      # uv lock, run by updatecli when requires-python changes
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      # updatecli reads the dhi.io credentials from ~/.docker/config.json
+      - name: Login to Docker Hardened Images
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: dhi.io
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      # The platform bot, not GITHUB_TOKEN: CI runs on its PRs, and
+      # bot-auto-merge is able to merge them once green.
       - name: Run Updatecli
         env:
-          UPDATECLI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATECLI_GITHUB_TOKEN: ${{ secrets.PLATFORM_BOT_TOKEN }}
+          UPDATECLI_GITHUB_USERNAME: ${{ secrets.PLATFORM_BOT_USERNAME }}
         shell: bash
         run: updatecli --config .updatecli/updatecli.d ${{ github.event_name == 'schedule' && 'apply' || 'diff' }}

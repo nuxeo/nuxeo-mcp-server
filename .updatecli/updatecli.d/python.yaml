@@ -1,31 +1,182 @@
+---
+name: Update Python and uv
+
+# PRs are opened as the platform bot, so that CI runs on them and the
+# bot-auto-merge workflow is able to merge them once green. Minor Python
+# bumps are included: CI validates them.
+scms:
+  github:
+    kind: github
+    spec:
+      user: nuxeo-platform-jx-bot
+      email: platform+jx-bot@nuxeo.com
+      owner: nuxeo
+      repository: nuxeo-mcp-server
+      branch: main
+      token: '{{ requiredEnv "UPDATECLI_GITHUB_TOKEN" }}'
+      username: '{{ requiredEnv "UPDATECLI_GITHUB_USERNAME" }}'
+
+actions:
+  pr:
+    kind: github/pullrequest
+    scmid: github
+    spec:
+      title: Update Python and uv
+      labels:
+        - dependencies
+
 sources:
-  pythonVersion:
+  # Latest X.Y.Z-alpine tag of the Docker Hardened Images Python, as X.Y.Z.
+  # dhi.io credentials come from ~/.docker/config.json.
+  python:
     kind: dockerimage
     spec:
-      image: "python"
-      tag: "3.10.20-slim"
+      image: dhi.io/python
+      tagfilter: '^\d+\.\d+\.\d+-alpine$'
+      versionfilter:
+        kind: regex/semver
+        regex: '^(\d+\.\d+\.\d+)-alpine$'
+        pattern: '>=3.13'
+    transformers:
+      - trimsuffix: -alpine
+  # Same tag, as X.Y.
+  pythonMinor:
+    kind: dockerimage
+    spec:
+      image: dhi.io/python
+      tagfilter: '^\d+\.\d+\.\d+-alpine$'
+      versionfilter:
+        kind: regex/semver
+        regex: '^(\d+\.\d+\.\d+)-alpine$'
+        pattern: '>=3.13'
+    transformers:
+      - findsubmatch:
+          pattern: '^(\d+\.\d+)'
+          captureindex: 1
+  # Digests of the tags: a rebuild of the same tag also yields a PR.
+  pythonDigest:
+    kind: dockerdigest
+    dependson:
+      - python
+    spec:
+      image: dhi.io/python
+      tag: '{{ source "python" }}-alpine'
+    transformers:
+      - findsubmatch:
+          pattern: '(sha256:[0-9a-f]+)'
+          captureindex: 1
+  pythonDevDigest:
+    kind: dockerdigest
+    dependson:
+      - python
+    spec:
+      image: dhi.io/python
+      tag: '{{ source "python" }}-alpine-dev'
+    transformers:
+      - findsubmatch:
+          pattern: '(sha256:[0-9a-f]+)'
+          captureindex: 1
+  uv:
+    kind: dockerimage
+    spec:
+      image: ghcr.io/astral-sh/uv
+      tagfilter: '^\d+\.\d+\.\d+$'
       versionfilter:
         kind: semver
-        pattern: "~3"
+  uvDigest:
+    kind: dockerdigest
+    dependson:
+      - uv
+    spec:
+      image: ghcr.io/astral-sh/uv
+      tag: '{{ source "uv" }}'
     transformers:
-      - trimsuffix: "-slim"
+      - findsubmatch:
+          pattern: '(sha256:[0-9a-f]+)'
+          captureindex: 1
 
 targets:
-  dockerfile:
-    kind: dockerfile
-    sourceid: pythonVersion
+  runtimeImage:
+    name: Python runtime image
+    kind: file
+    scmid: github
+    disablesourceinput: true
+    dependson:
+      - source#python
+      - source#pythonDigest
     spec:
       file: Dockerfile
-      instruction:
-        keyword: "ARG"
-        matcher: "PYTHON_VERSION"
+      matchpattern: 'python:\d+\.\d+\.\d+-alpine@sha256:[0-9a-f]+ AS runtime-base'
+      replacepattern: 'python:{{ source "python" }}-alpine@{{ source "pythonDigest" }} AS runtime-base'
 
-  pyprojectToml:
-    kind: toml
-    sourceid: pythonVersion
+  buildImage:
+    name: Python build image
+    kind: file
+    scmid: github
+    disablesourceinput: true
+    dependson:
+      - source#python
+      - source#pythonDevDigest
+    spec:
+      file: Dockerfile
+      matchpattern: 'python:\d+\.\d+\.\d+-alpine-dev@sha256:[0-9a-f]+ AS build'
+      replacepattern: 'python:{{ source "python" }}-alpine-dev@{{ source "pythonDevDigest" }} AS build'
+
+  uvImage:
+    name: uv image
+    kind: file
+    scmid: github
+    disablesourceinput: true
+    dependson:
+      - source#uv
+      - source#uvDigest
+    spec:
+      file: Dockerfile
+      matchpattern: 'ghcr.io/astral-sh/uv:\d+\.\d+\.\d+@sha256:[0-9a-f]+ AS uv'
+      replacepattern: 'ghcr.io/astral-sh/uv:{{ source "uv" }}@{{ source "uvDigest" }} AS uv'
+
+  # The image is the only distributed artifact (uv build in CI only checks
+  # packaging): the supported Python follows it.
+  # file, not toml: the toml target rewrites the whole file, comments lost.
+  requiresPython:
+    name: requires-python
+    kind: file
+    scmid: github
+    disablesourceinput: true
+    dependson:
+      - source#pythonMinor
     spec:
       file: pyproject.toml
-      key: project.requires-python
-    transformers:
-      - find: '^\d+\.\d+'
-      - addprefix: ">="
+      matchpattern: 'requires-python = ">=\d+\.\d+"'
+      replacepattern: 'requires-python = ">={{ source "pythonMinor" }}"'
+
+  mypyPythonVersion:
+    name: mypy python_version
+    kind: file
+    scmid: github
+    disablesourceinput: true
+    dependson:
+      - source#pythonMinor
+    spec:
+      file: pyproject.toml
+      matchpattern: 'python_version = "\d+\.\d+"'
+      replacepattern: 'python_version = "{{ source "pythonMinor" }}"'
+
+  # uv.lock records requires-python: sync --locked fails on a stale lock.
+  uvLock:
+    name: uv.lock
+    kind: shell
+    scmid: github
+    disablesourceinput: true
+    dependson:
+      - target#requiresPython
+    spec:
+      # Exit 0: lock up to date; 2: relocked (or would be, under diff, where
+      # updatecli sets DRY_RUN=true); anything else fails the run.
+      command: uv lock --check || { [ "$DRY_RUN" = true ] && exit 2; uv lock || exit 1; exit 2; }
+      changedif:
+        kind: exitcode
+        spec:
+          success: 0
+          warning: 2
+          failure: 1
