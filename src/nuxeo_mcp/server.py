@@ -254,11 +254,18 @@ def main() -> None:
         action="store_true",
         help="Serve streamable HTTP at /mcp instead of stdio",
     )
+    # The image has no shell to expand these, so the CLI reads them itself.
     parser.add_argument(
-        "--port", type=int, default=8080, help="HTTP port (default: 8080)"
+        "--port",
+        type=int,
+        default=None,
+        help="HTTP port (default: $MCP_PORT, or 8080)",
     )
     parser.add_argument(
-        "--host", type=str, default="0.0.0.0", help="HTTP host (default: 0.0.0.0)"
+        "--host",
+        type=str,
+        default=os.environ.get("MCP_HOST") or "0.0.0.0",
+        help="HTTP host (default: $MCP_HOST, or 0.0.0.0)",
     )
     parser.add_argument(
         "--oauth2", action="store_true", help="Use OAuth2 authentication"
@@ -269,6 +276,31 @@ def main() -> None:
         help="Don't open browser for OAuth2 authentication",
     )
     args = parser.parse_args()
+    # Read only in HTTP mode: Kubernetes sets MCP_PORT=tcp://... for a
+    # service named mcp, which must not stop a stdio server, nor an explicit
+    # --port. A different numeric --port is refused: the image's health
+    # check probes MCP_PORT.
+    env_port = os.environ.get("MCP_PORT", "").strip() if args.http else ""
+    if env_port.isdecimal():
+        if args.port is not None and args.port != int(env_port):
+            parser.error(
+                f"--port {args.port} conflicts with MCP_PORT={env_port}; "
+                "set MCP_PORT to change the port"
+            )
+        args.port = int(env_port)
+    elif env_port and args.port is None:
+        parser.error(f"MCP_PORT: invalid port {env_port!r}")
+    if args.port is None:
+        args.port = 8080
+
+    # SSE was removed: fail loudly rather than serve /mcp to SSE clients.
+    mcp_mode = os.environ.get("MCP_MODE", "")
+    if args.http and mcp_mode and mcp_mode != "http":
+        logger.error(
+            f"MCP_MODE={mcp_mode} is no longer supported: "
+            "the server serves streamable HTTP at /mcp"
+        )
+        sys.exit(1)
 
     # Get configuration from environment variables. Credentials have no
     # default: basic auth refuses to start without them.

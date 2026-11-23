@@ -313,6 +313,9 @@ def _prepare_main(monkeypatch, env: Dict[str, str]) -> None:
         "NUXEO_MCP_AUTH_MODE",
         "NUXEO_MCP_UPLOAD_DIR",
         "NUXEO_MCP_READ_ONLY",
+        "MCP_PORT",
+        "MCP_HOST",
+        "MCP_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
@@ -461,3 +464,119 @@ def test_main_passes_read_only_and_logs_it(
 
     assert server_class.call_args.kwargs["read_only"] is expected
     assert f"Read-only: {'yes' if expected else 'no'}" in caplog.text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "env,argv,host,port",
+    [
+        ({}, [], "0.0.0.0", 8080),
+        ({"MCP_PORT": "8181", "MCP_HOST": "127.0.0.1"}, [], "127.0.0.1", 8181),
+        ({"MCP_PORT": "", "MCP_HOST": ""}, [], "0.0.0.0", 8080),
+        ({"MCP_PORT": " 8181 "}, [], "0.0.0.0", 8181),
+        ({"MCP_PORT": "8181"}, ["--port", "8181", "--host", "::"], "::", 8181),
+        ({}, ["--port", "9000"], "0.0.0.0", 9000),
+        ({"MCP_PORT": "tcp://10.0.0.1:8181"}, ["--port", "9000"], "0.0.0.0", 9000),
+    ],
+)
+def test_main_reads_the_http_address_from_the_environment(
+    monkeypatch, env, argv, host, port
+) -> None:
+    """MCP_PORT and MCP_HOST set the HTTP address; the flags apply otherwise."""
+    from nuxeo_mcp.server import main
+
+    _prepare_main(monkeypatch, {"NUXEO_USERNAME": "user", "NUXEO_PASSWORD": "pass"})
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(sys, "argv", ["nuxeo-mcp", "--http", *argv])
+    with mock.patch("nuxeo_mcp.server.NuxeoMCPServer") as server_class:
+        main()
+
+    server_class.return_value.mcp.run.assert_called_once_with(
+        transport="streamable-http", host=host, port=port
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["tcp://10.0.0.1:8181", "\u00b2"])
+def test_main_rejects_an_invalid_mcp_port(monkeypatch, capsys, value) -> None:
+    """Over HTTP, a non-numeric MCP_PORT stops startup with a usage error."""
+    from nuxeo_mcp.server import main
+
+    _prepare_main(monkeypatch, {"MCP_PORT": value})
+    monkeypatch.setattr(sys, "argv", ["nuxeo-mcp", "--http"])
+    with pytest.raises(SystemExit) as e:
+        main()
+
+    assert e.value.code == 2
+    assert "MCP_PORT" in capsys.readouterr().err
+
+
+@pytest.mark.unit
+def test_main_ignores_mcp_port_over_stdio(monkeypatch) -> None:
+    """A Kubernetes service variable MCP_PORT=tcp://... does not stop stdio."""
+    from nuxeo_mcp.server import main
+
+    _prepare_main(
+        monkeypatch,
+        {
+            "NUXEO_USERNAME": "user",
+            "NUXEO_PASSWORD": "pass",
+            "MCP_PORT": "tcp://10.0.0.1:8181",
+        },
+    )
+    with mock.patch("nuxeo_mcp.server.NuxeoMCPServer") as server_class:
+        main()
+
+    server_class.return_value.run.assert_called_once()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["sse", "stdio"])
+def test_main_rejects_a_removed_mcp_mode(monkeypatch, caplog, value) -> None:
+    """MCP_MODE other than http fails loudly instead of serving /mcp to SSE clients."""
+    from nuxeo_mcp.server import main
+
+    _prepare_main(
+        monkeypatch,
+        {"NUXEO_USERNAME": "user", "NUXEO_PASSWORD": "pass", "MCP_MODE": value},
+    )
+    monkeypatch.setattr(sys, "argv", ["nuxeo-mcp", "--http"])
+    with mock.patch("nuxeo_mcp.server.NuxeoMCPServer") as server_class:
+        with pytest.raises(SystemExit) as e:
+            main()
+
+    assert e.value.code == 1
+    assert f"MCP_MODE={value} is no longer supported" in caplog.text
+    server_class.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["http", ""])
+def test_main_accepts_mcp_mode_http(monkeypatch, value) -> None:
+    """MCP_MODE=http, or empty, is what the image serves: startup goes on."""
+    from nuxeo_mcp.server import main
+
+    _prepare_main(
+        monkeypatch,
+        {"NUXEO_USERNAME": "user", "NUXEO_PASSWORD": "pass", "MCP_MODE": value},
+    )
+    monkeypatch.setattr(sys, "argv", ["nuxeo-mcp", "--http"])
+    with mock.patch("nuxeo_mcp.server.NuxeoMCPServer") as server_class:
+        main()
+
+    server_class.return_value.mcp.run.assert_called_once()
+
+
+@pytest.mark.unit
+def test_main_rejects_a_port_conflicting_with_mcp_port(monkeypatch, capsys) -> None:
+    """--port cannot differ from MCP_PORT, which the image's health check probes."""
+    from nuxeo_mcp.server import main
+
+    _prepare_main(monkeypatch, {"MCP_PORT": "8181"})
+    monkeypatch.setattr(sys, "argv", ["nuxeo-mcp", "--http", "--port", "9000"])
+    with pytest.raises(SystemExit) as e:
+        main()
+
+    assert e.value.code == 2
+    assert "conflicts with MCP_PORT=8181" in capsys.readouterr().err

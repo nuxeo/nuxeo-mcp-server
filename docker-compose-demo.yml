@@ -12,6 +12,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        BASE_REGISTRY: ${BASE_REGISTRY:-dhi.io}
     environment:
       - NUXEO_URL=http://nuxeo:8080/nuxeo
       - NUXEO_PUBLIC_URL=http://localhost:8080/nuxeo
