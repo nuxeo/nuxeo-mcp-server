@@ -116,12 +116,15 @@ See the [Authentication Guide](AUTHENTICATION.md) for registering the OAuth2 cli
 
 ### Building the Docker Image
 
-You can build a Docker image for the nuxeo-mcp server using the Dockerfile provided at the root of the project:
+You can build a Docker image for the nuxeo-mcp server using the Dockerfile provided at the root of the project. It is based on [Docker Hardened Images](https://docs.docker.com/dhi/), which need a Docker account (a free one is enough):
 
 ```bash
+docker login dhi.io
 # Build the Docker image with the name nuxeo-mcp-server
 docker build -t nuxeo-mcp-server .
 ```
+
+To pull the base images through a proxy of `dhi.io`, pass its address: `--build-arg BASE_REGISTRY=<proxy>` (or `BASE_REGISTRY=<proxy> docker compose build`).
 
 To build a x86 compatible image on a arm device:
 

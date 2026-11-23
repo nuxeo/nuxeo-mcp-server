@@ -34,7 +34,7 @@ nuxeo-mcp-server/
 ├── ci/docker/nuxeo/        # nuxeo-mcp-demo image (Nuxeo + embedded OpenSearch)
 ├── .github/workflows/      # GitHub Actions CI/CD
 ├── pyproject.toml          # Project metadata & dependencies
-├── Dockerfile              # Container image (Dockerfile-entrypoint.sh: MCP_PORT, MCP_HOST)
+├── Dockerfile              # Container image (DHI base, BASE_REGISTRY; nuxeo-mcp reads MCP_PORT, MCP_HOST)
 ├── docker-compose*.yml     # Nuxeo + MCP server; -demo uses nuxeo-mcp-demo
 ├── mcp_client.py           # Command-line client, used by the image smoke test
 └── seed_nuxeo.py           # Test data seeding script
@@ -257,6 +257,8 @@ Set `NUXEO_AUTH_METHOD=oauth2` (or `basic`) in the environment to select the aut
 | `NUXEO_MCP_UPLOAD_DIR` | Only folder `file_path` may read from; unset: any file over stdio, none over HTTP |
 | `NUXEO_MCP_READ_ONLY` | `true` registers only the tools annotated read-only (default `false`); any other value stops startup |
 | `NUXEO_MCP_EXPERIMENTAL` | `true` exposes experimental features: `mode="semantic"` (default `false`); any other value stops startup |
+| `MCP_PORT` / `MCP_HOST` | HTTP port / host for `--http` (CLI defaults 8080 / `0.0.0.0`; the image sets 8181); a different `--port` is refused, `--host` overrides |
+| `MCP_MODE` | Removed; any value but `http` stops `--http` startup |
 | `NUXEO_OAUTH_CLIENT_ID` | OAuth2 client ID |
 | `NUXEO_OAUTH_CLIENT_SECRET` | OAuth2 client secret |
 | `NUXEO_OAUTH_AUTH_ENDPOINT` | OAuth2 authorization endpoint |
