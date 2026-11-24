@@ -36,4 +36,4 @@ jobs:
           UPDATECLI_GITHUB_TOKEN: ${{ secrets.PLATFORM_BOT_TOKEN }}
           UPDATECLI_GITHUB_USERNAME: ${{ secrets.PLATFORM_BOT_USERNAME }}
         shell: bash
-        run: updatecli --config .updatecli/updatecli.d ${{ github.event_name == 'schedule' && 'apply' || 'diff' }}
+        run: updatecli pipeline apply --config .updatecli/updatecli.d
