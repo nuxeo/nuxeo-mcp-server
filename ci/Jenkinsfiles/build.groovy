@@ -128,6 +128,8 @@ pipeline {
     CURRENT_NAMESPACE = nxK8s.getCurrentNamespace()
     INTERNAL_REGISTRY = 'docker-internal.packages.nuxeo.com'
     PATH = "${WORKSPACE}/.ci-bin:${env.PATH}"
+    // On the workspace volume, like .venv, so uv hardlinks instead of copying.
+    UV_CACHE_DIR = '/home/jenkins/.cache/uv'
     VERSION = getVersion()
   }
   stages {

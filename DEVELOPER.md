@@ -12,7 +12,7 @@ included, from the lock file:
 git clone https://github.com/nuxeo/nuxeo-mcp-server.git
 cd nuxeo-mcp-server
 uv sync --frozen --extra dev
-uv pip install 'jwt==1.4.0' --force-reinstall
+uv pip install 'jwt==1.4.0' --force-reinstall --no-deps
 ```
 
 uv creates `.venv`. Without uv: `python -m venv .venv`, activate it, then

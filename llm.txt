@@ -24,7 +24,7 @@ suite, provision a test server and seed its repository:
 
 ```bash
 uv sync --frozen --extra dev
-uv pip install 'jwt==1.4.0' --force-reinstall
+uv pip install 'jwt==1.4.0' --force-reinstall --no-deps
 uv run python seed_nuxeo.py --url http://localhost:8080/nuxeo \
   --username Administrator --password Administrator
 ```

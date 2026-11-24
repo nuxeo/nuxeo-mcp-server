@@ -45,7 +45,7 @@ nuxeo-mcp-server/
 ```bash
 # Recommended (fast, reproducible)
 uv sync --frozen --extra dev
-uv pip install 'jwt==1.4.0' --force-reinstall
+uv pip install 'jwt==1.4.0' --force-reinstall --no-deps
 
 # Alternative
 python -m venv .venv && source .venv/bin/activate

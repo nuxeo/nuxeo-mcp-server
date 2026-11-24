@@ -35,7 +35,7 @@ COPY LICENSE NOTICE ./
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev && \
-    uv pip install "jwt==1.4.0" --force-reinstall
+    uv pip install "jwt==1.4.0" --force-reinstall --no-deps
 
 # The runtime image has no useradd: add the nuxeo user to its own passwd here.
 COPY --from=runtime-base /etc/passwd /tmp/passwd

@@ -22,4 +22,4 @@ docker cp "$container:/uv" .ci-bin/uv
 export PATH="$PWD/.ci-bin:$PATH"
 uv sync --frozen --extra dev --python "$python_version"
 # Both distributions share jwt/; Nuxeo needs the JWT/jwk_from_dict API.
-uv pip install 'jwt==1.4.0' --force-reinstall
+uv pip install 'jwt==1.4.0' --force-reinstall --no-deps
