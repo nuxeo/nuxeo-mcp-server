@@ -2,7 +2,7 @@
 # Docker account: `docker login dhi.io`, or point BASE_REGISTRY at a proxy of it.
 ARG BASE_REGISTRY=dhi.io
 
-FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
+FROM ghcr.io/astral-sh/uv:0.13.10@sha256:a3ea1357342c1a4bf9a0c53a3deb1b55379aefa037338d8113d5771efa01774f AS uv
 
 # Runtime base: no shell, no package manager.
 FROM ${BASE_REGISTRY}/python:3.15.2-alpine@sha256:f9621f08286f9dc9985880f837b46ef74afed154ea4835a8b25cee5c417b2cb0 AS runtime-base
