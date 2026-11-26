@@ -2,14 +2,14 @@
 # Docker account: `docker login dhi.io`, or point BASE_REGISTRY at a proxy of it.
 ARG BASE_REGISTRY=dhi.io
 
-FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
+FROM ghcr.io/astral-sh/uv:0.13.10@sha256:a3ea1357342c1a4bf9a0c53a3deb1b55379aefa037338d8113d5771efa01774f AS uv
 
 # Runtime base: no shell, no package manager.
-FROM ${BASE_REGISTRY}/python:3.13.18-alpine@sha256:c4717b7ca3151a64ff896e5c0240fa79739297b8666b576ef461fa3b1d373ab6 AS runtime-base
+FROM ${BASE_REGISTRY}/python:3.15.2-alpine@sha256:f9621f08286f9dc9985880f837b46ef74afed154ea4835a8b25cee5c417b2cb0 AS runtime-base
 
 # Build stage: the -dev variant of the runtime image, with a shell and the same
 # interpreter at the same path, which the virtual environment links to.
-FROM ${BASE_REGISTRY}/python:3.13.18-alpine-dev@sha256:17c498055ee6e005d5b8e7331d40ef0fcf4a16ec5251dd98dc97daf176c89158 AS build
+FROM ${BASE_REGISTRY}/python:3.15.2-alpine-dev@sha256:d9944f2bc5352288bff04b0417b50acb2ec8a4e3a22fbf4097f2ad5de1876dc1 AS build
 
 WORKDIR /app
 
