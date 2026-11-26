@@ -5,7 +5,7 @@ ARG BASE_REGISTRY=dhi.io
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 # Runtime base: no shell, no package manager.
-FROM ${BASE_REGISTRY}/python:3.13.18-alpine@sha256:c4717b7ca3151a64ff896e5c0240fa79739297b8666b576ef461fa3b1d373ab6 AS runtime-base
+FROM ${BASE_REGISTRY}/python:3.15.2-alpine@sha256:f9621f08286f9dc9985880f837b46ef74afed154ea4835a8b25cee5c417b2cb0 AS runtime-base
 
 # Build stage: the -dev variant of the runtime image, with a shell and the same
 # interpreter at the same path, which the virtual environment links to.
