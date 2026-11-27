@@ -1,0 +1,13 @@
+nuxeo:
+  image:
+    repository: {{ printf "%s/nuxeo/nuxeo-mcp-tests" (requiredEnv "DOCKER_REGISTRY") }}
+    tag: {{ requiredEnv "FTESTS_VERSION" | quote }}
+  elasticsearch:
+    httpReadOnly:
+      enabled: true
+  customEnvs:
+  - name: NUXEO_CLID
+    valueFrom:
+      secretKeyRef:
+        name: {{ requiredEnv "CONNECT_CLID_SECRET" }}
+        key: instance.clid

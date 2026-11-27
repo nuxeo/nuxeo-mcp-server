@@ -36,8 +36,7 @@ dev = [
     "black>=23.0.0",
     "isort>=5.0.0",
     "mypy>=1.0.0",
-    # Integration test container (tests/conftest.py) and test data (seed_nuxeo.py)
-    "docker>=7.2.0",
+    # Test data generation (seed_nuxeo.py)
     "pillow>=13.0.0",
     "reportlab>=5.0.1",
 ]

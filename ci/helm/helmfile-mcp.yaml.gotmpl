@@ -1,0 +1,10 @@
+helmDefaults:
+  timeout: 300
+  wait: true
+
+releases:
+- name: mcp
+  chart: ./charts/mcp
+  namespace: {{ requiredEnv "NAMESPACE" }}
+  values:
+  - values/values-mcp.yaml.gotmpl

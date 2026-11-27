@@ -1,8 +1,5 @@
 # Nuxeo MCP Server
 
-![Build and Unit Tests](https://github.com/nuxeo/nuxeo-mcp-server/actions/workflows/build-and-unit-tests.yml/badge.svg)
-![Integration Tests](https://github.com/nuxeo/nuxeo-mcp-server/actions/workflows/integration-tests.yml/badge.svg)
-
 A Model Context Protocol (MCP) server for interacting with a Nuxeo Content Repository Server. This server provides tools, resources, and prompt templates for AI assistants to interact with Nuxeo content repositories.
 
 ## Features
@@ -23,7 +20,7 @@ A Model Context Protocol (MCP) server for interacting with a Nuxeo Content Repos
 
 - Python, at the version set by `requires-python` in `pyproject.toml` (`uv sync` installs it)
 - Nuxeo Server (can be run via Docker)
-- Docker (for testing)
+- Docker (optional, for local containers)
 
 ## Account Privileges
 
@@ -114,6 +111,13 @@ See the [Authentication Guide](AUTHENTICATION.md) for registering the OAuth2 cli
 
 ## Docker
 
+Snapshot images are available to users with registry access at
+`docker-internal.packages.nuxeo.com/nuxeo/nuxeo-mcp-server`, for testing, demos and
+partners needing early access. `main` follows the latest tested build;
+`sha-<short Git commit SHA>` identifies the build of one commit. SHA tags are intended
+to be retained for approximately 90 days. Images support `linux/amd64` and
+`linux/arm64` and include an SBOM and build provenance.
+
 ### Building the Docker Image
 
 You can build a Docker image for the nuxeo-mcp server using the Dockerfile provided at the root of the project. It is based on [Docker Hardened Images](https://docs.docker.com/dhi/), which need a Docker account (a free one is enough):
@@ -154,16 +158,6 @@ The container serves MCP over streamable HTTP at `http://<host>:<port>/mcp`, wit
 - `MCP_HOST`: Server host (default: `0.0.0.0`)
 
 OAuth2 is not supported in the container; see [Authentication Mode](#authentication-mode). Over HTTP, `file_path` uploads are refused unless `NUXEO_MCP_UPLOAD_DIR` is set (see [Local Files](#local-files-file_path)).
-
-### Nuxeo and the MCP Server Together
-
-`docker-compose-demo.yml` starts the `nuxeo-mcp-demo` image (Nuxeo with embedded OpenSearch, showcase content and Web UI, see [ci/docker/nuxeo](ci/docker/nuxeo/README.md)) beside the MCP server, on `http://localhost:8081/mcp`:
-
-```bash
-docker compose -f docker-compose-demo.yml up --build
-```
-
-Inside Docker, point `NUXEO_URL` at the Nuxeo service name (`http://nuxeo:8080/nuxeo`), not `localhost`, and set `NUXEO_PUBLIC_URL` to the URL users open (`http://localhost:8080/nuxeo`): the document links the tools return are built on it.
 
 ## Configuring an MCP Client
 

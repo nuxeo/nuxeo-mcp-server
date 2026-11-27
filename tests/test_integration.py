@@ -21,7 +21,7 @@ with the Nuxeo Content Repository.
 
 import json
 import logging
-from typing import Any, Tuple
+from typing import Tuple
 
 import pytest
 from nuxeo.client import Nuxeo
@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO)
 
 @pytest.mark.integration
 def test_nuxeo_client_connection(
-    nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
+    nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
 ) -> None:
     """Test that we can connect to the Nuxeo server."""
     # This is an integration test that requires a running Nuxeo server
@@ -72,7 +72,7 @@ def test_nuxeo_client_connection(
 
 @pytest.mark.integration
 def test_nuxeo_mcp_server_with_real_nuxeo(
-    nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
+    nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
 ) -> None:
     """Test that the MCP server can connect to a real Nuxeo server."""
     print("\nTesting MCP server connection to Nuxeo...")
@@ -117,7 +117,7 @@ def test_nuxeo_mcp_server_with_real_nuxeo(
 
 @pytest.mark.integration
 def test_get_repository_info_tool(
-    nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
+    nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
 ) -> None:
     """Test the get_repository_info tool."""
     print("\nTesting get_repository_info tool...")
@@ -155,7 +155,6 @@ def test_get_repository_info_tool(
 
 @pytest.mark.integration
 def test_get_children_tool(
-    nuxeo_container: Any,
     nuxeo_url: str,
     nuxeo_credentials: Tuple[str, str],
 ) -> None:
@@ -198,9 +197,7 @@ def test_get_children_tool(
 
 
 @pytest.mark.integration
-def test_search_tool(
-    nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
-) -> None:
+def test_search_tool(nuxeo_url: str, nuxeo_credentials: Tuple[str, str]) -> None:
     """Test the nuxeo_search_documents tool against a real repository."""
     print("\nTesting nuxeo_search_documents tool...")
 
@@ -222,8 +219,8 @@ def test_search_tool(
 
     assert search_tool is not None, "nuxeo_search_documents tool not found"
 
-    # Targeted: the demo image ships showcase content, so the seeded folder is
-    # not on the first page of all folders.
+    # Targeted: on a server holding other content, the seeded folder may not be
+    # on the first page of all folders.
     query = "SELECT * FROM Folder WHERE dc:title LIKE 'MCP Test Folder%'"
     result = search_tool(query=query, mode="nxql")
 
@@ -250,7 +247,7 @@ def test_search_tool(
 
 @pytest.mark.integration
 def test_nuxeo_info_resource(
-    nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
+    nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
 ) -> None:
     """Test the nuxeo://info resource."""
     print("\nTesting nuxeo://info resource...")
@@ -289,7 +286,7 @@ def test_nuxeo_info_resource(
 
 @pytest.mark.integration
 def test_get_document_by_path_resource(
-    nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
+    nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
 ) -> None:
     """Test the nuxeo://{path*} resource."""
     print("\nTesting nuxeo://{path*} resource...")
@@ -330,7 +327,7 @@ def test_get_document_by_path_resource(
 
 @pytest.mark.integration
 def test_get_document_by_uid_resource(
-    nuxeo_container: Any, nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
+    nuxeo_url: str, nuxeo_credentials: Tuple[str, str]
 ) -> None:
     """Test the nuxeo://{uid} resource."""
     print("\nTesting nuxeo://{uid} resource...")

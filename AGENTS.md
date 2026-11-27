@@ -31,11 +31,11 @@ nuxeo-mcp-server/
 │   └── guides/             # Markdown served by the nuxeo:// guide resources
 ├── tests/                  # pytest test suite
 ├── scripts/                # Tool reference generator
-├── ci/docker/nuxeo/        # nuxeo-mcp-demo image (Nuxeo + embedded OpenSearch)
-├── .github/workflows/      # GitHub Actions CI/CD
+├── ci/                     # Build pipeline, Nuxeo test image and Helmfile stack
+├── .github/workflows/      # Scheduled updatecli dependency updates
 ├── pyproject.toml          # Project metadata & dependencies
 ├── Dockerfile              # Container image (DHI base, BASE_REGISTRY; nuxeo-mcp reads MCP_PORT, MCP_HOST)
-├── docker-compose*.yml     # Nuxeo + MCP server; -demo uses nuxeo-mcp-demo
+├── docker-compose.yml      # Optional local Nuxeo + MCP server
 ├── mcp_client.py           # Command-line client, used by the image smoke test
 └── seed_nuxeo.py           # Test data seeding script
 ```
@@ -45,6 +45,7 @@ nuxeo-mcp-server/
 ```bash
 # Recommended (fast, reproducible)
 uv sync --frozen --extra dev
+uv pip install 'jwt==1.4.0' --force-reinstall --no-deps
 
 # Alternative
 python -m venv .venv && source .venv/bin/activate
@@ -70,7 +71,7 @@ uv build          # Produces sdist + wheel in dist/
 # Unit tests only (no Nuxeo server required)
 uv run pytest tests/ -v --no-integration
 
-# Integration tests (requires Docker + Nuxeo image)
+# Integration tests (requires an existing, seeded Nuxeo server)
 uv run pytest tests/ -v --integration
 
 # Debug mode with live log output
@@ -287,7 +288,7 @@ A `/health` endpoint is available over HTTP.
 | Layer | Location | Marker | Needs Nuxeo? |
 |-------|----------|--------|--------------|
 | Unit | `tests/test_*.py` | *(none / default)* | No |
-| Integration | `tests/test_integration.py`, `test_oauth2_integration.py`, etc. | `@pytest.mark.integration` | Yes (Docker) |
+| Integration | `tests/test_integration.py`, `test_oauth2_integration.py`, etc. | `@pytest.mark.integration` | Yes (existing server) |
 
 ### Running Tests Locally
 
@@ -295,11 +296,8 @@ A `/health` endpoint is available over HTTP.
 # Unit only
 uv run pytest tests/ -v --no-integration
 
-# Integration (spins up Nuxeo via Docker automatically via conftest.py)
+# Integration (provision and seed Nuxeo first; see tests/README.md)
 uv run pytest tests/ -v --integration
-
-# Rancher Desktop variant
-uv run pytest tests/ -v --integration --rancher
 
 # Verbose logging
 uv run pytest -s --log-cli-level=INFO
@@ -307,8 +305,7 @@ uv run pytest -s --log-cli-level=INFO
 
 ### Test Fixtures (`tests/conftest.py`)
 
-- `nuxeo_container` — starts the `nuxeo-mcp-demo` image once per session and seeds it; skipped when `NUXEO_URL` points at an existing server.
-- `nuxeo_url`, `nuxeo_credentials` — from `NUXEO_URL` / `NUXEO_USERNAME` / `NUXEO_PASSWORD`, defaulting to the container's `Administrator`.
+- `nuxeo_url`, `nuxeo_credentials` — from `NUXEO_URL` / `NUXEO_USERNAME` / `NUXEO_PASSWORD`, defaulting to `http://localhost:8080/nuxeo` and `Administrator` / `Administrator`. Fixtures never provision or seed services.
 - `@pytest.mark.integration` gates tests that require a live server.
 - `test_all_tools_integration.py` calls every tool and fails when a registered tool is not called.
 
@@ -326,19 +323,20 @@ Creates a sample folder, `File` document (with PDF), and `Note` document.
 ### Writing New Tests
 
 - **Unit tests** mock the Nuxeo client — never make real HTTP calls.
-- **Integration tests** must be decorated with `@pytest.mark.integration` and use the `nuxeo_container`, `nuxeo_url` and `nuxeo_credentials` fixtures.
+- **Integration tests** must be decorated with `@pytest.mark.integration` and use the `nuxeo_url` and `nuxeo_credentials` fixtures.
 - Test files live in `tests/`, named `test_<feature>.py`.
 
-### CI/CD Pipelines (`.github/workflows/`)
+### Continuous integration
 
-| Workflow | Trigger | What it does |
-|----------|---------|--------------|
-| `build-and-unit-tests.yml` | Push to `main`, PRs | `uv build` + unit tests |
-| `integration-tests.yml` | Push to `main`, PRs | Pull Nuxeo image, run integration tests |
-| `package-docker-image.yml` | Push to `main`, PRs | Build multi-arch Docker image, push to registry |
-| `updatecli.yml` | Scheduled | Automated dependency updates |
+`ci/Jenkinsfiles/build.groovy` runs packaging, static checks and unit tests on PRs
+and `main`, builds an attested multi-platform MCP image, and tests against Nuxeo
+2023, 2025 and 2027 through Helmfile. Successful `main` builds promote the tested
+digest to the snapshot registry. See `ci/README.md` for prerequisites.
 
-All workflows use the composite action `.github/actions/setup-and-install-dep` for consistent, frozen installs via `uv`.
+`ci/setup.sh` installs Dockerfile-pinned uv/Python and repairs the shared JWT
+namespace.
+The package version stays at `0.1.0`; `sha-*` tags identify the image built from each commit.
+Only scheduled `updatecli.yml` remains in GitHub Actions.
 
 ---
 

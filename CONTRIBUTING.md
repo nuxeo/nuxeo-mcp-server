@@ -25,7 +25,7 @@ signing does not oblige Hyland to accept the contribution.
    ```bash
    uv sync --frozen --extra dev
    # jwt and pyjwt share the jwt/ namespace; nuxeo[oauth2] needs jwt
-   uv pip install "jwt==1.4.0" --force-reinstall
+   uv pip install "jwt==1.4.0" --force-reinstall --no-deps
    ```
 
 3. Run the unit tests (no Nuxeo server needed):

@@ -1,0 +1,14 @@
+nuxeo:
+  enabled: true
+mongodb:
+  enabled: true
+postgresql:
+  enabled: false
+opensearch:
+  enabled: true
+kafka:
+  enabled: true
+
+global:
+  labels:
+    dev.nuxeo.com/usage: integration-tests

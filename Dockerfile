@@ -35,13 +35,23 @@ COPY LICENSE NOTICE ./
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev && \
-    uv pip install "jwt==1.4.0" --force-reinstall
+    uv pip install "jwt==1.4.0" --force-reinstall --no-deps
 
 # The runtime image has no useradd: add the nuxeo user to its own passwd here.
 COPY --from=runtime-base /etc/passwd /tmp/passwd
 RUN echo 'nuxeo:x:1200:0:nuxeo:/app:/usr/sbin/nologin' >> /tmp/passwd
 
 FROM runtime-base
+
+ARG SCM_REF=unknown
+ARG VERSION=0.1.0
+LABEL org.opencontainers.image.title="Nuxeo MCP Server" \
+      org.opencontainers.image.description="MCP server for Nuxeo Content Repository" \
+      org.opencontainers.image.url="https://github.com/nuxeo/nuxeo-mcp-server" \
+      org.opencontainers.image.source="https://github.com/nuxeo/nuxeo-mcp-server" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.revision=$SCM_REF \
+      org.opencontainers.image.version=$VERSION
 
 # Group 0 owns the files so the image also runs under a random uid (OpenShift).
 COPY --from=build /tmp/passwd /etc/passwd
