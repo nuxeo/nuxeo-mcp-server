@@ -15,6 +15,13 @@ scms:
       branch: main
       token: '{{ requiredEnv "UPDATECLI_GITHUB_TOKEN" }}'
       username: '{{ requiredEnv "UPDATECLI_GITHUB_USERNAME" }}'
+      # One commit per PR rather than one per target.
+      commitmessage:
+        squash: true
+        hidecredit: true
+        body: |
+          Update the Python images, uv, requires-python and mypy's
+          python_version, then relock uv.lock and reformat with black.
 
 actions:
   pr:
