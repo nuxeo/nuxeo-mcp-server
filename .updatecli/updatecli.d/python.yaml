@@ -180,3 +180,22 @@ targets:
           success: 0
           warning: 2
           failure: 1
+
+  # black infers its target version from requires-python, so a minor bump
+  # can reformat (e.g. 3.14 allows `except A, B:`): keep CI's check green.
+  format:
+    name: black
+    kind: shell
+    scmid: github
+    disablesourceinput: true
+    dependson:
+      - target#uvLock
+    spec:
+      # Same exit codes and dry-run handling as uvLock.
+      command: uv run --frozen --extra dev black -q --check src tests || { [ "$DRY_RUN" = true ] && exit 2; uv run --frozen --extra dev black -q src tests || exit 1; exit 2; }
+      changedif:
+        kind: exitcode
+        spec:
+          success: 0
+          warning: 2
+          failure: 1
